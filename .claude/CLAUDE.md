@@ -51,15 +51,19 @@ far more than ruff can. Line length is 100, set in `pyproject.toml`.
 
 ### Tests
 
-`tests/unit` covers every module under `../src`, function by function, and runs in a few
-seconds. `tests/integration` and `tests/e2e` are still empty.
+`tests/unit` covers every module under `../src`, function by function. `tests/integration`
+covers what only appears once they are composed: whole commands through the CLI, which
+stream each byte left on, the vault end to end, and the shipped examples. Together they run
+in under half a minute. `tests/e2e` is still empty.
 
 **No mocks and no stubs**, which is the rule to know before adding one. A tool test writes a
 real tool directory and the engine spawns a real process; a vault test uses real scrypt and
 AES-GCM; a test about `isatty()` opens a real pseudo-terminal via `tests/support/terminal.py`.
-`../.claude/rules/TESTING.md` has the whole convention, including the three things that are
-allowed (environment control, the real test adapter in `tests/support/adapter_echo.py`, and
-testing a private helper directly) and why none of them is a mock.
+`../.claude/rules/TESTING.md` has the whole convention, including the things that are
+allowed (environment control, the test adapter in `tests/support/adapter_echo.py`, the
+`claude`-protocol program in `tests/support/fake_claude.py`, and testing a private helper
+directly) and why none of them is a mock. That fake is autouse in the integration suite,
+because a real `claude` on `PATH` would otherwise be reached by a stray agent step.
 
 `pytest` needs no install step: `[tool.pytest.ini_options]` prepends `src` and `tests` to the
 path. `tests/conftest.py` points `$HOME` at `tmp_path`, because `~/.arctic` is a real search

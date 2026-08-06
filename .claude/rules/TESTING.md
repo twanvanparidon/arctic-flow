@@ -58,28 +58,51 @@ expected; what makes it a unit test is that one function's behaviour is what fai
 stay fast (seconds) and need nothing installed beyond a POSIX shell and Python.
 
 **`tests/integration`** is the castle rather than the blocks: whole commands, a flow from
-YAML to output, the CLI's exit codes and streams, the shipped examples. It may use a fake
-`claude` on `PATH` to exercise the adapter's `run()`, which the unit suite deliberately does
-not.
+YAML to output, which stream each byte left on, the vault from `create` to a step that
+reads it, and the shipped examples run the way the docs say to run them. A test here fails
+when two parts stop agreeing, so it goes through the CLI rather than calling a function.
 
-**`tests/e2e`** is the built binary and anything needing a controlling terminal: the
-password prompt, `vault set` reading from a tty.
+**`tests/e2e`** is the built binary, the installed `atf`, and anything needing a
+controlling terminal: the password prompt, `vault set` reading from a tty. Still empty.
 
-A thing deferred out of the unit suite is named in the module docstring that defers it, so
-the gap is written down where someone would look for it.
+A thing deferred out of a suite is named in the module docstring that defers it, so the gap
+is written down where someone would look for it.
 
-### What the unit suite deliberately does not reach
+### Running the integration suite
 
-Everything else is covered. These are the six that need something a unit test should not
-have, and they are the whole of what the empty suites owe:
+Two runners, and the choice between them is the whole design of the file you are writing:
+
+- **`atf`** calls `cli.app.main` in this process and captures both streams. Everything from
+  argv to the flow's output is real. Fast, so it is the default.
+- **`atf_process`** spawns `python3 src/main.py`. For claims only a process can make: what
+  `> file` contains, what the exit status was, what a piped stdin does. `test_streams.py`
+  also attaches pty pairs, because the frame draws only when both streams are terminals.
+
+**`fake_claude` is autouse.** The machine this was written on has the real `claude` on
+`PATH`, so without it one stray agent step would reach a real model and cost real money.
+`tests/support/fake_claude.py` speaks the protocol of `--print --output-format json` and is
+steered by the prompt: `!fail`, `!crash`, `!garbage`, `!contradiction` and `!invocation`
+reach the four failure branches and the argv report, and anything else is answered with the
+prompt itself. That last part is what makes a gate loop observable: the engine appends the
+gate's feedback to the next prompt, so the second turn really does differ from the first.
+
+It is a fake, not a mock. It is a working program on the other side of a real pipe, and the
+adapter cannot tell. The alternative is an account, a network and a different answer every
+run. Prove the difference the way the suite does: `PATH=/usr/bin:/bin pytest` passes, so
+nothing here depends on the real CLI being installed.
+
+The shipped examples need what their specs declare: `jq`, `openssl`, `xxd`, `awk`,
+`realpath`. `conftest.requires()` skips with the missing name rather than failing, since a
+machine without `jq` is an environment and not a defect. `-ra` prints every skip, so it is
+never silent.
+
+### What no suite reaches yet
 
 | Not covered | Needs | Belongs in |
 | ----------- | ----- | ---------- |
-| `claude_code.run` and the success path of `cli_version` | the `claude` binary | integration |
-| the handlers in `cli/dispatch.py` | a whole command, both streams | integration |
 | `resolve_password`'s prompt | a controlling terminal, or getpass hangs on `/dev/tty` | e2e |
-| `main`'s KeyboardInterrupt to exit 130 | a signal to a real process | e2e |
-| `src/main.py` | running the file rather than importing it | e2e |
+| `vault set` prompting for a value | the same | e2e |
+| the PyInstaller binary, and `atf` as an installed script | a build | e2e |
 | one `continue` in `execute` | a step with no inbound edge, which `validate` refuses | nothing |
 
 ## Assert the decision, not the sentence

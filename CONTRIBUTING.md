@@ -70,7 +70,7 @@ src/builtin/             tools that ship with the engine
 src/util/                ways of looking at a flow without running it
 examples/                self-contained sample projects
 packaging/               build recipe, PyInstaller spec, release and install scripts
-tests/                   unit (written), integration and e2e (empty for now)
+tests/                   unit and integration (written), e2e (empty for now)
 ```
 
 `cli/` renders; `engine/` decides. The engine emits events and never formats
@@ -169,14 +169,18 @@ lines of churn against code written to a wider measure.
 
 ## Tests
 
-`tests/unit` is written and runs in a few seconds. `tests/integration` and `tests/e2e` are
-still empty. How the suite is built, and what belongs in which of the three, is in
-`.claude/rules/TESTING.md`.
+`tests/unit` and `tests/integration` are written and run in under half a minute.
+`tests/e2e` is still empty. How the suite is built, and what belongs in which of the three,
+is in `.claude/rules/TESTING.md`.
 
 The short version: no mocks. A tool test writes a real tool directory and the engine spawns
 a real process; a vault test encrypts with real scrypt and AES-GCM; a test about `isatty()`
-opens a real pseudo-terminal. The failures worth catching are the ones a substitute cannot
-have.
+opens a real pseudo-terminal; an integration test runs `atf` and reads its two streams. The
+failures worth catching are the ones a substitute cannot have.
+
+The one stand-in is `tests/support/fake_claude.py`, a program that speaks the Claude Code
+CLI's protocol so the adapter can spawn something without an account and a network. Nothing
+else is substituted, and `PATH=/usr/bin:/bin pytest` passes, which is how you can tell.
 
 ## Adding a component
 
