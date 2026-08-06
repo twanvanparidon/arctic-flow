@@ -186,7 +186,17 @@ def check_agent_spec(spec: dict[str, Any], where: str) -> None:
 
 
 def check_step_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> None:
-    """The step's `input` against the tool's declared schema, as far as is knowable.
+    """The step's `input` against the tool's declared schema, as far as is knowable."""
+    _check_input(f"step '{step['id']}'", step.get("input") or {}, spec, where)
+
+
+def check_gate_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> None:
+    """The same, for the tool a step's gate runs."""
+    _check_input(f"step '{step['id']}' gate", step["gate"].get("input") or {}, spec, where)
+
+
+def _check_input(subject: str, supplied: dict[str, Any], spec: dict[str, Any], where: str) -> None:
+    """What can be said about a tool's input without running the flow.
 
     Most values are templates resolved per run. Three things can be checked now, and each
     is a real runtime failure otherwise:
@@ -199,14 +209,13 @@ def check_step_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> 
     guessing what it renders to, and a lint that guesses is a lint people switch off.
     """
     schema = spec["input_schema"]
-    supplied = step.get("input") or {}
     properties = schema.get("properties") or {}
 
     if schema.get("additionalProperties") is False:
         unknown = sorted(set(supplied) - set(properties))
         if unknown:
             raise SpecError(
-                f"step '{step['id']}' passes {', '.join(unknown)} to {spec['name']}, which "
+                f"{subject} passes {', '.join(unknown)} to {spec['name']}, which "
                 f"does not accept {'them' if len(unknown) > 1 else 'it'}. {where} allows "
                 f"{', '.join(sorted(properties)) or 'nothing'}"
             )
@@ -214,7 +223,7 @@ def check_step_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> 
     missing = sorted(set(schema.get("required") or []) - set(supplied))
     if missing:
         raise SpecError(
-            f"step '{step['id']}' does not pass {', '.join(missing)} to {spec['name']}, "
+            f"{subject} does not pass {', '.join(missing)} to {spec['name']}, "
             f"which {where} requires"
         )
 
@@ -223,7 +232,7 @@ def check_step_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> 
             _check_against(
                 properties[key],
                 value,
-                f"step '{step['id']}' passes an invalid {key} to {spec['name']}",
+                f"{subject} passes an invalid {key} to {spec['name']}",
             )
 
 

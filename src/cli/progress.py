@@ -87,6 +87,12 @@ class Progress:
                 # halfway can still report what it already spent.
                 self._cost += event.get("cost_usd") or 0.0
                 self._line("✓", step, self._finished_detail(event), style="green")
+        elif kind == "gated":
+            # Only a rejection earns a line. A gate that passed is followed straight away
+            # by the step's own ✓.
+            if not event.get("ok"):
+                with self._lock:
+                    self._line("⟲", step, self._gate_detail(event), dim=True)
         elif kind == "skipped":
             with self._lock:
                 self._running.pop(step, None)
@@ -144,6 +150,17 @@ class Progress:
         if event.get("is_switch") and event.get("pushed_to"):
             parts.append("→ " + ", ".join(event["pushed_to"]))
         return "  ".join(parts)
+
+    @staticmethod
+    def _gate_detail(event: dict[str, Any]) -> str:
+        """A rejected attempt. The attempt number is the part worth watching: it says
+        whether the step is converging or about to run out of turns."""
+        attempt, allowed = event.get("attempt"), event.get("of")
+        last = attempt == allowed
+        return (
+            f"{event.get('tool')} rejected attempt {attempt}/{allowed}"
+            f"{', no attempts left' if last else ', trying again'}"
+        )
 
     @staticmethod
     def _duration(seconds: float) -> str:

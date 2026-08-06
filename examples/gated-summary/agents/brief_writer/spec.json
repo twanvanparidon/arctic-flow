@@ -1,0 +1,13 @@
+{
+  "name": "brief_writer",
+  "kind": "agent",
+  "version": 1,
+  "description": "Writes a summary to a word budget, and rewrites it when one comes back over.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "low",
+
+  "tools": []
+}

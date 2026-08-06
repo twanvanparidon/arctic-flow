@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from engine.executor import build_graph, load_agent, outbound_targets
+from engine.executor import DEFAULT_GATE_ATTEMPTS, build_graph, load_agent, outbound_targets
 from paths.resolver import Paths
 
 
@@ -232,6 +232,24 @@ def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> s
                     "silently ending it"
                 )
             lines.append("")
+
+    # Deliberately not an edge in the diagram. The retry is inside the step, and drawing
+    # it as a loop would put a cycle in a graph whose whole point is that it has none.
+    gated = [by_id[sid] for sid in ids if "gate" in by_id[sid]]
+    if gated:
+        # The section above is the branch list when there is one and the step table when
+        # there is not, and only the first of those leaves a blank line behind it.
+        if lines[-1]:
+            lines.append("")
+        lines += ["## Gates", ""]
+        for step in gated:
+            gate = step["gate"]
+            allowed = gate.get("max_attempts", DEFAULT_GATE_ATTEMPTS)
+            lines.append(
+                f"- `{step['id']}` pushes nothing until `{gate['tool']}` accepts its result, "
+                f"and gets {allowed} attempts to earn that"
+            )
+        lines.append("")
 
     if joins:
         lines += ["## Joins", ""]

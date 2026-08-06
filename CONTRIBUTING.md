@@ -202,6 +202,54 @@ Conventions that are load-bearing rather than stylistic:
 - **Do not append a trailing newline to a single-value tool output.** A digest or an id gets
   templated mid-line, and a stray newline breaks the line it lands in.
 
+## Gates
+
+An agent step can name a tool that has to accept its result before the result goes
+anywhere:
+
+```yaml
+- id: draft
+  agent: brief_writer
+  prompt: |
+    Summarise this file in at most 60 words.
+    ...
+  gate:
+    tool: word_limit
+    input:
+      text: "{{ this.text }}"      # `this` is the result being checked
+      max_words: 60
+    max_attempts: 3
+    feedback: |
+      Your last answer was rejected by word_limit:
+
+      {{ gate.text }}
+
+      Write it again, inside the limit.
+```
+
+Exit 0 accepts. Any other exit rejects, and the tool's output becomes `{{ gate.text }}` in
+the next prompt, appended to the original one. Every turn is a fresh session, so the retry
+carries its own history or it has none. When the attempts run out the step fails with what
+the gate last said, and nothing downstream ever sees a result the gate refused.
+
+The loop is inside the step. There is no edge back to the agent, so a flow still has no
+cycles, and `graph` and `diagram` report the gate rather than drawing one.
+
+Four rules, all enforced by `lint`:
+
+- **Gates are for agent steps.** A tool handed the same input returns the same result, so
+  the retry could only spend the attempts and arrive back where it started.
+- **`feedback` is required**, for the same reason. A retry that says nothing about what was
+  wrong is the first attempt again.
+- **`max_attempts` is 2 or more**, and 3 by default. One attempt leaves no turn to act on
+  the feedback.
+- **`{{ secrets.NAME }}` works in the gate's `input`**, which is a tool's input, and is
+  refused in `feedback`, which becomes a prompt.
+
+Any tool is a gate, with no second contract to write to. The cost of that is a gate that is
+itself broken: it reports its own error the same way a rejection arrives, and spends the
+attempts before the step fails.
+
 ## Secrets
 
 A step declares what it may read:
