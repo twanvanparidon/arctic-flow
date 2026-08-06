@@ -1,0 +1,29 @@
+{
+  "name": "word_limit",
+  "version": 1,
+  "description": "Check that a piece of text is inside a word budget. Exits non-zero when it is over, with the count and the overage on stderr.",
+  "doc": "tool.md",
+
+  "run": { "command": ["./run.sh"], "input": "stdin_json", "output": "stdout_text", "cwd": "workspace", "timeout_seconds": 10 },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "text": { "type": "string", "description": "The text to measure. Counted as whitespace-separated words, exactly as given." },
+      "max_words": { "type": "integer", "minimum": 1, "description": "The most words the text may contain. Written in the flow rather than templated: a rendered template is a string, and this has to be a number." }
+    },
+    "required": ["text", "max_words"],
+    "additionalProperties": false
+  },
+
+  "output_schema": { "type": "string", "description": "The count and the limit, with no trailing newline." },
+
+  "exit_codes": {
+    "0": "inside the limit (the count is on stdout)",
+    "1": "over the limit (the count, the overage and the limit are on stderr)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)"
+  },
+
+  "permissions": { "filesystem": "none", "network": false },
+  "requires": ["bash", "jq", "awk"]
+}
