@@ -1,0 +1,73 @@
+[build-system]
+# 77 rather than 68: PEP 639's SPDX `license` string and `license-files` need it. The
+# older `license = { text = … }` spelling warns on every build from 77 onward.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arctic-flow"
+description = "Arctic Flow: a code-first engine for agentic workflows. Flows are graphs of tool and agent steps."
+readme = "README.md"
+# No `License :: OSI Approved :: …` classifier to go with this: setuptools rejects a
+# distribution carrying both an SPDX expression and a licence classifier.
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dynamic = ["version"]
+
+dependencies = [
+    "PyYAML>=6.0",
+    "jsonschema>=4.0",
+    "cryptography>=42.0",
+]
+
+[project.scripts]
+# atf, matching the rest of the naming: $ATF_PATH, ATF_VAULT_PASSWORD.
+# `src/main.py` stays the from-source entry.
+atf = "cli.app:main"
+
+[tool.setuptools.dynamic]
+# The version lives with the product's other identity constants; there is no package
+# __init__ left to hold it now that src/ is flat.
+version = { attr = "cli.branding.__version__" }
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+# src/main.py is a development entry point, not a top-level module to install into
+# site-packages, so it is deliberately not listed here.
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+# Listed rather than globbed, so a new directory under src/ is a deliberate addition to
+# the distribution instead of one that ships by accident. These become top-level packages
+# once installed; see the note in CONTRIBUTING.md about what that costs.
+include = [
+    "adapters*",
+    "builtin*",
+    "cli*",
+    "commands*",
+    "engine*",
+    "paths*",
+    "util*",
+    "vault*",
+]
+
+[tool.setuptools.package-data]
+# The built-in tools are data, not code: shell scripts, spec.json and markdown. Without
+# this they would be dropped from the wheel and the built-in search layer would come up
+# empty. Adapters are ordinary modules and need no entry.
+builtin = ["**/*"]
+
+[tool.ruff]
+# 100 rather than the default 88: the code is written to roughly this width, and the
+# alternative was 229 lines of churn to satisfy a number nothing else here uses.
+line-length = 100
+src = ["src", "packaging"]
+
+[tool.ruff.lint]
+# E/F/W pycodestyle+pyflakes, I import order, UP pyupgrade, B bugbear.
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[project.optional-dependencies]
+lint = ["ruff==0.14.2"]

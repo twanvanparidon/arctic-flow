@@ -1,0 +1,74 @@
+# Build the binary in a container.
+#
+#   docker build -f packaging/Dockerfile.build -t atf-build .
+#   docker create --name atf-out atf-build
+#   docker cp atf-out:/out/atf ./dist/
+#   docker rm atf-out
+#
+# Two reasons this is the build path rather than a local pyinstaller run:
+#
+#   Reproducibility. The binary embeds a Python interpreter and compiled wheels, so the
+#   build environment is part of the artefact. Pinning it in a Dockerfile means a build
+#   from the same commit produces the same thing on any machine, and it is the same
+#   recipe CI would use.
+#
+#   glibc. A frozen binary links against the glibc it was built on and will not start on
+#   anything older. Building on bookworm (glibc 2.36) rather than the newest available
+#   base buys compatibility with older targets for free.
+#
+# PyInstaller cannot cross-compile: this produces a Linux x86-64 binary only. macOS and
+# Windows builds have to run on macOS and Windows.
+
+FROM python:3.13-slim-bookworm
+
+# Set by CI to the commit being built. Labels the image so an artefact can be traced
+# back to a revision; the binary itself is not stamped yet.
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.revision=$VCS_REF
+LABEL org.opencontainers.image.description="agentic workflow engine build"
+
+# The engine shells out to these at runtime. They are installed here so the example
+# flows can be exercised inside the image as a build-time smoke test; a machine running
+# the finished binary needs them too.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends binutils jq openssl xxd coreutils \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Pinned dependencies first, so editing the engine does not re-resolve them and so two
+# builds of the same commit embed the same wheels.
+COPY packaging/requirements-lock.txt ./packaging/
+RUN pip install --no-cache-dir -r packaging/requirements-lock.txt
+
+# The project itself, with --no-deps: everything it needs is already pinned above, and
+# pyproject.toml stays the single declaration of what those dependencies are. LICENSE
+# comes along because pyproject's license-files names it, and the install below fails on
+# a pattern matching no file.
+COPY pyproject.toml LICENSE ./
+COPY src ./src
+RUN pip install --no-cache-dir --no-deps .
+
+COPY packaging ./packaging
+# Fail now if the lock and pyproject.toml have drifted apart, rather than shipping a
+# binary missing a dependency nobody notices until the command that needs it runs.
+RUN python packaging/verify_deps.py
+
+COPY examples ./examples
+
+RUN pyinstaller --clean --noconfirm --distpath /out --workpath /tmp/pyi packaging/atf.spec
+
+# Fail the build rather than ship a binary that cannot see its own built-ins. That is the
+# exact failure that made this packaging work necessary.
+RUN /out/atf/atf --version \
+ && /out/atf/atf list | tee /tmp/list.txt \
+ && grep -q read_file   /tmp/list.txt \
+ && grep -q claude_code /tmp/list.txt \
+ && /out/atf/atf --workspace examples/sign-release lint sign_release \
+ && ATF_VAULT_PASSWORD=demo /out/atf/atf \
+      --workspace examples/sign-release run sign_release --input path=release-notes.md \
+      | grep -q '^b3b7f6ca731a0de0d59f59aaf5c3ed4f6c0b7eb76cf513ae81cf5ed7a025005b  release-notes.md$' \
+ && echo "smoke tests passed"
+
+# Flatten to a single directory for `docker cp`.
+RUN mkdir -p /out && ls /out/atf > /dev/null

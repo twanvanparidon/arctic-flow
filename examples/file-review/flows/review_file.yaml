@@ -1,0 +1,109 @@
+# Review a source file, spending a full risk review only when it's warranted.
+#
+#                    ┌──> summarize ─────────────────┐
+#   start: read_target                               ├──> report
+#                    └──> triage ──switch──> risky ──> risk_scan ──┘
+#                                     └────> clean ───────────────┘
+#
+# Read it forwards. Every step names what it hands its result to: `push` for an
+# unconditional hand-off, `switch` to pick one branch from its own output. Nothing
+# reaches backwards to ask what it depends on.
+#
+# When triage says `clean`, the risk_scan branch is never entered. The engine
+# marks it skipped and skipping propagates, so `report` stops waiting on it instead
+# of hanging. A step that was skipped still resolves in templates, as the literal
+# text "(not run)", so a prompt can mention the gap rather than silently omitting
+# it.
+#
+# This example project holds only the flow and the four agents it needs. The
+# read_file tool and the claude_code adapter are inherited from the engine's own src/,
+# so nothing here duplicates them.
+#
+# Two ways to run it, and the difference is which files it can read. read_file is
+# sandboxed to the working directory, so that choice decides the reach of the review:
+#
+#   # reviewing this example project's own files
+#   python3 src/main.py --workspace examples/file-review \
+#       run review_file --input path=flows/review_file.yaml
+#
+#   # reviewing the repository, with the showcase added to the lookup path
+#   ATF_PATH=examples/file-review python3 src/main.py \
+#       run review_file --input path=src/engine/executor.py
+
+flow: review_file
+version: 1
+description: Summarise a file, risk-review it if warranted, then report.
+
+inputs:
+  path:
+    type: string
+    required: true
+    description: File to review, relative to the workspace root.
+
+# Where the first push goes. A flow has exactly one entry.
+start: read_target
+
+steps:
+  # A tool step: deterministic, no model involved. Cheaper and more reliable than
+  # asking an agent to go and read something.
+  - id: read_target
+    tool: read_file
+    input:
+      path: "{{ inputs.path }}"
+      max_lines: 400
+    push: [summarize, triage]
+
+  - id: summarize
+    agent: summarizer
+    prompt: |
+      Summarise this file in at most five sentences.
+
+      Path: {{ inputs.path }}
+      ---
+      {{ steps.read_target.text }}
+    push: [report]
+
+  # The A/B decision. `switch` is evaluated against this step's own result, where
+  # `this` is the step that just ran, and exactly one branch is entered.
+  - id: triage
+    agent: triager
+    prompt: |
+      Does this file need a full risk review?
+
+      Path: {{ inputs.path }}
+      ---
+      {{ steps.read_target.text }}
+    switch: "{{ this.json.verdict }}"
+    cases:
+      risky: [risk_scan]
+      clean: [report]
+
+  - id: risk_scan
+    agent: risk_scanner
+    prompt: |
+      Review this file and report the risks you can actually see in it.
+
+      Path: {{ inputs.path }}
+      ---
+      {{ steps.read_target.text }}
+    push: [report]
+
+  # Reached on both paths. It runs once every inbound edge has either delivered or
+  # been skipped, so it never waits on a branch the flow didn't take.
+  - id: report
+    agent: reporter
+    prompt: |
+      Write the review for `{{ inputs.path }}`.
+
+      Summary:
+      {{ steps.summarize.text }}
+
+      Triage decision: {{ steps.triage.json.verdict }}
+      Triage reason: {{ steps.triage.json.reason }}
+
+      Risk findings (may be "(not run)" if triage judged the file clean):
+      {{ steps.risk_scan.text }}
+
+output:
+  template: |
+    {{ steps.report.text }}

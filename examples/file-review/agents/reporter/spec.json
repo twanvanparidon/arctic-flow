@@ -1,0 +1,13 @@
+{
+  "name": "reporter",
+  "kind": "agent",
+  "version": 1,
+  "description": "Writes the final review from what the upstream steps produced.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "medium",
+
+  "tools": []
+}

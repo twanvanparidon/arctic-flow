@@ -1,0 +1,13 @@
+{
+  "name": "summarizer",
+  "kind": "agent",
+  "version": 1,
+  "description": "Explains what a file does, for someone who has not read it.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "medium",
+
+  "tools": []
+}

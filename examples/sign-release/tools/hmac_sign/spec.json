@@ -1,0 +1,29 @@
+{
+  "name": "hmac_sign",
+  "version": 1,
+  "description": "Sign a payload with HMAC-SHA256, using the signing_key from the step's environment.",
+  "doc": "tool.md",
+
+  "run": { "command": ["./run.sh"], "input": "stdin_json", "output": "stdout_text", "cwd": "workspace", "timeout_seconds": 10 },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "payload": { "type": "string", "description": "Exact bytes to sign. Signed verbatim, with no trimming or normalising." }
+    },
+    "required": ["payload"],
+    "additionalProperties": false
+  },
+
+  "output_schema": { "type": "string", "description": "Lowercase hex HMAC-SHA256 digest, with no trailing newline so it can be templated inline." },
+
+  "exit_codes": {
+    "0": "success (the digest is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or payload is missing)",
+    "5": "signing_key is not in the environment (the step did not declare it in 'secrets')"
+  },
+
+  "permissions": { "filesystem": "none", "network": false },
+  "secrets": ["signing_key"],
+  "requires": ["bash", "jq", "openssl"]
+}
