@@ -58,6 +58,8 @@ include = [
 # this they would be dropped from the wheel and the built-in search layer would come up
 # empty. Adapters are ordinary modules and need no entry.
 builtin = ["**/*"]
+# The completion snippets are shell too: `atf completion bash` reads one and prints it.
+cli = ["completions/*.sh"]
 
 [tool.ruff]
 # 100 rather than the default 88: the code is written to roughly this width, and the

@@ -58,6 +58,15 @@ Save it and read it first if you would rather not pipe a script into a shell. It
 `$ATF_PREFIX` and `$ATF_VERSION` for the piped form. Uninstalling is deleting
 `~/.local/lib/atf` and the link at `~/.local/bin/atf`.
 
+### Tab completion
+
+```sh
+eval "$(atf completion bash)"        # in ~/.bashrc, once
+```
+
+Completes the commands, their flags, and flow names, which it resolves the way `run` does:
+through the lookup, from the `--workspace` on the line. bash for now.
+
 ### What else you need
 
 | For | You need |
