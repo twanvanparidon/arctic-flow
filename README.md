@@ -79,18 +79,22 @@ atf list             # adapters, and every component name the engine can see
 
 ## Examples
 
-Two projects that run as they are. Read them forwards, the way the engine does:
+Three projects that run as they are. Read them forwards, the way the engine does:
 
 - **[`examples/sign-release`](examples/sign-release)** is tools and secrets. Two steps and
   one key from an encrypted vault. Deterministic, no key, no network.
 - **[`examples/file-review`](examples/file-review)** is agents, a branch and a join. Triage
   picks one path, the other is skipped, and the report waits for neither. A few cents to run.
+- **[`examples/gated-summary`](examples/gated-summary)** is a gate. A tool has to accept the
+  agent's answer before it goes anywhere, and says what was wrong with it when it does not.
 
 ```sh
 atf --workspace examples/file-review graph review_file
 
 ATF_VAULT_PASSWORD=demo atf --workspace examples/sign-release \
     run sign_release --input path=release-notes.md
+
+atf --workspace examples/gated-summary run summarize --input path=incident.md
 ```
 
 A project is a directory with `flows/` in it. There is nothing to initialise. `atf --help`

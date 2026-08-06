@@ -24,8 +24,9 @@ ATF_VAULT_PASSWORD=demo python3 src/main.py --workspace examples/sign-release \
 python3 src/main.py --workspace examples/file-review graph review_file
 ```
 
-`../examples/file-review` calls models: it needs the `claude` CLI authenticated and costs a
-few cents per run. `../examples/sign-release` needs nothing (vault password `demo`).
+`../examples/file-review` and `../examples/gated-summary` call models: they need the
+`claude` CLI authenticated and cost a few cents per run. `../examples/sign-release` needs
+nothing (vault password `demo`).
 
 ### The pre-push gate
 
@@ -118,10 +119,20 @@ whose every inbound edge is skipped is itself skipped, and that cascades. This i
 lets a join downstream of a branch run on both paths instead of waiting forever. A skipped
 step still resolves in templates as the literal `(not run)`, so prompts can mention the gap.
 
-Templates are `{{ dotted.path }}` over four namespaces: `inputs`, `steps`, `secrets`,
-`this` (switch only). An unresolvable path is an error, never an empty string. `validate()`
-rejects reading from a step that is not transitively upstream, cycles, unreachable steps,
-self-pushes, and both `push` and `switch` on one step.
+An agent step may also carry a `gate`: a tool that has to exit 0 on the step's result
+before any edge is delivered. A rejection is not a failure. The tool's output is appended
+to the original prompt through the step's own `feedback` template and the agent answers
+again, up to `max_attempts` (3 by default, minimum 2), after which the step fails carrying
+what the gate said. The loop is inside `run_agent`, not in the graph: the graph has no
+cycles and every turn is a fresh session, so the retry has to carry its own history. A
+gated step reports the cost of *all* its attempts, because the envelope only knows the
+last one. Gates are refused on tool steps: same input, same result, no way out of the loop.
+
+Templates are `{{ dotted.path }}` over five namespaces: `inputs`, `steps`, `secrets`,
+`this` (the step's own result, in a switch or a gate) and `gate` (gate feedback only). An
+unresolvable path is an error, never an empty string. `validate()` rejects reading from a
+step that is not transitively upstream, cycles, unreachable steps, self-pushes, and both
+`push` and `switch` on one step.
 
 Anything spawning a subprocess must build its environment with `child_environment()`.
 It undoes PyInstaller's `LD_LIBRARY_PATH` rewrite, without which spawned system binaries
