@@ -11,10 +11,31 @@ Configuration is `[tool.pytest.ini_options]` in `pyproject.toml`. It prepends `s
 `tests` to the path, so a test imports `engine` by the same name it has once installed, and
 `support` for the helpers. There is nothing to install first.
 
-## No mocks
+## Test doubles
 
-Do not patch a unit under test, and do not build an object that pretends to be one of its
-collaborators. Use the real thing:
+Three words, used here in their usual senses, and the difference between them decides which
+one to reach for:
+
+| | Is | Fails when |
+| --- | --- | --- |
+| **fake** | a working implementation, simplified | the contract it implements changes |
+| **stub** | canned answers, no working parts | never; it answers whatever it was told to |
+| **mock** | a recorder, asserted on afterwards | the code calls things in a different order |
+
+**In `tests/unit`, none of the three.** Use the real collaborator.
+
+**In `tests/integration`, all three are allowed, in this order: fake, then stub, then
+mock.** Prefer the fake, because it is the only one that can still fail for a real reason:
+`fake_claude.py` really parses argv and really writes JSON, so an adapter that builds the
+wrong command line is caught by it. Drop to a stub when writing a working implementation
+would cost more than the test is worth. Reach for a mock last, and only when the assertion
+genuinely is about a call happening, since a mock pins *how* the code went about something
+rather than what it decided, which is the same trap as pinning a sentence.
+
+Whichever you use, name it for what it is, and put it in `tests/support/` beside the two
+that are there.
+
+### In tests/unit, use the real thing
 
 | Instead of | Use |
 | ---------- | --- |
@@ -34,7 +55,7 @@ Where a test wants to observe something, have the real component print it. `echo
 exists so a test can see which secrets a step was actually granted; the echo adapter puts
 the payload it received in its envelope. Nothing has to watch a call happen.
 
-### The three things that are allowed, and why
+### The three things a unit test may still do
 
 **Environment control.** `monkeypatch.setenv`, `delenv` and `setattr(sys, "frozen", True)`
 set real values that real code reads. `conftest.clean_environment` uses this to remove
@@ -86,10 +107,11 @@ reach the four failure branches and the argv report, and anything else is answer
 prompt itself. That last part is what makes a gate loop observable: the engine appends the
 gate's feedback to the next prompt, so the second turn really does differ from the first.
 
-It is a fake, not a mock. It is a working program on the other side of a real pipe, and the
-adapter cannot tell. The alternative is an account, a network and a different answer every
-run. Prove the difference the way the suite does: `PATH=/usr/bin:/bin pytest` passes, so
-nothing here depends on the real CLI being installed.
+A fake rather than a stub, which is the order to work down: it is a working program on the
+other side of a real pipe, so an adapter that built the wrong command line fails against it.
+A stub returning a canned envelope would have answered anyway. Prove it is not the real CLI
+the way the suite does: `PATH=/usr/bin:/bin pytest` passes, so nothing here needs one
+installed.
 
 The shipped examples need what their specs declare: `jq`, `openssl`, `xxd`, `awk`,
 `realpath`. `conftest.requires()` skips with the missing name rather than failing, since a

@@ -173,14 +173,20 @@ lines of churn against code written to a wider measure.
 `tests/e2e` is still empty. How the suite is built, and what belongs in which of the three,
 is in `.claude/rules/TESTING.md`.
 
-The short version: no mocks. A tool test writes a real tool directory and the engine spawns
-a real process; a vault test encrypts with real scrypt and AES-GCM; a test about `isatty()`
-opens a real pseudo-terminal; an integration test runs `atf` and reads its two streams. The
-failures worth catching are the ones a substitute cannot have.
+**A unit test uses no doubles.** A tool test writes a real tool directory and the engine
+spawns a real process; a vault test encrypts with real scrypt and AES-GCM; a test about
+`isatty()` opens a real pseudo-terminal. The failures worth catching there are the ones a
+substitute cannot have: a lost executable bit, a process that outlives its timeout, a secret
+in an environment it was not granted.
 
-The one stand-in is `tests/support/fake_claude.py`, a program that speaks the Claude Code
-CLI's protocol so the adapter can spawn something without an account and a network. Nothing
-else is substituted, and `PATH=/usr/bin:/bin pytest` passes, which is how you can tell.
+**An integration test may use a fake, a stub or a mock, and should prefer them in that
+order.** A fake is a working implementation, so it can still fail for a real reason. A stub
+only answers. A mock asserts on how the code went about something rather than on what it
+decided, so it is the last resort.
+
+The one in the tree today is a fake: `tests/support/fake_claude.py` speaks the Claude Code
+CLI's protocol, so the adapter spawns a real process without an account or a network.
+`PATH=/usr/bin:/bin pytest` passes, which is how you can tell nothing reaches the real one.
 
 ## Adding a component
 
