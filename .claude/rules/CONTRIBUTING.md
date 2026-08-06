@@ -35,9 +35,10 @@ before it is written.
 Run these before you report the work as done:
 
 ```sh
-ruff check src packaging
-ruff format --check src packaging
+ruff check src packaging tests
+ruff format --check src packaging tests
 shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
+pytest
 ```
 
 Line length is 100. The rule set is E, F, W, I, UP, B, configured in `pyproject.toml`.
@@ -50,11 +51,15 @@ fits. No bare `except`, no mutable default arguments, no unused parameter kept "
 
 ## Tests
 
-New code needs tests. Follow TESTING.md, which is not written yet.
+New code needs tests. Follow [TESTING.md](TESTING.md).
 
-`tests/{unit,integration,e2e}` are empty and pytest is not configured, so this rule cannot
-be met today. When it applies to your change, say the tests are missing and why. Do not
-skip it quietly.
+The short version: **no mocks and no stubs.** A tool test writes a real tool directory and
+lets the engine spawn a real process. A vault test encrypts with real scrypt. A test about
+`isatty()` opens a real pseudo-terminal. TESTING.md says what the three exceptions are and
+why each one is not a mock.
+
+`tests/unit` is written. `tests/integration` and `tests/e2e` are still empty, so a change
+that needs one of those cannot be covered today. Say so rather than skipping it quietly.
 
 ## Minimal changes
 
