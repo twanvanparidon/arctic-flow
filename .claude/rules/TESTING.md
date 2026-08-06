@@ -9,6 +9,19 @@ pytest -k skip_propagation
 pytest -x --lf              # stop at the first failure, then rerun only what failed
 ```
 
+Coverage comes with the same extra, and reads its settings from `pyproject.toml`:
+
+```sh
+coverage run -m pytest && coverage report
+```
+
+The pipeline runs that in two steps, unit then integration with `--append`, so one file
+covers both. It never fails the build on a number: coverage is there to be looked at, and a
+floor would mostly measure how much of the code the integration suite reaches in a
+subprocess. Which is the caveat to know before reading the table. `coverage` only measures
+the process it started, and `tests/integration` spawns `python3 src/main.py` for the stream
+and vault tests, so `cli/dispatch.py` and `src/main.py` read far lower than they are.
+
 The extra is there for `pytest` itself. Nothing needs installing for the imports to resolve:
 `[tool.pytest.ini_options]` in `pyproject.toml` prepends `src` and `tests` to the path, so a
 test imports `engine` by the same name it has once installed, and `support` for the helpers.

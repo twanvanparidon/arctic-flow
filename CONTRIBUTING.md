@@ -188,8 +188,12 @@ done
 `ruff` settings live in `pyproject.toml`. Line length is 100. The default 88 wanted 229
 lines of churn against code written to a wider measure.
 
-`ruff` and `pytest` come from the two extras, installed together by the `pip install -e`
-above. Neither is a runtime dependency, so neither ships.
+`ruff`, `pytest` and `coverage` come from the two extras, installed together by the
+`pip install -e` above. None is a runtime dependency, so none of them ships.
+
+The pipeline runs the same commands, plus `coverage` and `--junitxml`. It puts the counts
+and the coverage table on the run page, and uploads the JUnit XML and an HTML coverage
+report as artifacts. Coverage never fails the build.
 
 ## Tests
 
