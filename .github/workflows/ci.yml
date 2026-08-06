@@ -31,8 +31,8 @@ jobs:
       # The lint extra, so ruff is available. The package itself, so `atf` is.
       - run: pip install --quiet ".[lint]"
 
-      - run: ruff check src packaging
-      - run: ruff format --check src packaging
+      - run: ruff check src packaging tests
+      - run: ruff format --check src packaging tests
 
       # shellcheck matters as much as ruff here: the tools and adapters this engine runs are
       # shell scripts. dist/, build/ and var/ are gitignored so absent in CI, and excluded
@@ -54,10 +54,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Here so filling it in is a one-line change rather than a restructure.
-      - run: |
-          echo "No tests yet: tests/{unit,integration,e2e} are empty."
-          echo "To enable: add pytest to the lint extra in pyproject.toml and run it here."
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      # The runtime dependencies, plus pytest from the test extra. pyproject prepends src/
+      # for a test run, so what gets imported is the checkout and not the installed copy.
+      - run: pip install --quiet ".[test]"
+
+      # The unit suite spawns real subprocesses and opens real pseudo-terminals, and needs
+      # nothing installed beyond a POSIX shell. tests/integration and tests/e2e are empty.
+      - run: pytest
 
   build:
     name: Build binary
