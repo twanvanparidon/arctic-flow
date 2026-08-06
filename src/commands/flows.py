@@ -13,7 +13,14 @@ from typing import Any
 
 from commands.results import DiagramResult, FlowPlan, GraphResult, LintResult, RunResult
 from commands.secrets import Password, open_vault
-from engine.executor import FlowError, check_inputs, load_flow, run_flow, validate
+from engine.executor import (
+    FlowError,
+    check_inputs,
+    inputs_from_environment,
+    load_flow,
+    run_flow,
+    validate,
+)
 from paths.resolver import Paths
 
 # The engine's observer: called with one event dict as steps start, finish, skip and fail.
@@ -47,15 +54,20 @@ def prepare(
 ) -> FlowPlan:
     """Resolve a flow, check its inputs, and open the vault it needs.
 
-    `vault_ref` overrides a `vault` the flow set for itself, so a caller told which vault
-    to use beats the file. `password` is only consulted if one of the two named a vault.
+    `inputs` beats what the environment supplies, since it was passed for this run and a
+    variable was exported for the shell. `vault_ref` overrides a `vault` the flow set for
+    itself, so a caller told which vault to use beats the file. `password` is only
+    consulted if one of the two named a vault.
     """
     path = resolve_flow(flow_ref, paths)
     definition = load_flow(path)
+    # `paths.env` rather than os.environ: one environment per run, already injectable, and
+    # already what decides the search roots. A caller isolating one isolates both.
+    supplied = {**inputs_from_environment(definition, paths.env), **(inputs or {})}
     # Checked on its own line, before the vault is touched, because the order is the
     # point: a mistyped input should be answered with the mistake, not with a password
     # prompt. Leaving it to argument evaluation order would make that an accident.
-    checked = check_inputs(definition, inputs or {})
+    checked = check_inputs(definition, supplied)
     return FlowPlan(
         paths=paths,
         definition=definition,

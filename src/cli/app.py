@@ -18,6 +18,7 @@ from pathlib import Path
 
 import commands
 from cli import branding, colour, dispatch
+from engine.executor import VARIABLE_PREFIX
 from paths.resolver import Paths
 from vault.vault import PASSWORD_ENV, PASSWORD_FILE_ENV
 
@@ -184,7 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
         dispatch.run,
         "execute a flow",
         "Inputs are declared by the flow; unknown or missing ones are rejected before\n"
-        "anything runs.\n\n"
+        "anything runs. Each one also reads from the environment: input `depth` from\n"
+        f"${VARIABLE_PREFIX}DEPTH. --input wins where both are set, and a variable named for\n"
+        "an input the flow does not declare is ignored.\n\n"
         "Progress is written to stderr as steps start and finish, so the flow's own\n"
         "output on stdout stays pipeable. Use --quiet to silence it, or --trace to add\n"
         "a machine-readable summary at the end.\n",
@@ -195,7 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="KEY=VALUE",
-        help="a flow input; repeat for several",
+        help=f"a flow input; repeat for several. Beats ${VARIABLE_PREFIX}KEY",
     )
     run.add_argument("--trace", action="store_true", help="write a per-step JSON trace to stderr")
     run.add_argument(

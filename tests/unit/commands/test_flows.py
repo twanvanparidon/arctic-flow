@@ -88,6 +88,24 @@ class TestPrepare:
         with pytest.raises(FlowError, match="unknown input 'whom'"):
             commands.prepare("demo", paths, {"whom": "you"})
 
+    def test_an_input_is_supplied_by_its_environment_variable(
+        self, project: Path, home: Path
+    ) -> None:
+        paths = Paths(project, env={"ATF_VAR_WHO": "the environment"}, home=home)
+        assert commands.prepare("demo", paths, {}).inputs == {"who": "the environment"}
+
+    def test_a_passed_input_beats_the_environment(self, project: Path, home: Path) -> None:
+        """It was passed for this run; the variable was exported for the shell."""
+        paths = Paths(project, env={"ATF_VAR_WHO": "the environment"}, home=home)
+        assert commands.prepare("demo", paths, {"who": "you"}).inputs == {"who": "you"}
+
+    def test_a_variable_the_flow_declares_no_input_for_is_ignored(
+        self, project: Path, home: Path
+    ) -> None:
+        """Otherwise one left exported in a shell refuses every flow run from it."""
+        paths = Paths(project, env={"ATF_VAR_ELSEWHERE": "x"}, home=home)
+        assert commands.prepare("demo", paths, {}).inputs == {}
+
     def test_a_flow_declaring_no_vault_never_asks_for_a_password(
         self, project: Path, paths: Paths
     ) -> None:

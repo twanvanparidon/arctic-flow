@@ -78,6 +78,66 @@ class TestALinearFlow:
         assert '"text": "HI"' in result.out
 
 
+class TestInputsFromTheEnvironment:
+    """`ATF_VAR_NAME` supplies the input `name`, through every layer that reads it."""
+
+    @pytest.fixture(autouse=True)
+    def flow_reading_an_input(self, project: Path) -> None:
+        flow(
+            project,
+            "greet",
+            flow="greet",
+            start="a",
+            inputs={"whom": {"required": True}},
+            steps=[{"id": "a", "tool": "shout", "input": {"text": "{{ inputs.whom }}"}}],
+            output={"template": "{{ steps.a.text }}"},
+        )
+
+    def test_a_variable_supplies_the_input(
+        self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATF_VAR_WHOM", "the environment")
+        result = atf("--workspace", str(project), "run", "greet")
+        assert result.code == 0
+        assert result.out == "THE ENVIRONMENT\n"
+
+    def test_an_input_flag_beats_a_variable(
+        self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATF_VAR_WHOM", "the environment")
+        result = atf("--workspace", str(project), "run", "greet", "--input", "whom=the flag")
+        assert result.out == "THE FLAG\n"
+
+    def test_the_search_root_variable_is_not_read_as_an_input(
+        self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """$ATF_PATH stays a search root. The prefix exists so the two cannot collide."""
+        monkeypatch.setenv("ATF_PATH", str(project))
+        monkeypatch.setenv("ATF_VAR_WHOM", "still the input")
+        result = atf("--workspace", str(project), "run", "greet")
+        assert result.out == "STILL THE INPUT\n"
+
+    def test_a_variable_for_an_undeclared_input_is_ignored(
+        self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One left exported in a shell must not refuse every flow run from it."""
+        monkeypatch.setenv("ATF_VAR_SOMETHING_ELSE", "x")
+        monkeypatch.setenv("ATF_VAR_WHOM", "you")
+        result = atf("--workspace", str(project), "run", "greet")
+        assert result.code == 0
+        assert result.out == "YOU\n"
+
+    def test_a_run_in_a_real_process_reads_its_own_environment(
+        self, project: Path, atf_process: Runner
+    ) -> None:
+        """Through the real entry point, which is how a shell exporting one reaches it."""
+        result = atf_process(
+            "--workspace", str(project), "run", "greet", env={"ATF_VAR_WHOM": "a subprocess"}
+        )
+        assert result.code == 0
+        assert result.out == "A SUBPROCESS\n"
+
+
 class TestBranching:
     @pytest.fixture(autouse=True)
     def branchy(self, project: Path) -> None:

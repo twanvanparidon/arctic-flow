@@ -155,6 +155,12 @@ unresolvable path is an error, never an empty string. `validate()` rejects readi
 step that is not transitively upstream, cycles, unreachable steps, self-pushes, and both
 `push` and `switch` on one step.
 
+An input comes from the caller's mapping or from `$ATF_VAR_<NAME>`, merged in
+`commands.prepare` with the mapping winning. The prefix is `ATF_VAR_` and not a bare `ATF_`
+because `$ATF_PATH` and `$ATF_VAULT_PASSWORD` are the engine's own, so an input named `path`
+would have collided. Only names the flow declares are read, so an `ATF_VAR_` exported for
+another flow is ignored rather than refused as an unknown input.
+
 Anything spawning a subprocess must build its environment with `child_environment()`.
 It undoes PyInstaller's `LD_LIBRARY_PATH` rewrite, without which spawned system binaries
 load the bundle's OpenSSL and fail in frozen builds only.
