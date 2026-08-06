@@ -69,7 +69,7 @@ src/adapters/            model runtimes, as Python modules
 src/builtin/             tools that ship with the engine
 src/util/                ways of looking at a flow without running it
 examples/                self-contained sample projects
-packaging/               build recipe, PyInstaller spec, release script
+packaging/               build recipe, PyInstaller spec, release and install scripts
 tests/                   unit, integration, e2e (empty for now)
 ```
 
@@ -196,6 +196,9 @@ Conventions that are load-bearing rather than stylistic:
   reviewable as prose instead of escaped into a JSON string.
 - **A flow names the graph, nothing else.** Model, effort, tools and output shape belong to
   the agent, in `agents/<name>/spec.json`.
+- **An agent cannot use tools inside a turn.** One declaring `tools` is refused with an
+  explanation rather than quietly ignored, so the engine's loop stays the only loop. Feed it
+  the output of a tool step instead.
 - **Do not append a trailing newline to a single-value tool output.** A digest or an id gets
   templated mid-line, and a stray newline breaks the line it lands in.
 
@@ -262,6 +265,12 @@ checksum means something across rebuilds.
 
 Uploading needs no credential of its own. `gh release create` runs with the workflow's
 `GITHUB_TOKEN`, which the release job grants `contents: write`.
+
+`packaging/install.sh` is the other end of that. It reads the tag from the redirect off
+`/releases/latest`, checks the `sha256` before unpacking anything, and installs the whole
+directory with a link to the binary. Users fetch it raw from `main`, so a fix to it reaches
+them without a release, and it names the asset the way `release.sh` writes it. Renaming an
+artefact means changing both.
 
 ## House style
 
