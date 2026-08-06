@@ -72,10 +72,11 @@ class TestResolvePassword:
             resolve_password(tmp_path / "absent", env={})
 
     @pytest.mark.parametrize("contents", ["", "\n", "   \n"])
-    def test_an_empty_password_file_is_refused(self, tmp_path: Path, contents: str) -> None:
+    def test_an_empty_password_file_says_it_is_empty(self, tmp_path: Path, contents: str) -> None:
+        """`touch pw` used to be answered with "list index out of range"."""
         path = tmp_path / "pw"
         path.write_text(contents)
-        with pytest.raises(VaultError, match="cannot read a password|is empty"):
+        with pytest.raises(VaultError, match="is empty"):
             resolve_password(path, env={})
 
     def test_a_tilde_in_the_path_is_expanded(
