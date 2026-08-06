@@ -1,0 +1,23 @@
+{
+  "name": "triager",
+  "kind": "agent",
+  "version": 1,
+  "description": "Decides whether a file needs a full risk review. Drives the flow's A/B branch.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "low",
+
+  "tools": [],
+
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": { "enum": ["risky", "clean"] },
+      "reason": { "type": "string" }
+    },
+    "required": ["verdict", "reason"],
+    "additionalProperties": false
+  }
+}

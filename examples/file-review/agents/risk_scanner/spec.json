@@ -1,0 +1,34 @@
+{
+  "name": "risk_scanner",
+  "kind": "agent",
+  "version": 1,
+  "description": "Flags things in a file that would bite in production.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "high",
+
+  "tools": [],
+
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "risks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "severity": { "enum": ["low", "medium", "high"] },
+            "line": { "type": "integer" },
+            "finding": { "type": "string" }
+          },
+          "required": ["severity", "finding"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["risks"],
+    "additionalProperties": false
+  }
+}

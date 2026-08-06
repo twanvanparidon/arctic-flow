@@ -1,0 +1,52 @@
+# Sign a release artifact with a key nobody has to see.
+#
+#   start: read_artifact ──> sign
+#
+# Two steps, one secret, no setup. The output is a signature line you can redirect to a
+# file and hand to whoever needs to verify the artifact:
+#
+#   atf --workspace examples/sign-release \
+#       run sign_release --input path=release-notes.md > release-notes.md.sig
+#
+# What the vault is doing here is the whole point. `signing_key` never appears in this
+# file, never reaches a prompt, and never lands in the output. The engine hands it to
+# the `sign` step as an environment variable and to nothing else. `read_artifact`, one
+# step earlier, cannot read it at all.
+#
+# Check that claim rather than taking it: `diagram` prints a secrets column showing
+# exactly which step holds what, without running anything.
+
+flow: sign_release
+version: 1
+description: HMAC-sign a file with a key from the vault, and print the signature.
+
+# Relative to the working directory, so it travels with the project.
+vault: secrets.vault
+
+inputs:
+  path:
+    type: string
+    required: true
+    description: File to sign, relative to the workspace root.
+
+start: read_artifact
+
+steps:
+  # read_file is inherited from the engine's built-ins; this project does not define it.
+  - id: read_artifact
+    tool: read_file
+    input:
+      path: "{{ inputs.path }}"
+      max_lines: 500
+    push: [sign]
+
+  - id: sign
+    tool: hmac_sign
+    secrets: [signing_key]
+    input:
+      payload: "{{ steps.read_artifact.text }}"
+
+# Same shape as sha256sum's output: digest, two spaces, filename.
+output:
+  template: |
+    {{ steps.sign.text }}  {{ inputs.path }}
