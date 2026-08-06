@@ -196,6 +196,9 @@ Conventions that are load-bearing rather than stylistic:
   reviewable as prose instead of escaped into a JSON string.
 - **A flow names the graph, nothing else.** Model, effort, tools and output shape belong to
   the agent, in `agents/<name>/spec.json`.
+- **An agent cannot use tools inside a turn.** One declaring `tools` is refused with an
+  explanation rather than quietly ignored, so the engine's loop stays the only loop. Feed it
+  the output of a tool step instead.
 - **Do not append a trailing newline to a single-value tool output.** A digest or an id gets
   templated mid-line, and a stray newline breaks the line it lands in.
 
