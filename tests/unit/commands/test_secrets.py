@@ -94,7 +94,7 @@ class TestCreateVault:
     def test_an_existing_file_is_refused_before_anything_is_asked(
         self, paths: Paths, vault_file: Path
     ) -> None:
-        with pytest.raises(VaultError, match="already exists: pass --force"):
+        with pytest.raises(VaultError, match="already exists"):
             commands.create_vault(vault_file, paths, {"a": "1"}, never_asked)
 
     def test_force_replaces_it(self, paths: Paths, vault_file: Path) -> None:

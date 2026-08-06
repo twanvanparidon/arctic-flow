@@ -46,16 +46,16 @@ class TestRender:
         assert render("[{{ a }}]", {"a": ""}) == "[]"
 
     def test_an_unknown_namespace_is_an_error(self) -> None:
-        with pytest.raises(FlowError, match=r"unknown value \{\{ nope.a \}\}"):
+        with pytest.raises(FlowError, match=r"\{\{ nope.a \}\}"):
             render("{{ nope.a }}", {"inputs": {}})
 
     def test_an_unknown_leaf_is_an_error(self) -> None:
-        with pytest.raises(FlowError, match=r"unknown value \{\{ inputs.missing \}\}"):
+        with pytest.raises(FlowError, match=r"\{\{ inputs.missing \}\}"):
             render("{{ inputs.missing }}", {"inputs": {"present": "x"}})
 
     def test_a_path_through_a_non_mapping_is_an_error(self) -> None:
         """`a.b` resolved to a string, so `a.b.c` has nowhere left to go."""
-        with pytest.raises(FlowError, match=r"unknown value \{\{ a.b.c \}\}"):
+        with pytest.raises(FlowError, match=r"\{\{ a.b.c \}\}"):
             render("{{ a.b.c }}", {"a": {"b": "text"}})
 
     def test_a_substituted_value_is_not_itself_expanded(self) -> None:

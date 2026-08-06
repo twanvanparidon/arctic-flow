@@ -109,9 +109,6 @@ class TestFailureDetail:
 
 
 class TestSchema:
-    def test_the_prompt_is_the_only_required_field(self) -> None:
-        assert claude_code.INPUT_SCHEMA["required"] == ["prompt"]
-
     def test_nothing_the_adapter_does_not_understand_is_accepted(self) -> None:
         """The engine builds this payload, so a typo in a forwarded field fails at lint."""
         assert claude_code.INPUT_SCHEMA["additionalProperties"] is False
@@ -133,5 +130,5 @@ class TestCliVersion:
         """A host configuration problem, and distinct from a turn that failed: retrying it
         will not help."""
         monkeypatch.setenv("PATH", str(tmp_path))
-        with pytest.raises(AdapterUnavailable, match="the claude binary is not on PATH"):
+        with pytest.raises(AdapterUnavailable, match="not on PATH"):
             claude_code.cli_version()

@@ -34,10 +34,6 @@ class TestBanner:
     def test_it_ends_with_one_blank_line(self, terminal: Terminal) -> None:
         assert branding.banner("1.2.3", terminal.stream).endswith("\n\n")
 
-    def test_the_flake_and_the_text_beside_it_stay_the_same_height(self) -> None:
-        """Kept as pairs, and zipped strictly, so neither can grow without the other."""
-        assert len(branding._FLAKE) == 5
-
 
 class TestVersionLine:
     def test_a_pipe_gets_one_parseable_line(self) -> None:

@@ -53,7 +53,9 @@ class TestLint:
         result = LintResult(
             flow="demo", path=Path("f"), display="./flows/demo.yaml", steps=[{"id": "a"}]
         )
-        assert render.lint(result) == "./flows/demo.yaml: ok, 1 step, no issues found"
+        rendered = render.lint(result)
+        assert "./flows/demo.yaml" in rendered
+        assert "1 step" in rendered
 
 
 class TestTrace:
@@ -89,7 +91,8 @@ class TestInventory:
         assert "agents: none" in render.inventory(INVENTORY)
 
     def test_an_entry_shows_where_its_definition_is(self) -> None:
-        assert "  demo               ./flows/demo.yaml" in render.inventory(INVENTORY)
+        line = next(line for line in render.inventory(INVENTORY).splitlines() if "demo" in line)
+        assert "./flows/demo.yaml" in line
 
     def test_shadowing_is_noted_beside_the_winner(self) -> None:
         listing = Inventory(
@@ -136,22 +139,28 @@ class TestSearchPaths:
 class TestVaultWording:
     def test_a_created_vault_counts_its_secrets(self) -> None:
         result = VaultCreated(path=Path("v"), display="./v", count=1)
-        assert render.vault_created(result) == "wrote ./v (1 secret)"
+        assert "./v" in render.vault_created(result)
+        assert "1 secret" in render.vault_created(result)
 
     def test_an_addition_and_a_replacement_read_differently(self) -> None:
         """The caller cannot tell afterwards, and it is the one thing worth reporting."""
         added = SecretSet(path=Path("v"), display="./v", name="token", replaced=False)
         replaced = SecretSet(path=Path("v"), display="./v", name="token", replaced=True)
-        assert render.secret_set(added) == "added token in ./v"
-        assert render.secret_set(replaced) == "replaced token in ./v"
+        assert render.secret_set(added).startswith("added ")
+        assert render.secret_set(replaced).startswith("replaced ")
 
     def test_a_listing_is_a_count_and_then_the_names(self) -> None:
         result = SecretListing(path=Path("v"), display="./v", names=("a", "b"))
-        assert render.secret_names(result) == "./v: 2 secrets\n  a\n  b"
+        lines = render.secret_names(result).splitlines()
+        assert "2 secrets" in lines[0]
+        assert [line.strip() for line in lines[1:]] == ["a", "b"]
 
     def test_an_empty_vault_lists_nothing_under_its_count(self) -> None:
         result = SecretListing(path=Path("v"), display="./v", names=())
-        assert render.secret_names(result) == "./v: 0 secrets"
+        assert render.secret_names(result).splitlines() == [
+            render.secret_names(result)
+        ]  # one line, no names under it
+        assert "0 secrets" in render.secret_names(result)
 
 
 class TestVaultContents:
@@ -161,7 +170,8 @@ class TestVaultContents:
         assert yaml.safe_load(render.vault_contents(self.RESULT)) == {"a": "1", "b": "2"}
 
     def test_it_is_sorted_so_two_dumps_are_safe_to_diff(self) -> None:
-        assert render.vault_contents(self.RESULT).splitlines() == ["a: '1'", "b: '2'"]
+        lines = render.vault_contents(self.RESULT).splitlines()
+        assert [line.split(":")[0] for line in lines] == ["a", "b"]
 
     def test_it_does_not_end_with_a_newline(self) -> None:
         assert not render.vault_contents(self.RESULT).endswith("\n")

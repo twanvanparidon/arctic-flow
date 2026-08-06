@@ -82,6 +82,40 @@ have, and they are the whole of what the empty suites owe:
 | `src/main.py` | running the file rather than importing it | e2e |
 | one `continue` in `execute` | a step with no inbound edge, which `validate` refuses | nothing |
 
+## Assert the decision, not the sentence
+
+A test that fails when someone improves an error message is a test that punishes an
+improvement. Assert what the code *decided*, which is almost always an identifier that came
+out of the input:
+
+```python
+match="secrets.token"                          # the reference was refused
+match="That sends the secret to the model"     # not this: it pins a sentence
+
+assert "read" in line and "tool read_file" in line     # both facts are on the line
+assert line == "→ read           tool read_file\n"     # not this: it pins a column width
+```
+
+Keep just enough of the wording to tell one refusal from another. `validate` has several
+that could fire on the same flow, so `"unknown step 'ghost'"` earns its extra words where
+`"max_attempts"` does not.
+
+Three places where the format **is** the decision, and exact strings are right:
+
+- **Bytes on a stream.** `atf run > file` producing the flow's output and nothing else.
+- **Something a script parses.** `atf --version` printing `atf 0.1.0` on a pipe.
+- **Where the formatting is the logic.** `count(1, "step")`, `_duration(60)`, `_money`.
+
+Do not assert an escape sequence. Ask the painter for it, so the decision is checked and
+the palette stays free to change:
+
+```python
+assert PAINT("--quiet", "green") in painted
+```
+
+Do not test the language. A frozen dataclass being frozen, a `default_factory` producing
+`()`, `callable(module.run)`: all true by construction, and none of them is this repo.
+
 ## Writing one
 
 Name the behaviour, not the function: `test_a_join_runs_once_one_of_its_branches_is_skipped`

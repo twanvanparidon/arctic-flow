@@ -77,7 +77,7 @@ class TestLoadAgent:
 
     def test_a_missing_prompt_file_is_an_error(self, paths: Paths, workspace: Path) -> None:
         make.write_agent(workspace, "writer", write_prompt=False)
-        with pytest.raises(FlowError, match="points at agent.md .* which is missing"):
+        with pytest.raises(FlowError, match=r"agent\.md.*missing"):
             load_agent(paths, "writer")
 
     def test_a_declared_prompt_file_that_is_missing_names_that_file(
@@ -111,11 +111,11 @@ class TestCheckPayload:
             check_payload(self.SCHEMA, {}, "read_file/spec.json")
 
     def test_a_failure_at_the_document_root_is_labelled_root(self) -> None:
-        with pytest.raises(FlowError, match="<root>: 'path' is a required property"):
+        with pytest.raises(FlowError, match="<root>:"):
             check_payload(self.SCHEMA, {}, "who")
 
     def test_a_failure_inside_the_payload_carries_its_key(self) -> None:
-        with pytest.raises(FlowError, match="max_lines: 'many' is not of type 'integer'"):
+        with pytest.raises(FlowError, match="max_lines:"):
             check_payload(self.SCHEMA, {"path": "a", "max_lines": "many"}, "who")
 
     def test_every_failure_is_reported_at_once(self) -> None:

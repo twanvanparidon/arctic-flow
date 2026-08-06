@@ -54,7 +54,7 @@ class TestCheckToolSpec:
 
     def test_the_message_says_where_the_spec_is(self, workspace: Path) -> None:
         spec, base = written(workspace, spec={"name": "sample"})
-        with pytest.raises(SpecError, match=r"\./tools/sample/spec\.json is not a runnable tool"):
+        with pytest.raises(SpecError, match=r"\./tools/sample/spec\.json"):
             check_tool_spec(spec, base, WHERE)
 
     @pytest.mark.parametrize("declared", ["", 3, None])
@@ -98,13 +98,13 @@ class TestCheckToolSpec:
     def test_a_command_that_was_never_committed_is_reported(self, workspace: Path) -> None:
         spec, base = written(workspace)
         (base / "run.sh").unlink()
-        with pytest.raises(SpecError, match=r"run\.command points at \./run\.sh, which does not"):
+        with pytest.raises(SpecError, match=r"run\.command points at \./run\.sh"):
             check_tool_spec(spec, base, WHERE)
 
     def test_a_command_that_lost_its_executable_bit_is_reported(self, workspace: Path) -> None:
         """The most common way a tool works here and fails on someone else's machine."""
         spec, base = written(workspace, executable=False)
-        with pytest.raises(SpecError, match=r"is not executable\. chmod \+x it"):
+        with pytest.raises(SpecError, match="is not executable"):
             check_tool_spec(spec, base, WHERE)
 
     def test_the_command_is_resolved_against_the_components_own_directory(
@@ -133,7 +133,7 @@ class TestCheckIsSchema:
 
     @pytest.mark.parametrize("candidate", ["object", 3, None, [], {"type": "objekt"}])
     def test_rejects_anything_else(self, candidate: object) -> None:
-        with pytest.raises(SpecError, match="subject is not a valid JSON Schema"):
+        with pytest.raises(SpecError, match="not a valid JSON Schema"):
             _check_is_schema(candidate, "subject")
 
 
@@ -164,7 +164,7 @@ class TestCheckAgentSpec:
 
     def test_an_output_schema_has_to_be_a_schema(self, echo_adapter: ModuleType) -> None:
         spec = make.agent_spec("writer", output_schema={"type": "objekt"})
-        with pytest.raises(SpecError, match="output_schema is not a valid JSON Schema"):
+        with pytest.raises(SpecError, match="output_schema"):
             check_agent_spec(spec, WHERE)
 
     def test_a_setting_the_adapter_would_reject_is_caught_here_instead(
@@ -172,7 +172,7 @@ class TestCheckAgentSpec:
     ) -> None:
         """Asked of the adapter's own schema, so adding a parameter needs no change here."""
         spec = make.agent_spec("writer", effort="colossal")
-        with pytest.raises(SpecError, match="would be rejected by adapter echo"):
+        with pytest.raises(SpecError, match="rejected by adapter echo"):
             check_agent_spec(spec, WHERE)
 
     def test_a_setting_the_adapter_accepts_passes(self, echo_adapter: ModuleType) -> None:
@@ -208,7 +208,7 @@ class TestCheckStepInput:
 
     def test_a_key_the_tool_does_not_accept_is_reported_with_what_it_does(self) -> None:
         step = {"id": "a", "input": {"text": "hello", "txt": "typo"}}
-        with pytest.raises(SpecError, match="step 'a' passes txt to strict, which does not"):
+        with pytest.raises(SpecError, match="passes txt to strict"):
             check_step_input(step, self.STRICT, WHERE)
 
     def test_two_unknown_keys_read_as_plural(self) -> None:
@@ -222,16 +222,16 @@ class TestCheckStepInput:
         assert check_step_input({"id": "a", "input": {"anything": 1}}, spec, WHERE) is None
 
     def test_a_required_key_no_template_would_have_filled_is_reported(self) -> None:
-        with pytest.raises(SpecError, match="does not pass text to strict"):
+        with pytest.raises(SpecError, match="does not pass text"):
             check_step_input({"id": "a", "input": {}}, self.STRICT, WHERE)
 
     def test_a_step_passing_nothing_at_all_is_still_checked(self) -> None:
-        with pytest.raises(SpecError, match="does not pass text to strict"):
+        with pytest.raises(SpecError, match="does not pass text"):
             check_step_input({"id": "a"}, self.STRICT, WHERE)
 
     def test_a_literal_of_the_wrong_type_is_wrong_today(self) -> None:
         step = {"id": "a", "input": {"text": "hi", "max_lines": "many"}}
-        with pytest.raises(SpecError, match="passes an invalid max_lines to strict"):
+        with pytest.raises(SpecError, match="invalid max_lines"):
             check_step_input(step, self.STRICT, WHERE)
 
     def test_a_templated_value_is_taken_on_trust(self) -> None:
@@ -254,12 +254,12 @@ class TestCheckStepInput:
     def test_a_gate_input_is_reported_as_the_gates(self) -> None:
         """Otherwise the message points at the step's own input, which is a different thing."""
         step = {"id": "a", "gate": {"tool": "strict", "input": {}}}
-        with pytest.raises(SpecError, match="step 'a' gate does not pass text"):
+        with pytest.raises(SpecError, match="gate does not pass text"):
             check_gate_input(step, self.STRICT, WHERE)
 
     def test_a_gate_that_passes_nothing_is_still_checked(self) -> None:
         step = {"id": "a", "gate": {"tool": "strict"}}
-        with pytest.raises(SpecError, match="step 'a' gate does not pass text"):
+        with pytest.raises(SpecError, match="gate does not pass text"):
             check_gate_input(step, self.STRICT, WHERE)
 
 

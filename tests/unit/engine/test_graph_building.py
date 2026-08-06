@@ -130,7 +130,7 @@ class TestLoadFlow:
     def test_anything_that_is_not_a_mapping_is_refused(self, tmp_path: Path, text: str) -> None:
         path = tmp_path / "f.yaml"
         path.write_text(text)
-        with pytest.raises(FlowError, match="must contain a YAML mapping"):
+        with pytest.raises(FlowError, match="YAML mapping"):
             load_flow(path)
 
     def test_the_message_names_the_file(self, tmp_path: Path) -> None:

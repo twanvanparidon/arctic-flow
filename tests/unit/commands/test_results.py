@@ -1,19 +1,19 @@
 """The dataclasses a command hands back.
 
-They are a contract: other front ends bind to these fields. Mostly they hold data and need
-no test, so what is here is the behaviour that is not just storage. `cost_usd` is summed in
-one place because a tool-only flow reports `None` per step, and the `or 0` that handles it
-was being forgotten in one front end out of every few.
+They are a contract, but a contract made of stored values, and asserting that a frozen
+dataclass is frozen tests Python rather than this repo. So only the two that compute
+something are here. `cost_usd` is summed in one place because a tool-only flow reports
+`None` per step, and the `or 0` that handles it was being forgotten in one front end out of
+every few.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import pytest
 
-from commands.results import FlowPlan, Inventory, PathsReport, RunResult
+from commands.results import FlowPlan, RunResult
 from paths.resolver import Paths
 
 
@@ -45,20 +45,3 @@ class TestFlowPlan:
             display="./flows/signing.yaml",
         )
         assert plan.name == "sign_release"
-
-    def test_it_carries_everything_run_needs(self, paths: Paths) -> None:
-        """`run(plan)` takes nothing else, so a plan describes the whole run."""
-        fields = {field.name for field in dataclasses.fields(FlowPlan)}
-        assert {"paths", "definition", "inputs", "vault"} <= fields
-
-
-class TestImmutability:
-    @pytest.mark.parametrize("kind", [RunResult, FlowPlan, Inventory, PathsReport])
-    def test_a_result_cannot_be_edited_after_the_fact(self, kind: type) -> None:
-        assert dataclasses.fields(kind) is not None
-        assert kind.__dataclass_params__.frozen is True
-
-    def test_a_listing_defaults_to_empty_rather_than_none(self) -> None:
-        """Empty is normal for an installation with nothing in it, and not an error."""
-        assert Inventory().kinds == ()
-        assert PathsReport().roots == ()

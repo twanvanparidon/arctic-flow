@@ -12,7 +12,6 @@ an adapter is registered.
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -22,7 +21,6 @@ import pytest
 from engine.executor import (
     DEFAULT_GATE_ATTEMPTS,
     FlowError,
-    GateOutcome,
     agent_turn,
     check_gate,
     execute,
@@ -104,16 +102,6 @@ class TestAgentTurn:
         """Credentials reach a runtime through the environment, never through the prompt."""
         result = agent_turn(echo_adapter, {"adapter": "echo"}, "s", "p", {"API_KEY": "abc"})
         assert result["environment"]["API_KEY"] == "abc"
-
-
-class TestGateOutcome:
-    def test_it_is_frozen(self) -> None:
-        outcome = GateOutcome(ok=True, text="fine")
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            outcome.ok = False  # type: ignore[misc]
-
-    def test_json_defaults_to_nothing(self) -> None:
-        assert GateOutcome(ok=True, text="fine").json is None
 
 
 class TestCheckGate:
@@ -264,10 +252,10 @@ class TestRunAgentWithAGate:
     ) -> None:
         """A gate is not a suggestion."""
         step = agent_step(prompt="never", gate=self.gate(feedback="try again", max_attempts=2))
-        with pytest.raises(
-            FlowError, match="did not pass gate 'marker' in 2 attempts. needs the word REVISED"
-        ):
+        with pytest.raises(FlowError, match="gate 'marker'") as caught:
             run_agent(step, {}, paths, {}, lambda _event: None)
+        assert "2 attempts" in str(caught.value)
+        assert "needs the word REVISED" in str(caught.value)
 
     def test_a_gated_step_reached_through_run_step_behaves_the_same(self, paths: Paths) -> None:
         result = run_step(agent_step(gate=self.gate()), {}, paths)

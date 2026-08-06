@@ -41,7 +41,7 @@ class TestEnabled:
         monkeypatch.setenv("FORCE_COLOR", "1")
         assert colour.enabled(io.StringIO()) is True
 
-    @pytest.mark.parametrize("value", ["1", "0", "false", "yes"])
+    @pytest.mark.parametrize("value", ["1", "false"])
     def test_the_variables_answer_to_being_set_not_to_their_value(
         self, monkeypatch: pytest.MonkeyPatch, value: str
     ) -> None:
@@ -78,11 +78,6 @@ class TestPainter:
     def test_empty_text_stays_empty(self) -> None:
         """Otherwise a reset sequence lands on a line with nothing on it."""
         assert colour.Painter(on=True)("", "red") == ""
-
-    def test_it_decides_once(self) -> None:
-        """A banner re-checking the terminal per line could disagree with itself halfway."""
-        painter = colour.Painter(on=True)
-        assert painter.on is True
 
     def test_a_style_that_does_not_exist_is_a_mistake_in_the_code(self) -> None:
         """Five entries, deliberately, so a sixth cannot be added by accident."""

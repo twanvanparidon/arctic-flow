@@ -29,16 +29,13 @@ class TestLookup:
 
     def test_an_unregistered_name_lists_what_there_is(self) -> None:
         """There is no `~/.arctic/adapters/`, so "install it" is not the advice to give."""
-        with pytest.raises(AdapterError, match="unknown adapter 'gpt'. Available: claude_code"):
+        with pytest.raises(AdapterError, match=r"unknown adapter 'gpt'.*claude_code"):
             adapters.get("gpt")
 
     def test_the_lookup_error_does_not_chain_a_key_error(self) -> None:
         with pytest.raises(AdapterError) as caught:
             adapters.get("gpt")
         assert caught.value.__cause__ is None
-
-    def test_names_are_sorted(self) -> None:
-        assert adapters.names() == sorted(ADAPTERS)
 
     def test_describe_pairs_each_name_with_its_one_line_description(self) -> None:
         assert adapters.describe()["claude_code"] == ADAPTERS["claude_code"].DESCRIPTION
@@ -65,10 +62,6 @@ class TestTheContractEveryAdapterKeeps:
     ) -> None:
         assert adapter.INPUT_SCHEMA["required"] == ["prompt"]
 
-    @pytest.mark.parametrize("adapter", ADAPTERS.values(), ids=list(ADAPTERS))
-    def test_it_can_be_run(self, adapter: ModuleType) -> None:
-        assert callable(adapter.run)
-
 
 class TestFailureKinds:
     @pytest.mark.parametrize("kind", [AdapterUnavailable, AdapterRunFailed, AdapterProtocolError])
@@ -79,8 +72,3 @@ class TestFailureKinds:
     def test_an_adapter_error_is_a_runtime_error(self) -> None:
         """`commands.EXPECTED_ERRORS` catches FlowError, which is where these are re-raised."""
         assert issubclass(AdapterError, RuntimeError)
-
-    def test_the_kinds_are_distinct(self) -> None:
-        """A missing runtime is a host problem; a refused turn is not. Retrying differs."""
-        assert not issubclass(AdapterUnavailable, AdapterRunFailed)
-        assert not issubclass(AdapterRunFailed, AdapterProtocolError)

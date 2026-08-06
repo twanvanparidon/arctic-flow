@@ -68,14 +68,14 @@ class TestResolvePassword:
         )
 
     def test_a_password_file_that_is_not_there_is_reported(self, tmp_path: Path) -> None:
-        with pytest.raises(VaultError, match="cannot read a password from"):
+        with pytest.raises(VaultError, match="cannot read a password"):
             resolve_password(tmp_path / "absent", env={})
 
     @pytest.mark.parametrize("contents", ["", "\n", "   \n"])
     def test_an_empty_password_file_is_refused(self, tmp_path: Path, contents: str) -> None:
         path = tmp_path / "pw"
         path.write_text(contents)
-        with pytest.raises(VaultError, match="cannot read a password from|is empty"):
+        with pytest.raises(VaultError, match="cannot read a password|is empty"):
             resolve_password(path, env={})
 
     def test_a_tilde_in_the_path_is_expanded(
@@ -107,7 +107,7 @@ class TestHeader:
             _parse_header(line)
 
     def test_a_format_version_this_build_does_not_know_is_refused(self) -> None:
-        with pytest.raises(VaultError, match="unsupported vault format version 2.0"):
+        with pytest.raises(VaultError, match="format version 2.0"):
             _parse_header(f"{MAGIC};2.0;AES256GCM;SCRYPT;n=16384,r=8,p=1")
 
     @pytest.mark.parametrize("suite", ["AES128GCM;SCRYPT", "AES256GCM;PBKDF2"])
@@ -122,7 +122,7 @@ class TestHeader:
 
     @pytest.mark.parametrize("params", ["n=16384,r=8", "n=16384,r=8,p=1,q=2"])
     def test_the_parameter_set_has_to_be_exactly_n_r_and_p(self, params: str) -> None:
-        with pytest.raises(VaultError, match="expected n, r and p in the header"):
+        with pytest.raises(VaultError, match="expected n, r and p"):
             _parse_header(f"{MAGIC};1.0;AES256GCM;SCRYPT;{params}")
 
 
@@ -186,7 +186,7 @@ class TestDecrypt:
     def test_the_wrong_password_does_not_say_which_of_the_two_it_was(self) -> None:
         """GCM cannot tell a wrong password from a tampered file, so it claims neither."""
         text = encrypt({"token": "abc"}, PASSWORD)
-        with pytest.raises(VaultError, match="wrong password, or the vault file has been"):
+        with pytest.raises(VaultError, match="wrong password"):
             decrypt(text, "not the password")
 
     def test_editing_the_header_fails_as_tampering(self) -> None:
@@ -194,7 +194,7 @@ class TestDecrypt:
         sending whoever hits it looking in the wrong place."""
         text = encrypt({"token": "abc"}, PASSWORD)
         tampered = text.replace("n=16384", "n=8192")
-        with pytest.raises(VaultError, match="wrong password, or the vault file has been"):
+        with pytest.raises(VaultError, match="wrong password"):
             decrypt(tampered, PASSWORD)
 
     def test_editing_the_ciphertext_fails(self) -> None:
@@ -202,7 +202,7 @@ class TestDecrypt:
         blob = bytearray(base64.b64decode("".join(lines[1:])))
         blob[-1] ^= 0xFF
         tampered = "\n".join([lines[0], base64.b64encode(bytes(blob)).decode()])
-        with pytest.raises(VaultError, match="wrong password, or the vault file has been"):
+        with pytest.raises(VaultError, match="wrong password"):
             decrypt(tampered, PASSWORD)
 
     @pytest.mark.parametrize("text", ["", "   ", "\n\n"])
@@ -215,19 +215,19 @@ class TestDecrypt:
             decrypt(f"{_format_header(DEFAULT_KDF_PARAMS)}\nnot base64 at all!\n", PASSWORD)
 
     def test_a_header_with_no_body_is_reported_as_too_short(self) -> None:
-        with pytest.raises(VaultError, match="too short to contain anything"):
+        with pytest.raises(VaultError, match="too short"):
             decrypt(f"{_format_header(DEFAULT_KDF_PARAMS)}\n", PASSWORD)
 
     def test_a_body_shorter_than_a_salt_and_a_nonce_is_reported(self) -> None:
         header = _format_header(DEFAULT_KDF_PARAMS)
         short = base64.b64encode(b"x" * 28).decode()
-        with pytest.raises(VaultError, match="too short to contain anything"):
+        with pytest.raises(VaultError, match="too short"):
             decrypt(f"{header}\n{short}\n", PASSWORD)
 
     def test_contents_that_are_not_a_mapping_are_refused(self) -> None:
         """Encrypting cannot produce this, but a hand-built file can."""
         text = _encrypted_payload(yaml.safe_dump(["a", "b"]))
-        with pytest.raises(VaultError, match="must be a mapping of name to value"):
+        with pytest.raises(VaultError, match="must be a mapping"):
             decrypt(text, PASSWORD)
 
     def test_a_value_left_blank_reads_as_an_empty_string(self) -> None:

@@ -131,47 +131,49 @@ class TestHelpColouring:
 
     def test_the_program_name_is_painted_once_in_the_usage_line(self) -> None:
         painted = colourise_help("usage: atf run atf\n", PAINT, "atf")
-        assert painted.count("\033[36matf\033[0m") == 1
+        assert painted.count(PAINT("atf", "cyan")) == 1
 
     def test_a_heading_is_bold(self) -> None:
-        assert colourise_help("options:", PAINT, "atf") == "\033[1moptions:\033[0m"
+        assert colourise_help("options:", PAINT, "atf") == PAINT("options:", "bold")
 
     def test_a_flag_in_an_entry_is_green(self) -> None:
         painted = colourise_help("options:\n  -q, --quiet  no progress\n", PAINT, "atf")
-        assert "\033[32m--quiet\033[0m" in painted
+        assert PAINT("--quiet", "green") in painted
 
     def test_the_help_text_beside_a_flag_is_left_alone(self) -> None:
         painted = colourise_help("options:\n  -q, --quiet  no progress", PAINT, "atf")
-        assert painted.endswith("\033[0m  no progress")
+        assert painted.endswith("  no progress")
 
     def test_wrapped_help_text_is_not_painted_as_if_it_were_a_name(self) -> None:
         """It starts far to the right, past the entry indent, so the indent is the test."""
         text = "options:\n  --vault FILE  first line\n" + " " * 20 + "--second line\n"
-        assert "\033[32m--second" not in colourise_help(text, PAINT, "atf")
+        assert PAINT("--second", "green") not in colourise_help(text, PAINT, "atf")
 
     def test_a_metavar_recedes_and_the_flag_does_not(self) -> None:
         """A flag is something you type; a metavar is a placeholder for something you supply."""
         assert paint_invocation("--vault FILE", PAINT) == (
-            "\033[32m--vault\033[0m \033[2mFILE\033[0m"
+            f"{PAINT('--vault', 'green')} {PAINT('FILE', 'dim')}"
         )
 
     def test_a_subcommand_name_is_paintable_too(self) -> None:
-        assert paint_invocation("run", PAINT) == "\033[32mrun\033[0m"
+        assert paint_invocation("run", PAINT) == PAINT("run", "green")
 
     def test_a_comma_stays_outside_the_colour(self) -> None:
         """Otherwise the reset lands after the comma and the separator is coloured."""
         assert paint_invocation("-q, --quiet", PAINT) == (
-            "\033[32m-q\033[0m, \033[32m--quiet\033[0m"
+            f"{PAINT('-q', 'green')}, {PAINT('--quiet', 'green')}"
         )
 
     def test_double_spacing_inside_an_invocation_survives(self) -> None:
         """argparse pads some entries, and an empty token is not a name to paint."""
-        assert paint_invocation("run  DIR", PAINT) == "\033[32mrun\033[0m  \033[2mDIR\033[0m"
+        assert paint_invocation("run  DIR", PAINT) == (
+            f"{PAINT('run', 'green')}  {PAINT('DIR', 'dim')}"
+        )
 
     def test_a_usage_line_that_wrapped_is_still_painted(self) -> None:
         """Usage runs to several lines on a narrow terminal, and the flags are on all of them."""
         painted = colourise_help("usage: atf run\n             [--trace]", PAINT, "atf")
-        assert "\033[32m--trace\033[0m" in painted
+        assert PAINT("--trace", "green") in painted
 
 
 class TestHelpOutput:

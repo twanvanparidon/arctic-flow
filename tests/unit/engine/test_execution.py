@@ -53,7 +53,7 @@ class TestCheckInputs:
         assert check_inputs({"inputs": self.DECLARED}, {"path": "a"}) == {"path": "a"}
 
     def test_an_input_the_flow_never_declared_is_refused(self) -> None:
-        with pytest.raises(FlowError, match=r"unknown input 'depht' \(declared: path, depth, note"):
+        with pytest.raises(FlowError, match=r"unknown input 'depht'.*path, depth, note"):
             check_inputs({"inputs": self.DECLARED}, {"path": "a", "depht": 1})
 
     def test_a_flow_declaring_nothing_says_so(self) -> None:
@@ -104,7 +104,7 @@ class TestChosenTargets:
     def test_an_unmatched_value_with_no_default_fails_the_step(self) -> None:
         """Silently ending the flow would look like success. This is the loud alternative."""
         step = {"id": "a", "switch": "{{ this.text }}", "cases": {"yes": ["b"]}}
-        with pytest.raises(FlowError, match="switched on 'maybe', which matches no case"):
+        with pytest.raises(FlowError, match="switched on 'maybe'"):
             chosen_targets(step, {"text": "maybe"}, {}, {})
 
     def test_a_case_that_ends_the_flow_delivers_nowhere(self) -> None:
@@ -145,7 +145,7 @@ class TestRunStep:
     ) -> None:
         make.write_tool(workspace, "echo")
         step = {"id": "a", "tool": "echo", "secrets": ["token"]}
-        with pytest.raises(FlowError, match="wants secrets but no vault is open"):
+        with pytest.raises(FlowError, match="no vault is open"):
             run_step(step, {}, paths)
 
     def test_a_secret_the_vault_does_not_hold_is_refused(
