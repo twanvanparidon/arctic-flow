@@ -89,8 +89,7 @@ class Progress:
                 self._line("✓", step, self._finished_detail(event), style="green")
         elif kind == "gated":
             # Only a rejection earns a line. A gate that passed is followed straight away
-            # by the step's own ✓, and the step is still running either way, so its clock
-            # keeps ticking on the status line below.
+            # by the step's own ✓.
             if not event.get("ok"):
                 with self._lock:
                     self._line("⟲", step, self._gate_detail(event), dim=True)

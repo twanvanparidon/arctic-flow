@@ -191,11 +191,7 @@ def check_step_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> 
 
 
 def check_gate_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> None:
-    """The same, for the tool a step's gate runs.
-
-    `{{ this.* }}` is what a gate input is usually made of, and it is a template like any
-    other here: present, and otherwise not examined.
-    """
+    """The same, for the tool a step's gate runs."""
     _check_input(f"step '{step['id']}' gate", step["gate"].get("input") or {}, spec, where)
 
 

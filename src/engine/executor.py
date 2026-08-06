@@ -53,8 +53,7 @@ START = "__start__"
 
 SKIPPED_RESULT = {"skipped": True, "text": "(not run)", "json": None}
 
-# How many turns a gated step gets when it does not say. Three is one answer plus two
-# chances to act on what the gate said, which is where the returns flatten out.
+# One answer plus two chances to act on what the gate said, where the returns flatten out.
 DEFAULT_GATE_ATTEMPTS = 3
 
 
@@ -293,10 +292,8 @@ def load_flow(path: Path) -> dict[str, Any]:
 def check_gate_shape(sid: str, step: dict[str, Any]) -> None:
     """A gate's own keys, before any of them is resolved.
 
-    Two of these are refusals rather than type checks. A gate retries the step it guards,
-    so a tool step could only be handed the same input again and return the same answer,
-    and a gate with nothing to say would produce the identical prompt a second time. Both
-    spend the attempts to arrive back where they started.
+    Two of these refuse a retry that could only arrive back where it started, rather than
+    checking a type. Each message carries its own reason.
     """
     if "tool" in step:
         raise FlowError(
@@ -317,8 +314,7 @@ def check_gate_shape(sid: str, step: dict[str, Any]) -> None:
     if "max_attempts" not in gate:
         return
     allowed = gate["max_attempts"]
-    # YAML 1.1 reads `yes` as True, and bool is an int in Python, so the type check has to
-    # rule it out first or `max_attempts: yes` would pass as 1.
+    # YAML 1.1 reads `yes` as True and a bool is an int, so `max_attempts: yes` passes as 1.
     if isinstance(allowed, bool) or not isinstance(allowed, int) or allowed < 2:
         raise FlowError(
             f"step '{sid}' gate max_attempts must be an integer of 2 or more. One attempt "
@@ -421,8 +417,7 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
         raise FlowError(f"steps form a cycle: {', '.join(sorted(remaining))}")
 
     # A template may read inputs, or a step that is genuinely upstream of it. `this` is the
-    # running step's own result, so it means something only in a switch or a gate, and
-    # `gate` is what the gate said, which exists only in the feedback that answers it.
+    # running step's own result, in a switch or a gate. `gate` is what the gate then said.
     declared_inputs = set((flow.get("inputs") or {}).keys())
 
     def check_refs(
@@ -482,9 +477,8 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 raise FlowError(f"step '{sid}' references unknown namespace '{root}'")
 
     for sid, step in by_id.items():
-        # An agent step's body is model-facing because its prompt is in there. Which is
-        # why the gate is checked apart from it: half of a gate reaches the model and half
-        # of it does not.
+        # An agent step's body is model-facing: its prompt is in there. The gate is checked
+        # apart from it because half of a gate reaches the model and half does not.
         to_model = "agent" in step
         body = {k: v for k, v in step.items() if k not in ("id", "switch", "gate")}
         check_refs(sid, template_refs(body), to_model=to_model)
@@ -545,8 +539,8 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
             load_agent(paths, step["agent"])
             specs.check_agent_spec(spec, paths.display(base / "spec.json"))
 
-            # A gate is a tool run, held to the tool contract in full. Otherwise the first
-            # thing to discover a gate that cannot run is the answer it was meant to check.
+            # A gate is a tool run, held to the tool contract in full. Otherwise a gate that
+            # cannot run is discovered by the answer it was meant to check.
             if "gate" in step:
                 gate_base, gate_spec = load_component(paths, "tool", step["gate"]["tool"])
                 gate_where = paths.display(gate_base / "spec.json")
@@ -580,8 +574,7 @@ class GateOutcome:
     """What a gate said about the result it was given.
 
     `text` is what the next attempt is told, so it is the tool's own output rather than
-    the engine's summary of it. `json` is that output parsed when it parses, which is how
-    a gate reporting structured findings stays readable in a feedback template.
+    the engine's summary of it. `json` is there for a gate that reports structured findings.
     """
 
     ok: bool
@@ -877,8 +870,7 @@ def execute(
                     "pushed_to": targets,
                     "cost_usd": results[sid].get("cost_usd"),
                 }
-                # Only where a gate ran. A key reading `null` on every step of every
-                # ungated flow says nothing and is in the way of what the trace is for.
+                # Only where a gate ran: `null` on every step of every other flow is noise.
                 if results[sid].get("attempts"):
                     entry["attempts"] = results[sid]["attempts"]
                 trace.append(entry)
