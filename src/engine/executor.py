@@ -14,6 +14,12 @@ instead of waiting forever for a branch the flow never entered.
 
 A skipped step still resolves in templates, as the literal "(not run)", so a prompt can
 acknowledge the gap rather than silently omitting it.
+
+An agent step may also carry a `gate`: a tool that has to accept the result before it is
+pushed anywhere. A rejection is not a failure. The step runs again with what the gate said
+appended to its prompt, until the gate passes or the attempts run out. That loop is inside
+the step, not in the graph, because the graph has no cycles and every turn is a fresh
+session: the retry has to carry its own history.
 """
 
 from __future__ import annotations
@@ -27,7 +33,9 @@ import time
 from collections import defaultdict
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import yaml
@@ -44,6 +52,10 @@ TEMPLATE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 START = "__start__"
 
 SKIPPED_RESULT = {"skipped": True, "text": "(not run)", "json": None}
+
+# How many turns a gated step gets when it does not say. Three is one answer plus two
+# chances to act on what the gate said, which is where the returns flatten out.
+DEFAULT_GATE_ATTEMPTS = 3
 
 
 class FlowError(RuntimeError):
@@ -136,14 +148,18 @@ def check_payload(schema: dict[str, Any], payload: dict[str, Any], who: str) -> 
         raise FlowError(f"input rejected by {who}: {detail}")
 
 
-def invoke(
+def spawn(
     base: Path,
     spec: dict[str, Any],
     payload: dict[str, Any],
     paths: Paths,
     secrets: dict[str, str] | None = None,
-) -> str:
+) -> subprocess.CompletedProcess[str]:
     """Validate the payload against the component's own schema, then run it.
+
+    The exit code is handed back rather than judged here, because the two callers read it
+    differently: a tool step treats anything but 0 as a failed run, a gate treats it as the
+    verdict and wants the output either way.
 
     `secrets` go into the child's environment and nowhere else, and only the names the
     step declared are present. A component cannot read a secret it was not granted.
@@ -154,7 +170,7 @@ def invoke(
     timeout = run.get("timeout_seconds", 60)
     command = [str((base / run["command"][0]).resolve()), *run["command"][1:]]
     try:
-        proc = subprocess.run(
+        return subprocess.run(
             command,
             input=json.dumps(payload),
             text=True,
@@ -166,13 +182,27 @@ def invoke(
     except subprocess.TimeoutExpired as exc:
         raise FlowError(f"{spec['name']} exceeded its {timeout}s timeout") from exc
 
+
+def exit_summary(spec: dict[str, Any], proc: subprocess.CompletedProcess[str]) -> str:
+    """What a non-zero exit meant, in the component's own words where it has them."""
+    meaning = spec.get("exit_codes", {}).get(str(proc.returncode), "unspecified exit code")
+    stderr = proc.stderr.strip().splitlines()
+    return f"{spec['name']} failed (exit {proc.returncode}: {meaning})" + (
+        f". {stderr[-1]}" if stderr else ""
+    )
+
+
+def invoke(
+    base: Path,
+    spec: dict[str, Any],
+    payload: dict[str, Any],
+    paths: Paths,
+    secrets: dict[str, str] | None = None,
+) -> str:
+    """Run a component and return its stdout. Any exit but 0 fails the step."""
+    proc = spawn(base, spec, payload, paths, secrets)
     if proc.returncode != 0:
-        meaning = spec.get("exit_codes", {}).get(str(proc.returncode), "unspecified exit code")
-        stderr = proc.stderr.strip().splitlines()
-        raise FlowError(
-            f"{spec['name']} failed (exit {proc.returncode}: {meaning})"
-            + (f". {stderr[-1]}" if stderr else "")
-        )
+        raise FlowError(exit_summary(spec, proc))
     return proc.stdout
 
 
@@ -260,6 +290,42 @@ def load_flow(path: Path) -> dict[str, Any]:
     return flow
 
 
+def check_gate_shape(sid: str, step: dict[str, Any]) -> None:
+    """A gate's own keys, before any of them is resolved.
+
+    Two of these are refusals rather than type checks. A gate retries the step it guards,
+    so a tool step could only be handed the same input again and return the same answer,
+    and a gate with nothing to say would produce the identical prompt a second time. Both
+    spend the attempts to arrive back where they started.
+    """
+    if "tool" in step:
+        raise FlowError(
+            f"step '{sid}' has a gate, but it runs the tool '{step['tool']}'. A gate retries "
+            "its step, and a tool given the same input returns the same result. Gates apply "
+            "to agent steps"
+        )
+
+    gate = step["gate"]
+    if not isinstance(gate, dict):
+        raise FlowError(f"step '{sid}' gate must be a mapping with a 'tool' and a 'feedback'")
+
+    for field in ("tool", "feedback"):
+        value = gate.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise FlowError(f"step '{sid}' gate needs a '{field}'")
+
+    if "max_attempts" not in gate:
+        return
+    allowed = gate["max_attempts"]
+    # YAML 1.1 reads `yes` as True, and bool is an int in Python, so the type check has to
+    # rule it out first or `max_attempts: yes` would pass as 1.
+    if isinstance(allowed, bool) or not isinstance(allowed, int) or allowed < 2:
+        raise FlowError(
+            f"step '{sid}' gate max_attempts must be an integer of 2 or more. One attempt "
+            "leaves no turn to act on the feedback, which is what a gate is for"
+        )
+
+
 def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
     for field in ("flow", "start", "steps"):
         if field not in flow:
@@ -291,6 +357,8 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 f"step '{sid}' sets both 'push' and 'switch'. A step either hands its result "
                 "onward unconditionally or chooses one branch, not both"
             )
+        if "gate" in step:
+            check_gate_shape(sid, step)
         by_id[sid] = step
 
     if flow["start"] not in by_id:
@@ -352,19 +420,34 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
     if remaining:
         raise FlowError(f"steps form a cycle: {', '.join(sorted(remaining))}")
 
-    # A template may read inputs, or a step that is genuinely upstream of it. `this`
-    # is the running step's own result and is only meaningful in a switch.
+    # A template may read inputs, or a step that is genuinely upstream of it. `this` is the
+    # running step's own result, so it means something only in a switch or a gate, and
+    # `gate` is what the gate said, which exists only in the feedback that answers it.
     declared_inputs = set((flow.get("inputs") or {}).keys())
 
-    def check_refs(sid: str, refs: list[str], allow_this: bool) -> None:
+    def check_refs(
+        sid: str,
+        refs: list[str],
+        *,
+        allow_this: bool = False,
+        allow_gate: bool = False,
+        to_model: bool = False,
+    ) -> None:
         upstream = ancestors_of(sid, inbound)
         for ref in refs:
             root, _, rest = ref.partition(".")
             if root == "this":
                 if not allow_this:
                     raise FlowError(
-                        f"step '{sid}' uses {{{{ this.* }}}} outside its switch. 'this' is only "
-                        "available when choosing a branch from the step's own result"
+                        f"step '{sid}' uses {{{{ this.* }}}} outside its switch or gate. 'this' "
+                        "is the step's own result, so it exists only where that result already "
+                        "does"
+                    )
+            elif root == "gate":
+                if not allow_gate:
+                    raise FlowError(
+                        f"step '{sid}' uses {{{{ gate.* }}}} outside its gate feedback. What "
+                        "the gate said exists only once it has rejected a result"
                     )
             elif root == "inputs":
                 if rest.split(".")[0] not in declared_inputs:
@@ -380,7 +463,7 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                     )
             elif root == "secrets":
                 name = rest.split(".")[0]
-                if "agent" in by_id[sid]:
+                if to_model:
                     # Templating a secret into a prompt sends it to the model, and it is
                     # then in the conversation for the rest of the session. A step's
                     # secrets still reach its adapter through the environment.
@@ -399,10 +482,26 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 raise FlowError(f"step '{sid}' references unknown namespace '{root}'")
 
     for sid, step in by_id.items():
-        body = {k: v for k, v in step.items() if k not in ("id", "switch")}
-        check_refs(sid, template_refs(body), allow_this=False)
+        # An agent step's body is model-facing because its prompt is in there. Which is
+        # why the gate is checked apart from it: half of a gate reaches the model and half
+        # of it does not.
+        to_model = "agent" in step
+        body = {k: v for k, v in step.items() if k not in ("id", "switch", "gate")}
+        check_refs(sid, template_refs(body), to_model=to_model)
         if step.get("switch"):
-            check_refs(sid, template_refs(step["switch"]), allow_this=True)
+            check_refs(sid, template_refs(step["switch"]), allow_this=True, to_model=to_model)
+        gate = step.get("gate")
+        if gate:
+            # A gate's input is a tool's input, so a secret the step declared may be
+            # templated into it. Its feedback becomes the next prompt, so one may not.
+            check_refs(sid, template_refs(gate.get("input") or {}), allow_this=True)
+            check_refs(
+                sid,
+                template_refs(gate["feedback"]),
+                allow_this=True,
+                allow_gate=True,
+                to_model=True,
+            )
 
     # Shape before contents. `output: "{{ steps.x.text }}"` is the natural typo for
     # `output: {template: ...}`, and without this it reached .get() on a str and came out as
@@ -445,6 +544,14 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
             # reported here too.
             load_agent(paths, step["agent"])
             specs.check_agent_spec(spec, paths.display(base / "spec.json"))
+
+            # A gate is a tool run, held to the tool contract in full. Otherwise the first
+            # thing to discover a gate that cannot run is the answer it was meant to check.
+            if "gate" in step:
+                gate_base, gate_spec = load_component(paths, "tool", step["gate"]["tool"])
+                gate_where = paths.display(gate_base / "spec.json")
+                specs.check_tool_spec(gate_spec, gate_base, gate_where)
+                specs.check_gate_input(step, gate_spec, gate_where)
         except specs.SpecError as exc:
             raise FlowError(str(exc)) from exc
 
@@ -468,11 +575,58 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class GateOutcome:
+    """What a gate said about the result it was given.
+
+    `text` is what the next attempt is told, so it is the tool's own output rather than
+    the engine's summary of it. `json` is that output parsed when it parses, which is how
+    a gate reporting structured findings stays readable in a feedback template.
+    """
+
+    ok: bool
+    text: str
+    json: Any = None
+
+
+def check_gate(
+    gate: dict[str, Any],
+    result: dict[str, Any],
+    context: dict[str, Any],
+    paths: Paths,
+    secrets: dict[str, str],
+) -> GateOutcome:
+    """Run a step's gate against the result the step just produced.
+
+    Exit 0 passes. Anything else is a verdict rather than a broken run, so the output is
+    kept and handed back instead of raised: what the check printed is all the next attempt
+    has to go on. Both streams are read, because a check that prints its findings and one
+    that prints a single line on the way out are equally common.
+
+    A gate that is itself broken reports its own error through the same path. That spends
+    the attempts before the step fails, which is the price of letting any tool be a gate.
+    """
+    base, spec = load_component(paths, "tool", gate["tool"])
+    gate_context = {**context, "this": result, "secrets": secrets}
+    payload = {
+        key: render(value, gate_context) if isinstance(value, str) else value
+        for key, value in (gate.get("input") or {}).items()
+    }
+    proc = spawn(base, spec, payload, paths, secrets=secrets)
+    parsed = maybe_json(proc.stdout)
+    if proc.returncode == 0:
+        return GateOutcome(ok=True, text=proc.stdout, json=parsed)
+
+    said = "\n".join(part for part in (proc.stdout.strip(), proc.stderr.strip()) if part)
+    return GateOutcome(ok=False, text=said or exit_summary(spec, proc), json=parsed)
+
+
 def run_step(
     step: dict[str, Any],
     context: dict[str, Any],
     paths: Paths,
     vault: Vault | None = None,
+    notify: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     granted: dict[str, str] = {}
     if step.get("secrets"):
@@ -495,13 +649,83 @@ def run_step(
         stdout = invoke(base, spec, payload, paths, secrets=granted)
         return {"text": stdout, "json": maybe_json(stdout)}
 
+    return run_agent(step, context, paths, granted, notify or (lambda _event: None))
+
+
+def run_agent(
+    step: dict[str, Any],
+    context: dict[str, Any],
+    paths: Paths,
+    secrets: dict[str, str],
+    notify: Callable[[dict[str, Any]], None],
+) -> dict[str, Any]:
+    """An agent turn, repeated while the step's gate rejects the answer.
+
+    Without a gate this runs once and the loop is not a loop. With one, a rejected answer
+    is not an error: the next turn gets the original prompt plus the gate's `feedback`,
+    which is where `{{ gate.text }}` and the rejected `{{ this.text }}` go. The prompt has
+    to carry that itself, because each turn is a fresh session with no memory of the last.
+    """
     agent, system = load_agent(paths, step["agent"])
     try:
         adapter = adapters.get(agent["adapter"])
     except adapters.AdapterError as exc:
         raise FlowError(str(exc)) from exc
 
-    payload: dict[str, Any] = {"prompt": render(step["prompt"], context), "system": system}
+    gate = step.get("gate")
+    allowed = (gate or {}).get("max_attempts", DEFAULT_GATE_ATTEMPTS)
+    first = render(step["prompt"], context)
+    prompt = first
+    spent = 0.0
+    attempt = 0
+
+    while True:
+        attempt += 1
+        result = agent_turn(adapter, agent, system, prompt, secrets)
+        if gate is None:
+            return result
+
+        # Every attempt was paid for. The envelope only carries what the last turn cost,
+        # so a gated step reports the total or the trace under-counts a retried step.
+        spent += result.get("cost_usd") or 0.0
+        result["cost_usd"] = spent
+        result["attempts"] = attempt
+
+        outcome = check_gate(gate, result, context, paths, secrets)
+        notify(
+            {
+                "kind": "gated",
+                "step": step["id"],
+                "tool": gate["tool"],
+                "attempt": attempt,
+                "of": allowed,
+                "ok": outcome.ok,
+            }
+        )
+        if outcome.ok:
+            return result
+        if attempt >= allowed:
+            # execute() prefixes the step id onto step failures, so don't repeat it.
+            raise FlowError(
+                f"did not pass gate '{gate['tool']}' in {allowed} attempts. {outcome.text}"
+            )
+        feedback_context = {
+            **context,
+            "this": result,
+            "gate": {"text": outcome.text, "json": outcome.json},
+        }
+        prompt = f"{first}\n\n{render(gate['feedback'], feedback_context)}"
+
+
+def agent_turn(
+    adapter: ModuleType,
+    agent: dict[str, Any],
+    system: str,
+    prompt: str,
+    secrets: dict[str, str],
+) -> dict[str, Any]:
+    """One turn through the agent's adapter, as the normalised envelope plus `json`."""
+    payload: dict[str, Any] = {"prompt": prompt, "system": system}
     for key in ("model", "effort", "max_budget_usd"):
         if agent.get(key) is not None:
             payload[key] = agent[key]
@@ -512,7 +736,7 @@ def run_step(
 
     check_payload(adapter.INPUT_SCHEMA, payload, f"adapter {adapter.NAME}")
     try:
-        envelope = adapter.run(payload, child_environment(granted))
+        envelope = adapter.run(payload, child_environment(secrets))
     except adapters.AdapterError as exc:
         raise FlowError(f"{adapter.NAME}: {exc}") from exc
 
@@ -616,7 +840,7 @@ def execute(
                 # Snapshot at submit time: everything upstream has already resolved,
                 # so a step never observes a partial result.
                 context = {"inputs": inputs, "steps": dict(results)}
-                running[pool.submit(run_step, by_id[sid], context, paths, vault)] = (
+                running[pool.submit(run_step, by_id[sid], context, paths, vault, notify)] = (
                     sid,
                     time.monotonic(),
                 )
@@ -653,6 +877,10 @@ def execute(
                     "pushed_to": targets,
                     "cost_usd": results[sid].get("cost_usd"),
                 }
+                # Only where a gate ran. A key reading `null` on every step of every
+                # ungated flow says nothing and is in the way of what the trace is for.
+                if results[sid].get("attempts"):
+                    entry["attempts"] = results[sid]["attempts"]
                 trace.append(entry)
                 notify({"kind": "finished", "is_switch": "switch" in by_id[sid], **entry})
 
