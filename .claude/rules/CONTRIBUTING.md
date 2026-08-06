@@ -53,10 +53,18 @@ fits. No bare `except`, no mutable default arguments, no unused parameter kept "
 
 New code needs tests. Follow [TESTING.md](TESTING.md).
 
-The short version: **no mocks and no stubs.** A tool test writes a real tool directory and
-lets the engine spawn a real process. A vault test encrypts with real scrypt. A test about
-`isatty()` opens a real pseudo-terminal. TESTING.md says what the three exceptions are and
-why each one is not a mock.
+The short version, and it differs by suite:
+
+- **`tests/unit`: no doubles at all.** A tool test writes a real tool directory and lets the
+  engine spawn a real process. A vault test encrypts with real scrypt. A test about
+  `isatty()` opens a real pseudo-terminal.
+- **`tests/integration`: fakes, stubs and mocks are all fine, in that order of preference.**
+  A fake is a working implementation and can still fail for a real reason, so reach for it
+  first. A stub only answers. A mock asserts on how the code went about something rather
+  than on what it decided, so it comes last.
+
+TESTING.md has the taxonomy, the three things a unit test may still do, and why none of
+them is a double.
 
 `tests/unit` is written. `tests/integration` and `tests/e2e` are still empty, so a change
 that needs one of those cannot be covered today. Say so rather than skipping it quietly.

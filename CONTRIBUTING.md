@@ -56,6 +56,29 @@ Start with the two examples. `examples/sign-release` is tool-only and demonstrat
 vault: no credentials, no network, deterministic. `examples/file-review` uses agents, so
 it costs money and needs the `claude` CLI authenticated.
 
+### A virtual environment
+
+Only the tools need one. The engine runs on its three runtime dependencies, which a system
+Python often already has. `pytest` and `ruff` are neither runtime dependencies nor usually
+installed, so the gate has nowhere to get them.
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[test,lint]"
+```
+
+`-e` puts `atf` on your PATH pointing at the checkout, so every `atf …` in this file works
+without the `python3 src/main.py` prefix.
+
+On Debian and Ubuntu this fails until `sudo apt install python3-venv python3-pip`: the
+distro ships the standard library without `ensurepip`. Add `--system-site-packages` to reuse
+what apt already installed, which saves building a wheel from source on a new Python.
+
+It is also how your versions come to match CI's. A distro `jsonschema` can be several minor
+versions behind what `pip` resolves, and the engine's validation messages come out of that
+library.
+
 ## Layout
 
 ```
@@ -70,7 +93,7 @@ src/builtin/             tools that ship with the engine
 src/util/                ways of looking at a flow without running it
 examples/                self-contained sample projects
 packaging/               build recipe, PyInstaller spec, release and install scripts
-tests/                   unit (written), integration and e2e (empty for now)
+tests/                   unit and integration (written), e2e (empty for now)
 ```
 
 `cli/` renders; `engine/` decides. The engine emits events and never formats
@@ -165,18 +188,33 @@ done
 `ruff` settings live in `pyproject.toml`. Line length is 100. The default 88 wanted 229
 lines of churn against code written to a wider measure.
 
-`pip install ".[lint]"` for ruff, `".[test]"` for pytest. Neither is a runtime dependency.
+`ruff`, `pytest` and `coverage` come from the two extras, installed together by the
+`pip install -e` above. None is a runtime dependency, so none of them ships.
+
+The pipeline runs the same commands, plus `coverage` and `--junitxml`. It puts the counts
+and the coverage table on the run page, and uploads the JUnit XML and an HTML coverage
+report as artifacts. Coverage never fails the build.
 
 ## Tests
 
-`tests/unit` is written and runs in a few seconds. `tests/integration` and `tests/e2e` are
-still empty. How the suite is built, and what belongs in which of the three, is in
-`.claude/rules/TESTING.md`.
+`tests/unit` and `tests/integration` are written and run in under half a minute.
+`tests/e2e` is still empty. How the suite is built, and what belongs in which of the three,
+is in `.claude/rules/TESTING.md`.
 
-The short version: no mocks. A tool test writes a real tool directory and the engine spawns
-a real process; a vault test encrypts with real scrypt and AES-GCM; a test about `isatty()`
-opens a real pseudo-terminal. The failures worth catching are the ones a substitute cannot
-have.
+**A unit test uses no doubles.** A tool test writes a real tool directory and the engine
+spawns a real process; a vault test encrypts with real scrypt and AES-GCM; a test about
+`isatty()` opens a real pseudo-terminal. The failures worth catching there are the ones a
+substitute cannot have: a lost executable bit, a process that outlives its timeout, a secret
+in an environment it was not granted.
+
+**An integration test may use a fake, a stub or a mock, and should prefer them in that
+order.** A fake is a working implementation, so it can still fail for a real reason. A stub
+only answers. A mock asserts on how the code went about something rather than on what it
+decided, so it is the last resort.
+
+The one in the tree today is a fake: `tests/support/fake_claude.py` speaks the Claude Code
+CLI's protocol, so the adapter spawns a real process without an account or a network.
+`PATH=/usr/bin:/bin pytest` passes, which is how you can tell nothing reaches the real one.
 
 ## Adding a component
 

@@ -68,9 +68,13 @@ def resolve_password(password_file: Path | None = None, env: dict[str, str] | No
             continue
         path = Path(source).expanduser()
         try:
-            password = path.read_text().splitlines()[0].strip()
-        except (OSError, IndexError) as exc:
+            lines = path.read_text().splitlines()
+        except OSError as exc:
             raise VaultError(f"cannot read a password from {path}: {exc}") from exc
+        # Indexed only once it is known to have a line. Reading [0] inside the try and
+        # catching IndexError alongside OSError answered `touch pw` with "list index out of
+        # range", which is a Python message rather than an explanation.
+        password = lines[0].strip() if lines else ""
         if not password:
             raise VaultError(f"{path} is empty")
         return password

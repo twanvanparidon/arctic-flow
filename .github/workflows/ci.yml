@@ -59,13 +59,48 @@ jobs:
           python-version: '3.13'
           cache: pip
 
-      # The runtime dependencies, plus pytest from the test extra. pyproject prepends src/
-      # for a test run, so what gets imported is the checkout and not the installed copy.
-      - run: pip install --quiet ".[test]"
+      # Editable, so coverage measures src/ rather than a copy of it in site-packages, and
+      # so `atf` on PATH is this checkout.
+      - run: pip install --quiet -e ".[test]"
 
-      # The unit suite spawns real subprocesses and opens real pseudo-terminals, and needs
-      # nothing installed beyond a POSIX shell. tests/integration and tests/e2e are empty.
-      - run: pytest
+      # Two steps rather than two jobs. At twenty seconds of tests a second job would spend
+      # more on checkout and install than it saved, and one coverage file needs no
+      # combining. What the split buys is knowing which level broke without opening the log.
+      - name: Unit
+        run: coverage run -m pytest tests/unit --junitxml=reports/unit.xml
+
+      # Runs even when the unit step failed, so there is a report for both levels either
+      # way. The job is already red by then; this only decides how much is known about why.
+      - name: Integration
+        if: ${{ !cancelled() }}
+        run: |
+          coverage run --append -m pytest tests/integration \
+            --junitxml=reports/integration.xml
+
+      # Counts and coverage onto the run page itself. A failing suite is the case this
+      # exists for, so it must not be skipped when a step above it failed.
+      - name: Summarise
+        if: ${{ !cancelled() }}
+        run: |
+          python packaging/junit_summary.py \
+            reports/unit.xml reports/integration.xml >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo "## Coverage"
+            echo
+            coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+          coverage xml -o reports/coverage.xml
+          coverage html -d reports/htmlcov
+
+      # JUnit XML for anything that reads it, and the HTML report for walking a gap line by
+      # line. Coverage never fails the build: it is a number to look at, not a gate.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: test-reports
+          path: reports/
+          retention-days: 7
 
   build:
     name: Build binary

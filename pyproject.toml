@@ -71,7 +71,20 @@ select = ["E", "F", "W", "I", "UP", "B"]
 
 [project.optional-dependencies]
 lint = ["ruff==0.14.2"]
-test = ["pytest>=8.0"]
+# 7.4 for `coverage report --format=markdown`, which is what the pipeline puts in its
+# summary. TOML config needs no extra on 3.11+, where coverage reads it with tomllib.
+test = ["pytest>=8.0", "coverage>=7.4"]
+
+[tool.coverage.run]
+# The engine, not the tests and not site-packages. Without this, `coverage run` measures
+# everything imported and reports a number that is mostly other people's code.
+source = ["src"]
+
+[tool.coverage.report]
+# A file at 100% earns no row in a summary someone reads on a phone; what is missing is the
+# whole point of the table.
+skip_covered = true
+show_missing = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

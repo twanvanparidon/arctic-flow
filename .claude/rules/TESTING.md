@@ -1,20 +1,57 @@
 # Testing
 
 ```sh
-pip install ".[test]"   # pytest; the runtime dependencies come with it
-pytest                  # the whole suite, a few seconds
+pip install -e ".[test]"    # pytest; the runtime dependencies come with it
+pytest                      # everything, about twenty seconds
+pytest tests/unit -q        # the fast half, about five
 pytest tests/unit/engine -q
 pytest -k skip_propagation
+pytest -x --lf              # stop at the first failure, then rerun only what failed
 ```
 
-Configuration is `[tool.pytest.ini_options]` in `pyproject.toml`. It prepends `src` and
-`tests` to the path, so a test imports `engine` by the same name it has once installed, and
-`support` for the helpers. There is nothing to install first.
+Coverage comes with the same extra, and reads its settings from `pyproject.toml`:
 
-## No mocks
+```sh
+coverage run -m pytest && coverage report
+```
 
-Do not patch a unit under test, and do not build an object that pretends to be one of its
-collaborators. Use the real thing:
+The pipeline runs that in two steps, unit then integration with `--append`, so one file
+covers both. It never fails the build on a number: coverage is there to be looked at, and a
+floor would mostly measure how much of the code the integration suite reaches in a
+subprocess. Which is the caveat to know before reading the table. `coverage` only measures
+the process it started, and `tests/integration` spawns `python3 src/main.py` for the stream
+and vault tests, so `cli/dispatch.py` and `src/main.py` read far lower than they are.
+
+The extra is there for `pytest` itself. Nothing needs installing for the imports to resolve:
+`[tool.pytest.ini_options]` in `pyproject.toml` prepends `src` and `tests` to the path, so a
+test imports `engine` by the same name it has once installed, and `support` for the helpers.
+CONTRIBUTING.md has the virtual environment to put it all in.
+
+## Test doubles
+
+Three words, used here in their usual senses, and the difference between them decides which
+one to reach for:
+
+| | Is | Fails when |
+| --- | --- | --- |
+| **fake** | a working implementation, simplified | the contract it implements changes |
+| **stub** | canned answers, no working parts | never; it answers whatever it was told to |
+| **mock** | a recorder, asserted on afterwards | the code calls things in a different order |
+
+**In `tests/unit`, none of the three.** Use the real collaborator.
+
+**In `tests/integration`, all three are allowed, in this order: fake, then stub, then
+mock.** Prefer the fake, because it is the only one that can still fail for a real reason:
+`fake_claude.py` really parses argv and really writes JSON, so an adapter that builds the
+wrong command line is caught by it. Drop to a stub when writing a working implementation
+would cost more than the test is worth. Reach for a mock last, and only when the assertion
+genuinely is about a call happening, since a mock pins *how* the code went about something
+rather than what it decided, which is the same trap as pinning a sentence.
+
+Whichever you use, name it for what it is, and put it in `tests/support/` beside the two
+that are there.
+
+### In tests/unit, use the real thing
 
 | Instead of | Use |
 | ---------- | --- |
@@ -34,7 +71,7 @@ Where a test wants to observe something, have the real component print it. `echo
 exists so a test can see which secrets a step was actually granted; the echo adapter puts
 the payload it received in its envelope. Nothing has to watch a call happen.
 
-### The three things that are allowed, and why
+### The three things a unit test may still do
 
 **Environment control.** `monkeypatch.setenv`, `delenv` and `setattr(sys, "frozen", True)`
 set real values that real code reads. `conftest.clean_environment` uses this to remove
@@ -58,28 +95,52 @@ expected; what makes it a unit test is that one function's behaviour is what fai
 stay fast (seconds) and need nothing installed beyond a POSIX shell and Python.
 
 **`tests/integration`** is the castle rather than the blocks: whole commands, a flow from
-YAML to output, the CLI's exit codes and streams, the shipped examples. It may use a fake
-`claude` on `PATH` to exercise the adapter's `run()`, which the unit suite deliberately does
-not.
+YAML to output, which stream each byte left on, the vault from `create` to a step that
+reads it, and the shipped examples run the way the docs say to run them. A test here fails
+when two parts stop agreeing, so it goes through the CLI rather than calling a function.
 
-**`tests/e2e`** is the built binary and anything needing a controlling terminal: the
-password prompt, `vault set` reading from a tty.
+**`tests/e2e`** is the built binary, the installed `atf`, and anything needing a
+controlling terminal: the password prompt, `vault set` reading from a tty. Still empty.
 
-A thing deferred out of the unit suite is named in the module docstring that defers it, so
-the gap is written down where someone would look for it.
+A thing deferred out of a suite is named in the module docstring that defers it, so the gap
+is written down where someone would look for it.
 
-### What the unit suite deliberately does not reach
+### Running the integration suite
 
-Everything else is covered. These are the six that need something a unit test should not
-have, and they are the whole of what the empty suites owe:
+Two runners, and the choice between them is the whole design of the file you are writing:
+
+- **`atf`** calls `cli.app.main` in this process and captures both streams. Everything from
+  argv to the flow's output is real. Fast, so it is the default.
+- **`atf_process`** spawns `python3 src/main.py`. For claims only a process can make: what
+  `> file` contains, what the exit status was, what a piped stdin does. `test_streams.py`
+  also attaches pty pairs, because the frame draws only when both streams are terminals.
+
+**`fake_claude` is autouse.** The machine this was written on has the real `claude` on
+`PATH`, so without it one stray agent step would reach a real model and cost real money.
+`tests/support/fake_claude.py` speaks the protocol of `--print --output-format json` and is
+steered by the prompt: `!fail`, `!crash`, `!garbage`, `!contradiction` and `!invocation`
+reach the four failure branches and the argv report, and anything else is answered with the
+prompt itself. That last part is what makes a gate loop observable: the engine appends the
+gate's feedback to the next prompt, so the second turn really does differ from the first.
+
+A fake rather than a stub, which is the order to work down: it is a working program on the
+other side of a real pipe, so an adapter that built the wrong command line fails against it.
+A stub returning a canned envelope would have answered anyway. Prove it is not the real CLI
+the way the suite does: `PATH=/usr/bin:/bin pytest` passes, so nothing here needs one
+installed.
+
+The shipped examples need what their specs declare: `jq`, `openssl`, `xxd`, `awk`,
+`realpath`. `conftest.requires()` skips with the missing name rather than failing, since a
+machine without `jq` is an environment and not a defect. `-ra` prints every skip, so it is
+never silent.
+
+### What no suite reaches yet
 
 | Not covered | Needs | Belongs in |
 | ----------- | ----- | ---------- |
-| `claude_code.run` and the success path of `cli_version` | the `claude` binary | integration |
-| the handlers in `cli/dispatch.py` | a whole command, both streams | integration |
 | `resolve_password`'s prompt | a controlling terminal, or getpass hangs on `/dev/tty` | e2e |
-| `main`'s KeyboardInterrupt to exit 130 | a signal to a real process | e2e |
-| `src/main.py` | running the file rather than importing it | e2e |
+| `vault set` prompting for a value | the same | e2e |
+| the PyInstaller binary, and `atf` as an installed script | a build | e2e |
 | one `continue` in `execute` | a step with no inbound edge, which `validate` refuses | nothing |
 
 ## Assert the decision, not the sentence
