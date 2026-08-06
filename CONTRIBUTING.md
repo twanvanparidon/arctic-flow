@@ -56,6 +56,29 @@ Start with the two examples. `examples/sign-release` is tool-only and demonstrat
 vault: no credentials, no network, deterministic. `examples/file-review` uses agents, so
 it costs money and needs the `claude` CLI authenticated.
 
+### A virtual environment
+
+Only the tools need one. The engine runs on its three runtime dependencies, which a system
+Python often already has. `pytest` and `ruff` are neither runtime dependencies nor usually
+installed, so the gate has nowhere to get them.
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[test,lint]"
+```
+
+`-e` puts `atf` on your PATH pointing at the checkout, so every `atf …` in this file works
+without the `python3 src/main.py` prefix.
+
+On Debian and Ubuntu this fails until `sudo apt install python3-venv python3-pip`: the
+distro ships the standard library without `ensurepip`. Add `--system-site-packages` to reuse
+what apt already installed, which saves building a wheel from source on a new Python.
+
+It is also how your versions come to match CI's. A distro `jsonschema` can be several minor
+versions behind what `pip` resolves, and the engine's validation messages come out of that
+library.
+
 ## Layout
 
 ```
@@ -165,7 +188,8 @@ done
 `ruff` settings live in `pyproject.toml`. Line length is 100. The default 88 wanted 229
 lines of churn against code written to a wider measure.
 
-`pip install ".[lint]"` for ruff, `".[test]"` for pytest. Neither is a runtime dependency.
+`ruff` and `pytest` come from the two extras, installed together by the `pip install -e`
+above. Neither is a runtime dependency, so neither ships.
 
 ## Tests
 

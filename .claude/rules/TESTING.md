@@ -1,15 +1,18 @@
 # Testing
 
 ```sh
-pip install ".[test]"   # pytest; the runtime dependencies come with it
-pytest                  # the whole suite, a few seconds
+pip install -e ".[test]"    # pytest; the runtime dependencies come with it
+pytest                      # everything, about twenty seconds
+pytest tests/unit -q        # the fast half, about five
 pytest tests/unit/engine -q
 pytest -k skip_propagation
+pytest -x --lf              # stop at the first failure, then rerun only what failed
 ```
 
-Configuration is `[tool.pytest.ini_options]` in `pyproject.toml`. It prepends `src` and
-`tests` to the path, so a test imports `engine` by the same name it has once installed, and
-`support` for the helpers. There is nothing to install first.
+The extra is there for `pytest` itself. Nothing needs installing for the imports to resolve:
+`[tool.pytest.ini_options]` in `pyproject.toml` prepends `src` and `tests` to the path, so a
+test imports `engine` by the same name it has once installed, and `support` for the helpers.
+CONTRIBUTING.md has the virtual environment to put it all in.
 
 ## Test doubles
 
