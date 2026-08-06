@@ -69,7 +69,7 @@ src/adapters/            model runtimes, as Python modules
 src/builtin/             tools that ship with the engine
 src/util/                ways of looking at a flow without running it
 examples/                self-contained sample projects
-packaging/               build recipe, PyInstaller spec, release script
+packaging/               build recipe, PyInstaller spec, release and install scripts
 tests/                   unit, integration, e2e (empty for now)
 ```
 
@@ -262,6 +262,12 @@ checksum means something across rebuilds.
 
 Uploading needs no credential of its own. `gh release create` runs with the workflow's
 `GITHUB_TOKEN`, which the release job grants `contents: write`.
+
+`packaging/install.sh` is the other end of that. It reads the tag from the redirect off
+`/releases/latest`, checks the `sha256` before unpacking anything, and installs the whole
+directory with a link to the binary. Users fetch it raw from `main`, so a fix to it reaches
+them without a release, and it names the asset the way `release.sh` writes it. Renaming an
+artefact means changing both.
 
 ## House style
 
