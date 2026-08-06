@@ -70,7 +70,7 @@ src/builtin/             tools that ship with the engine
 src/util/                ways of looking at a flow without running it
 examples/                self-contained sample projects
 packaging/               build recipe, PyInstaller spec, release and install scripts
-tests/                   unit, integration, e2e (empty for now)
+tests/                   unit (written), integration and e2e (empty for now)
 ```
 
 `cli/` renders; `engine/` decides. The engine emits events and never formats
@@ -150,9 +150,10 @@ new directory under `src/` ships only when someone adds it to that list on purpo
 The pipeline runs these, so run them first:
 
 ```sh
-ruff check src packaging
-ruff format --check src packaging
+ruff check src packaging tests
+ruff format --check src packaging tests
 shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
+pytest
 
 # the engine validates flows better than any generic linter
 for flow in examples/*/flows/*.yaml; do
@@ -164,8 +165,18 @@ done
 `ruff` settings live in `pyproject.toml`. Line length is 100. The default 88 wanted 229
 lines of churn against code written to a wider measure.
 
-Tests are next; `tests/{unit,integration,e2e}` exist and the pipeline has a step waiting
-for them.
+`pip install ".[lint]"` for ruff, `".[test]"` for pytest. Neither is a runtime dependency.
+
+## Tests
+
+`tests/unit` is written and runs in a few seconds. `tests/integration` and `tests/e2e` are
+still empty. How the suite is built, and what belongs in which of the three, is in
+`.claude/rules/TESTING.md`.
+
+The short version: no mocks. A tool test writes a real tool directory and the engine spawns
+a real process; a vault test encrypts with real scrypt and AES-GCM; a test about `isatty()`
+opens a real pseudo-terminal. The failures worth catching are the ones a substitute cannot
+have.
 
 ## Adding a component
 

@@ -30,13 +30,14 @@ nothing (vault password `demo`).
 
 ### The pre-push gate
 
-CI runs exactly these; run them before pushing (`pip install ".[lint]"` for `ruff`, which
-is not a runtime dependency):
+CI runs exactly these; run them before pushing (`pip install ".[lint]"` for `ruff` and
+`".[test]"` for `pytest`, neither of which is a runtime dependency):
 
 ```sh
-ruff check src packaging
-ruff format --check src packaging
+ruff check src packaging tests
+ruff format --check src packaging tests
 shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
+pytest
 
 for flow in examples/*/flows/*.yaml; do
   project=$(dirname "$(dirname "$flow")")
@@ -44,13 +45,25 @@ for flow in examples/*/flows/*.yaml; do
 done
 ```
 
-The flow-lint loop is the substantive check: `lint` runs the same validation `run` does
-before its first step (graph, template references, component specs), so it catches far
-more than ruff can. Line length is 100, set in `pyproject.toml`.
+The flow-lint loop is the substantive check on the examples: `lint` runs the same validation
+`run` does before its first step (graph, template references, component specs), so it catches
+far more than ruff can. Line length is 100, set in `pyproject.toml`.
 
-**There are no tests.** `tests/{unit,integration,e2e}` are empty and the pipeline's test
-step is a deliberate placeholder `echo`. Enabling it means adding pytest to the `lint`
-extra in `pyproject.toml` and replacing that step.
+### Tests
+
+`tests/unit` covers every module under `../src`, function by function, and runs in a few
+seconds. `tests/integration` and `tests/e2e` are still empty.
+
+**No mocks and no stubs**, which is the rule to know before adding one. A tool test writes a
+real tool directory and the engine spawns a real process; a vault test uses real scrypt and
+AES-GCM; a test about `isatty()` opens a real pseudo-terminal via `tests/support/terminal.py`.
+`../.claude/rules/TESTING.md` has the whole convention, including the three things that are
+allowed (environment control, the real test adapter in `tests/support/adapter_echo.py`, and
+testing a private helper directly) and why none of them is a mock.
+
+`pytest` needs no install step: `[tool.pytest.ini_options]` prepends `src` and `tests` to the
+path. `tests/conftest.py` points `$HOME` at `tmp_path`, because `~/.arctic` is a real search
+root and the suite must not see what a developer has installed there.
 
 ### Build and release
 
