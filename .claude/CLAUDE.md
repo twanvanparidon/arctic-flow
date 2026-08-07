@@ -216,13 +216,31 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
 
 ## Constraints to know before changing things
 
-- **Agents cannot use tools inside a turn.** An agent declaring `tools` is refused with an
-  explanation; the engine's loop stays the only loop. Feed it a tool step's output instead.
-- **The `claude_code` adapter's flags are verified against CLI 2.1.222** and move between
+- **An agent's `tools` are the engine's tools, not its runtime's.** They reach the turn
+  over MCP, served by `atf mcp-serve`, and run through the same `invoke()` a tool step
+  uses, so containment, schema check and timeout are unchanged. A tool spec is already an
+  MCP tool definition (`name`, `description` plus its doc, `input_schema`); there is no
+  second spec. Naming a runtime's own built-ins instead would tie one agent spec to one
+  adapter.
+- **Granting a tool whose `permissions.filesystem` is `write` needs `unattended: true`**
+  on the agent spec. Nothing approves a call an agent makes for itself. That gate is why
+  `permissions` is required and `filesystem` is an enum: `"rw"` or a typo would read as
+  "not write" and open it silently.
+- **No secret reaches an in-turn tool.** Granting a tool that declares `secrets` is
+  refused, and so is a step that declares `secrets` and runs a tool-granted agent, because
+  the adapter's environment is what an in-turn call would inherit. Scoping a grant per call
+  is the follow-up that would lift this.
+- **In-turn calls are reported.** `mcp-serve --events` appends one line per call and the
+  engine forwards it to `on_event`, so a turn that read nine files does not look like one
+  silent step.
+- **The `claude_code` adapter's flags are verified against CLI 2.1.224** and move between
   releases. Check `claude --help` before adding a parameter and move
-  `VERIFIED_CLI_VERSION`. `isolate` defaults true (`--safe-mode`, so the host's CLAUDE.md,
-  skills, hooks and MCP servers stay out of a turn) and `model` should always be set,
-  because the CLI's configured default is a per-machine dependency.
+  `VERIFIED_CLI_VERSION`. `model` is required, because the CLI's configured default is a
+  per-machine dependency. `isolate` defaults true, but how it is spelled depends on the
+  turn: `--safe-mode` without tools, and `--setting-sources "" --disable-slash-commands`
+  with them, because `--safe-mode` disables MCP servers and would silently leave the agent
+  with no tools at all. That substitute is narrower than the flag it replaces, and the
+  gap is listed in `build_args`.
 - **`../src` is flat**: `cli`, `commands`, `engine`, … are top-level packages here *and* in
   `site-packages`. `[tool.setuptools.packages.find]` lists them explicitly, so a new
   directory under `../src` ships only when someone adds it on purpose. `builtin` needs its
@@ -236,5 +254,5 @@ because it was tried and failed. If you fix something subtle, leave the reason b
 
 Prefer failing loudly over doing something plausible. The engine refuses a flow that reads
 from a step it does not depend on, a switch value matching no case, an agent granted a tool
-it cannot dispatch, a release whose tag disagrees with its version. Each could have been a
-default, a guess, or a silent no-op.
+that writes without saying it is unattended, a release whose tag disagrees with its version.
+Each could have been a default, a guess, or a silent no-op.
