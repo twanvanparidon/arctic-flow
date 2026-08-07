@@ -27,6 +27,11 @@ from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 # instead of a frozen special case.
 datas = collect_data_files("builtin")
 
+# The shell completion snippets, which `atf completion` reads and prints. Package data of
+# `cli` for the same reason: this lands them at cli/completions/ inside the bundle, which is
+# where cli/complete.py looks relative to its own module path.
+datas += collect_data_files("cli", includes=["completions/*.sh"])
+
 # jsonschema reads its own distribution metadata at import time; without this the import
 # fails inside the bundle with a PackageNotFoundError.
 datas += copy_metadata("jsonschema")

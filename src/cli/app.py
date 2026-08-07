@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 import commands
-from cli import branding, colour, dispatch
+from cli import branding, colour, complete, dispatch
 from engine.executor import VARIABLE_PREFIX
 from paths.resolver import Paths
 from vault.vault import PASSWORD_ENV, PASSWORD_FILE_ENV
@@ -256,6 +256,27 @@ def build_parser() -> argparse.ArgumentParser:
         "show the search roots and their precedence",
         "Set ATF_PATH to prepend roots, for tests and one-off overrides.\n",
     )
+
+    completion = add(
+        "completion",
+        dispatch.completion,
+        "print a shell completion snippet",
+        'Add `eval "$(atf completion bash)"` to your shell startup file. It completes the\n'
+        "commands, their flags, and flow names resolved from the --workspace on the line.\n\n"
+        "It completes the installed `atf`. A checkout invoked as `python3 src/main.py` is a\n"
+        "python command as far as the shell is concerned, and is completed as one.\n",
+    )
+    completion.add_argument("shell", choices=complete.SHELLS, help="the shell to emit for")
+
+    # What that snippet calls, hidden because the shell types it and nobody else. Hidden by
+    # having no `help` at all: argparse only lists a subcommand that was given one, and
+    # `help=SUPPRESS` is the wrong way round here. It prints "==SUPPRESS==" in the listing.
+    #
+    # The words arrive after a `--`, so a flag being completed is a positional here instead
+    # of one this parser tries to understand.
+    words = sub.add_parser("__complete", add_help=False)
+    words.add_argument("words", nargs="*")
+    words.set_defaults(handler=dispatch.complete)
 
     vault = sub.add_parser(
         "vault",

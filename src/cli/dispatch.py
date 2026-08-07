@@ -29,6 +29,7 @@ import yaml
 
 import commands
 from cli import render
+from cli.complete import candidates, snippet
 from cli.output import flow_output
 from cli.progress import Progress
 from engine.executor import FlowError
@@ -195,4 +196,41 @@ def vault_view(args: argparse.Namespace, paths: Paths) -> int:
     """Decrypt to stdout. This prints secrets, which is the point of it."""
     result = commands.vault_contents(Path(args.file), paths, password_provider(args))
     print(render.vault_contents(result))
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# the shell
+# --------------------------------------------------------------------------- #
+
+
+def completion(args: argparse.Namespace, paths: Paths) -> int:
+    """Print the snippet behind `eval "$(atf completion bash)"`.
+
+    end="" because the snippet carries its own final newline. It is a file being reproduced,
+    not a message, so what is printed is what the file holds.
+    """
+    print(snippet(args.shell), end="")
+    return 0
+
+
+def complete(args: argparse.Namespace, paths: Paths) -> int:
+    """Candidate words for the shell, one per line, and never anything else.
+
+    Two rules, both about where this output lands. Every failure is answered with no
+    candidates: a traceback here would be painted over a command line someone is still
+    typing, and the shell's own filename completion is a better answer than that. The except
+    is broad on purpose, because an unreadable search root raising OSError is not worth
+    telling apart from anything else here.
+
+    And nothing at all is printed when there are no candidates. A blank line would reach
+    bash as one empty candidate, which `complete -o default` reads as an answer and stops it
+    falling back to filenames.
+    """
+    try:
+        words = candidates(args.words, paths.workspace)
+    except Exception:
+        return 0
+    for word in words:
+        print(word)
     return 0

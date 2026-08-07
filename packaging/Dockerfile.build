@@ -65,6 +65,8 @@ RUN /out/atf/atf --version \
  && grep -q read_file   /tmp/list.txt \
  && grep -q claude_code /tmp/list.txt \
  && /out/atf/atf --workspace examples/sign-release lint sign_release \
+ && /out/atf/atf completion bash | grep -q _atf_complete \
+ && /out/atf/atf --workspace examples/sign-release __complete -- run "" | grep -q '^sign_release$' \
  && ATF_VAULT_PASSWORD=demo /out/atf/atf \
       --workspace examples/sign-release run sign_release --input path=release-notes.md \
       | grep -q '^b3b7f6ca731a0de0d59f59aaf5c3ed4f6c0b7eb76cf513ae81cf5ed7a025005b  release-notes.md$' \
