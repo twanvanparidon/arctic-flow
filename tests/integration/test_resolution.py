@@ -149,6 +149,60 @@ class TestPaths:
         assert "(nothing)" in atf("--workspace", str(project), "paths").out
 
 
+class TestNamespaces:
+    """Grouping components by purpose, once every layer is real: the name a flow writes has
+    to resolve, run, and read back out of `list` the same way."""
+
+    def test_a_namespaced_tool_step_runs(self, project: Path, atf: Runner) -> None:
+        make.write_tool(project, "common/greet", script=make.prints("from the namespace"))
+        one_step(project, "common/greet")
+        assert atf("--workspace", str(project), "run", "probe").out == "from the namespace\n"
+
+    def test_a_namespace_of_any_depth_runs(self, project: Path, atf: Runner) -> None:
+        make.write_tool(project, "git/worktree/add", script=make.prints("added"))
+        one_step(project, "git/worktree/add")
+        assert atf("--workspace", str(project), "run", "probe").out == "added\n"
+
+    def test_a_namespaced_flow_is_run_by_its_qualified_name(
+        self, project: Path, atf: Runner
+    ) -> None:
+        make.write_tool(project, "greet", script=make.prints("released"))
+        one_step(project, "greet", name="release/sign")
+        assert atf("--workspace", str(project), "run", "release/sign").out == "released\n"
+
+    def test_the_leaf_alone_is_not_the_name(self, project: Path, atf: Runner) -> None:
+        """Two names, not one name with a search path of its own."""
+        make.write_tool(project, "common/greet")
+        one_step(project, "greet")
+        result = atf("--workspace", str(project), "run", "probe")
+        assert result.code != 0
+        assert "unknown tool 'greet'" in result.err
+
+    def test_a_namespaced_name_is_listed_qualified(self, project: Path, atf: Runner) -> None:
+        make.write_tool(project, "common/greet")
+        result = atf("--workspace", str(project), "list")
+        assert "common/greet" in result.out
+
+    def test_precedence_holds_for_a_namespaced_name(
+        self, project: Path, home: Path, atf: Runner
+    ) -> None:
+        make.write_tool(home / ".arctic", "common/greet", script=make.prints("from home"))
+        one_step(project, "common/greet")
+        assert atf("--workspace", str(project), "run", "probe").out == "from home\n"
+
+        make.write_tool(project, "common/greet", script=make.prints("from the project"))
+        assert atf("--workspace", str(project), "run", "probe").out == "from the project\n"
+
+    def test_a_name_that_would_leave_the_search_roots_is_refused(
+        self, project: Path, atf: Runner
+    ) -> None:
+        """`root / subdir / name` resolves whatever it is handed, so the name is checked."""
+        one_step(project, "../../../etc/passwd")
+        result = atf("--workspace", str(project), "lint", "probe")
+        assert result.code != 0
+        assert "is not a component name" in result.err
+
+
 class TestNamingAFlow:
     def test_a_name_goes_through_the_lookup(self, project: Path, atf: Runner) -> None:
         make.write_tool(project, "greet", script=make.prints("found by name"))
