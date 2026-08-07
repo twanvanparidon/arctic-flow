@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from adapters import claude_code
+from adapters import claude_code, echo
 from adapters.errors import (
     AdapterError,
     AdapterProtocolError,
@@ -27,6 +27,7 @@ from adapters.errors import (
 
 ADAPTERS: dict[str, ModuleType] = {
     claude_code.NAME: claude_code,
+    echo.NAME: echo,
 }
 
 

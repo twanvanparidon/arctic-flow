@@ -1,23 +1,29 @@
 """One agent turn, and the loop that repeats it until a tool accepts the answer.
 
-The adapter here is `support.adapter_echo`: a real adapter that answers with the prompt it
-was given. That is what makes the retry loop observable without a model. The engine appends
-the gate's feedback to the prompt for the next attempt, so the second turn produces
-genuinely different text, and a gate keyed on that text genuinely changes its verdict.
+The adapter here is `adapters.echo`, the shipped one that answers from the request instead
+of from a model. That is what makes the retry loop observable without paying for it. The
+engine appends the gate's feedback to the prompt for the next attempt, so the second turn
+produces genuinely different text, and a gate keyed on that text genuinely changes its
+verdict.
 
 `agent_turn` takes its adapter as an argument, so those tests pass the module straight in.
-`run_agent` looks one up by name, so those register it in `ADAPTERS` the way the docs say
-an adapter is registered.
+`run_agent` looks one up by name, and `echo` is in `ADAPTERS`, so nothing has to be
+registered for them.
+
+What the engine sent is read back out of an `!invocation` turn rather than off the
+envelope. An adapter's envelope is a contract every adapter keeps, and widening it so that
+one of them can be inspected would be paying for these tests in the shipped code.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
 
+from adapters import echo
 from engine import specs
 from engine.executor import (
     DEFAULT_GATE_ATTEMPTS,
@@ -55,65 +61,76 @@ def agent_step(**extra: Any) -> dict[str, Any]:
     return {"id": "draft", "agent": "writer", "prompt": "write it", **extra}
 
 
+def probe_step(**extra: Any) -> dict[str, Any]:
+    """A step whose answer is the adapter's report of how it was called."""
+    return agent_step(prompt="!invocation", **extra)
+
+
+def sent(agent: dict[str, Any], secrets: dict[str, str] | None = None) -> dict[str, Any]:
+    """One turn, reported by the adapter as it received it: `payload` and `env`."""
+    result = agent_turn(echo, agent, "be terse", "!invocation", secrets or {})
+    return json.loads(result["text"])
+
+
+def reported(result: dict[str, Any]) -> dict[str, Any]:
+    """The payload an `!invocation` turn answered with, out of a `run_agent` result.
+
+    `run_agent` resolves its adapter by name, so there is no module to hand it and no
+    envelope to read the request off. The answer is the only way back to what was sent,
+    which is the reason the directive exists.
+    """
+    return json.loads(result["text"])["payload"]
+
+
 class TestAgentTurn:
-    def test_the_prompt_and_the_system_prompt_are_what_is_sent(
-        self, echo_adapter: ModuleType
-    ) -> None:
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "be terse", "the question", {})
-        assert result["payload"] == {"prompt": "the question", "system": "be terse"}
+    def test_the_prompt_and_the_system_prompt_are_what_is_sent(self) -> None:
+        assert sent({"adapter": "echo"})["payload"] == {
+            "prompt": "!invocation",
+            "system": "be terse",
+        }
 
     def test_the_sample_covers_every_forwarded_field(self) -> None:
         """Adding a field to FORWARDED without wiring it fails here, not mid-run."""
         assert set(SETTINGS) == set(specs.FORWARDED)
 
     @pytest.mark.parametrize("field", sorted(SETTINGS))
-    def test_a_setting_the_agent_declares_is_forwarded(
-        self, echo_adapter: ModuleType, field: str
-    ) -> None:
-        agent = {"adapter": "echo", field: SETTINGS[field]}
-        result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert result["payload"][specs.FORWARDED[field]] == SETTINGS[field]
+    def test_a_setting_the_agent_declares_is_forwarded(self, field: str) -> None:
+        payload = sent({"adapter": "echo", field: SETTINGS[field]})["payload"]
+        assert payload[specs.FORWARDED[field]] == SETTINGS[field]
 
-    def test_a_setting_left_out_is_not_sent_as_null(self, echo_adapter: ModuleType) -> None:
+    def test_a_setting_left_out_is_not_sent_as_null(self) -> None:
         """The adapter's schema is closed and its defaults are its own to apply."""
         agent = {"adapter": "echo", "model": None, "effort": None}
-        result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert set(result["payload"]) == {"prompt", "system"}
+        assert set(sent(agent)["payload"]) == {"prompt", "system"}
 
-    def test_output_schema_is_translated_to_the_adapters_own_name_for_it(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_output_schema_is_translated_to_the_adapters_own_name_for_it(self) -> None:
         """Agent vocabulary stays runtime-neutral: `output_schema` in, `json_schema` out."""
-        agent = {"adapter": "echo", "output_schema": {"type": "object"}}
-        result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert result["payload"]["json_schema"] == {"type": "object"}
-        assert "output_schema" not in result["payload"]
+        payload = sent({"adapter": "echo", "output_schema": {"type": "object"}})["payload"]
+        assert payload["json_schema"] == {"type": "object"}
+        assert "output_schema" not in payload
 
-    def test_the_payload_is_checked_against_the_adapters_schema(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_the_payload_is_checked_against_the_adapters_schema(self) -> None:
         agent = {"adapter": "echo", "effort": "enormous"}
         with pytest.raises(FlowError, match="input rejected by adapter echo"):
-            agent_turn(echo_adapter, agent, "system", "prompt", {})
+            agent_turn(echo, agent, "system", "prompt", {})
 
-    def test_an_adapter_failure_is_reported_as_a_flow_error(self, echo_adapter: ModuleType) -> None:
+    def test_an_adapter_failure_is_reported_as_a_flow_error(self) -> None:
         with pytest.raises(FlowError, match="echo: the runtime refused"):
-            agent_turn(echo_adapter, {"adapter": "echo"}, "system", "!fail the runtime refused", {})
+            agent_turn(echo, {"adapter": "echo"}, "system", "!fail the runtime refused", {})
 
-    def test_the_turns_text_is_also_offered_parsed(self, echo_adapter: ModuleType) -> None:
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "s", '{"verdict": "pass"}', {})
+    def test_the_turns_text_is_also_offered_parsed(self) -> None:
+        result = agent_turn(echo, {"adapter": "echo"}, "s", '{"verdict": "pass"}', {})
         assert result["json"] == {"verdict": "pass"}
 
-    def test_prose_leaves_the_parsed_view_empty(self, echo_adapter: ModuleType) -> None:
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "s", "just words", {})
+    def test_prose_leaves_the_parsed_view_empty(self) -> None:
+        result = agent_turn(echo, {"adapter": "echo"}, "s", "just words", {})
         assert result["json"] is None
 
-    def test_the_steps_secrets_reach_the_adapters_environment(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_the_steps_secrets_reach_the_adapters_environment(self) -> None:
         """Credentials reach a runtime through the environment, never through the prompt."""
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "s", "p", {"API_KEY": "abc"})
-        assert result["environment"]["API_KEY"] == "abc"
+        reported = sent({"adapter": "echo"}, {"ATF_PROBE_key": "abc"})
+        assert reported["env"]["ATF_PROBE_key"] == "abc"
+        assert "ATF_PROBE_key" not in reported["payload"]["prompt"]
 
 
 class TestCheckGate:
@@ -178,22 +195,18 @@ class TestCheckGate:
 
 
 class TestRunAgentWithoutAGate:
-    def test_runs_exactly_once(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
-    ) -> None:
+    def test_runs_exactly_once(self, paths: Paths, workspace: Path) -> None:
         make.write_agent(workspace, "writer")
         result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
         assert result["text"] == "write it"
 
-    def test_reports_no_attempt_count(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
-    ) -> None:
+    def test_reports_no_attempt_count(self, paths: Paths, workspace: Path) -> None:
         """`attempts` is only meaningful where a gate ran; null on every other step is noise."""
         make.write_agent(workspace, "writer")
         assert "attempts" not in run_agent(agent_step(), {}, paths, {}, lambda _event: None)
 
     def test_the_prompt_is_rendered_against_the_context(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+        self, paths: Paths, workspace: Path
     ) -> None:
         make.write_agent(workspace, "writer")
         step = agent_step(prompt="summarise {{ steps.read.text }}")
@@ -210,39 +223,34 @@ class TestRunAgentWithTools:
     """What the engine supplies that the agent spec does not: a command serving its tools."""
 
     def test_the_engine_supplies_a_server_the_agent_did_not(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+        self, paths: Paths, workspace: Path
     ) -> None:
         """A spec names tools; where the engine is installed is not knowable from one."""
         make.write_tool(workspace, "reader")
         make.write_agent(workspace, "writer", tools=["reader"])
-        result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
-        assert result["payload"]["tools"] == ["reader"]
-        assert "mcp-serve" in result["payload"]["tool_server"]
+        payload = reported(run_agent(probe_step(), {}, paths, {}, lambda _event: None))
+        assert payload["tools"] == ["reader"]
+        assert "mcp-serve" in payload["tool_server"]
 
     def test_the_server_is_told_which_workspace_to_resolve_tools_in(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+        self, paths: Paths, workspace: Path
     ) -> None:
         make.write_tool(workspace, "reader")
         make.write_agent(workspace, "writer", tools=["reader"])
-        result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
-        server = result["payload"]["tool_server"]
+        server = reported(run_agent(probe_step(), {}, paths, {}, lambda _e: None))["tool_server"]
         assert server[server.index("--workspace") + 1] == str(workspace)
 
-    def test_a_turn_without_tools_is_sent_no_server(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
-    ) -> None:
+    def test_a_turn_without_tools_is_sent_no_server(self, paths: Paths, workspace: Path) -> None:
         make.write_agent(workspace, "writer")
-        result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
-        assert "tool_server" not in result["payload"]
+        payload = reported(run_agent(probe_step(), {}, paths, {}, lambda _event: None))
+        assert "tool_server" not in payload
 
-    def test_a_gated_retry_still_carries_the_grant(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
-    ) -> None:
+    def test_a_gated_retry_still_carries_the_grant(self, paths: Paths, workspace: Path) -> None:
         """The loop must not lose the tools between attempts."""
         make.write_tool(workspace, "reader")
         make.write_tool(workspace, "marker", script=DEMANDS_MARKER)
         make.write_agent(workspace, "writer", tools=["reader"])
-        step = agent_step(
+        step = probe_step(
             gate={
                 "tool": "marker",
                 "feedback": "Say REVISED.",
@@ -251,12 +259,12 @@ class TestRunAgentWithTools:
         )
         result = run_agent(step, {}, paths, {}, lambda _event: None)
         assert result["attempts"] == 2
-        assert result["payload"]["tools"] == ["reader"]
+        assert reported(result)["tools"] == ["reader"]
 
 
 class TestRunAgentWithAGate:
     @pytest.fixture(autouse=True)
-    def components(self, workspace: Path, echo_adapter: ModuleType) -> None:
+    def components(self, workspace: Path) -> None:
         make.write_agent(workspace, "writer")
         make.write_tool(workspace, "marker", script=DEMANDS_MARKER)
 

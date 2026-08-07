@@ -18,8 +18,7 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -27,22 +26,10 @@ import pytest
 import support
 from cli.app import main
 from support import components
+from support.outcome import Outcome, Runner
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 ENTRY_POINT = REPOSITORY / "src" / "main.py"
-
-
-@dataclass(frozen=True)
-class Outcome:
-    """What a command did: its exit status and each of its two streams."""
-
-    code: int
-    out: str
-    err: str
-
-
-# argv without the program name, in; an Outcome out.
-Runner = Callable[..., Outcome]
 
 
 @pytest.fixture(autouse=True)

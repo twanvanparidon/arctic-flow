@@ -23,7 +23,7 @@ from support import components as make
 
 
 @pytest.fixture
-def project(workspace: Path, paths: Paths, echo_adapter: object) -> Paths:
+def project(workspace: Path, paths: Paths) -> Paths:
     """A workspace holding one permissive tool and one agent, so any flow below resolves."""
     make.write_tool(workspace, "noop")
     make.write_agent(workspace, "writer")

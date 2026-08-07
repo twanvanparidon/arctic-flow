@@ -9,6 +9,9 @@ pytest -k skip_propagation
 pytest -x --lf              # stop at the first failure, then rerun only what failed
 ```
 
+`tests/e2e` needs a built binary and skips without one, so a plain `pytest` stays green on a
+checkout. Building one is in CONTRIBUTING.md and takes a few minutes.
+
 Coverage comes with the same extra, and reads its settings from `pyproject.toml`:
 
 ```sh
@@ -16,9 +19,10 @@ coverage run -m pytest && coverage report
 ```
 
 The pipeline runs that in two steps, unit then integration with `--append`, so one file
-covers both. It never fails the build on a number: coverage is there to be looked at, and a
-floor would mostly measure how much of the code the integration suite reaches in a
-subprocess. Which is the caveat to know before reading the table. `coverage` only measures
+covers both. `tests/e2e` is not in it and cannot be: it drives a binary with its own
+interpreter, so there is no source tree for `coverage` to watch. It never fails the build on
+a number: coverage is there to be looked at, and a floor would mostly measure how much of
+the code the integration suite reaches in a subprocess. Which is the caveat to know before reading the table. `coverage` only measures
 the process it started, and `tests/integration` spawns `python3 src/main.py` for the stream
 and vault tests, so `cli/dispatch.py` and `src/main.py` read far lower than they are.
 
@@ -60,6 +64,7 @@ that are there.
 | a stubbed AESGCM | real scrypt and real AES-GCM. A vault round trip costs milliseconds |
 | an object with `isatty()` | `support.terminal.Terminal`, a real pseudo-terminal |
 | a mock observer | a list, and `list.append` as the observer |
+| a stubbed model runtime | `adapters.echo`, which ships and answers from the request |
 
 The reason is not purity. The failures worth catching in this engine are the ones a
 substitute cannot have: a script that lost its executable bit, a process that outlives its
@@ -68,22 +73,17 @@ indistinguishable from a tampered file, a terminal that gets a frame and a pipe 
 not. Every one of those is invisible to a test whose collaborator is a stand-in.
 
 Where a test wants to observe something, have the real component print it. `echoes_env`
-exists so a test can see which secrets a step was actually granted; the echo adapter puts
-the payload it received in its envelope. Nothing has to watch a call happen.
+exists so a test can see which secrets a step was actually granted; an `!invocation` prompt
+makes the echo adapter answer with the request it was handed. Nothing has to watch a call
+happen.
 
-### The three things a unit test may still do
+### The two things a unit test may still do
 
 **Environment control.** `monkeypatch.setenv`, `delenv` and `setattr(sys, "frozen", True)`
 set real values that real code reads. `conftest.clean_environment` uses this to remove
 `ATF_PATH`, `NO_COLOR` and the rest, and to point `$HOME` at `tmp_path`. That is not
 optional: `~/.arctic` is a search root, so without it the suite passes or fails depending on
 what the developer has installed at home.
-
-**A real adapter for tests.** `support/adapter_echo.py` implements the adapter contract and
-answers with the prompt it was given. `agent_turn` takes its adapter as an argument, so
-those tests pass the module in. `run_agent` looks one up by name, so those register it in
-`ADAPTERS`, which is how the docs say an adapter is registered. The alternative is a network
-call and an account, which is not a unit test of anything.
 
 **Reading a private helper.** `_check_input`, `_parse_header` and `_duration` encode rules
 worth a test of their own. Test them directly rather than reaching them through six layers.
@@ -100,7 +100,10 @@ reads it, and the shipped examples run the way the docs say to run them. A test 
 when two parts stop agreeing, so it goes through the CLI rather than calling a function.
 
 **`tests/e2e`** is the built binary, the installed `atf`, and anything needing a
-controlling terminal: the password prompt, `vault set` reading from a tty. Still empty.
+controlling terminal: the password prompt, `vault set` reading from a tty. It asks the
+questions the other two cannot, because their subject is a checkout and its subject is an
+artefact. A test belongs here when it would pass against `src/` and still ship something
+broken.
 
 A thing deferred out of a suite is named in the module docstring that defers it, so the gap
 is written down where someone would look for it.
@@ -134,14 +137,58 @@ The shipped examples need what their specs declare: `jq`, `openssl`, `xxd`, `awk
 machine without `jq` is an environment and not a defect. `-ra` prints every skip, so it is
 never silent.
 
+### Running the end-to-end suite
+
+It drives a binary, so first there has to be one. `dist/atf/atf` is found on its own;
+anywhere else, name it:
+
+```sh
+pytest tests/e2e -v                      # after the docker build in CONTRIBUTING.md
+ATF_BINARY=/some/where/atf pytest tests/e2e
+ATF_EXPECTED_VERSION=v0.2.0 pytest tests/e2e   # what the pipeline adds on a tag
+```
+
+Without a binary every test skips, naming how to get one. That is deliberate: `testpaths`
+collects this directory on a plain `pytest`, and a developer who has not spent minutes on a
+Docker build should not be shown a failure for it.
+
+**Never invoke a bare `atf`.** The pipeline installs the project into the same job, so there
+is one on `PATH` and it is the checkout. Go through the `atf` fixture.
+
+Four things only this suite can ask, and each is worth knowing before adding to it:
+
+- **A frozen process spawning a system binary.** PyInstaller points `LD_LIBRARY_PATH` at the
+  bundle, and a child inheriting it loads the bundle's OpenSSL instead of the system's.
+  `child_environment()` undoes that, and `sign_release` is the test which says so.
+- **The binary re-invoking itself as a tool server.** `tool_server_command` branches on
+  `sys.frozen`: frozen, the binary *is* the interpreter and the argv has one launcher
+  element; everywhere else it has two. Only the first branch is reachable here, and getting
+  it wrong reaches a user as a model saying the tool does not work.
+- **`atf` reached through a symlink.** `install.sh` links `<prefix>/bin/atf` at a bundle in
+  `<prefix>/lib`, and PyInstaller has to resolve one from the other.
+- **A prompt.** `getpass` opens `/dev/tty`, so it needs a *controlling* terminal, which
+  `support/console.py` acquires and `support/terminal.py` cannot.
+
+The tool-server tests read the argv out of an `!invocation` turn and then run it, so what
+gets executed is the command the engine would really have handed a runtime. `support/mcp.py`
+has the frames; the integration suite asks the same questions of the checkout.
+
+Agent steps here use `adapters.echo`, the shipped adapter that answers from the request.
+`ADAPTERS` is frozen into the binary, so a test cannot register one from outside; an adapter
+that answers without a runtime is the only way in. `fake_claude` is autouse here too, for the
+two shipped examples that name `claude_code`.
+
 ### What no suite reaches yet
 
 | Not covered | Needs | Belongs in |
 | ----------- | ----- | ---------- |
-| `resolve_password`'s prompt | a controlling terminal, or getpass hangs on `/dev/tty` | e2e |
-| `vault set` prompting for a value | the same | e2e |
-| the PyInstaller binary, and `atf` as an installed script | a build | e2e |
+| `install.sh`'s download and published checksum | a release that exists | nothing yet |
 | one `continue` in `execute` | a step with no inbound edge, which `validate` refuses | nothing |
+
+The first is not an oversight. The e2e job runs on the tag *before* the release job
+publishes, so the asset it would fetch does not exist. `tests/e2e/test_install.py` covers
+what `install.sh` produces (the archive, its checksum, the linked layout) and says in its
+docstring which half it leaves.
 
 ## Assert the decision, not the sentence
 
@@ -209,14 +256,29 @@ Defined in `tests/conftest.py`:
 | `workspace` | an empty project root under `tmp_path` |
 | `home` | the temporary home directory, and what `$HOME` points at |
 | `paths` | a `Paths` pinned to both, with `env={}` so no `ATF_PATH` leaks in |
-| `echo_adapter` | the test adapter, registered in `ADAPTERS` for the test |
 | `terminal` | a real pseudo-terminal: `.stream` to write to, `.read()` for what came out |
 | `two_terminals` | a pair, for the output frame, which needs both streams to be terminals |
 | `clean_environment` | autouse; the isolation described above |
 
+There is no adapter fixture. `adapters.echo` ships and is in `ADAPTERS`, so a test that
+needs an agent step names it the way a user would, and `components.agent_spec` already
+defaults to it.
+
+And in `tests/e2e/conftest.py`:
+
+| Fixture | Is |
+| ------- | -- |
+| `binary` | the built binary, or the skip that says how to get one |
+| `atf` | a runner spawning it, same arguments as `atf_process` |
+| `console` | the same, on a terminal it controls, for the prompts |
+| `expected_version` | what `$ATF_EXPECTED_VERSION` promises, so the stamp can be checked |
+
 `support/components.py` writes components: `write_tool`, `write_agent`, `write_flow`, and
 the small scripts to give them (`prints`, `fails`, `echoes_env`, `rendezvous`, `sleeps`).
 Prefer adding a script builder there over writing shell inline in a test.
+`support/outcome.py` holds `Outcome` and `Runner`, shared so a test reads the same whether
+it drives the checkout or the artefact. `support/mcp.py` holds the protocol frames, for the
+same reason.
 
 ## Determinism
 

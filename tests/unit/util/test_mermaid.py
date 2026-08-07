@@ -9,7 +9,6 @@ wrong too, so each shape it has to handle gets its own test.
 from __future__ import annotations
 
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -201,7 +200,7 @@ class TestDescribeStep:
 
 class TestRender:
     @pytest.fixture
-    def project(self, workspace: Path, echo_adapter: ModuleType) -> Paths:
+    def project(self, workspace: Path) -> Paths:
         make.write_tool(workspace, "classify")
         make.write_agent(workspace, "scanner")
         make.write_agent(workspace, "reporter")

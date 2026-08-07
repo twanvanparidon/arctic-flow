@@ -15,14 +15,11 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
-import adapters
 from engine.executor import VARIABLE_PREFIX
 from paths.resolver import Paths
-from support import adapter_echo
 from support.terminal import Terminal
 
 # Everything the engine or the CLI reads straight out of the process environment.
@@ -75,13 +72,6 @@ def paths(workspace: Path, home: Path) -> Paths:
     # env={} rather than the real environment: ATF_PATH is the highest-precedence root and
     # a test must not inherit one.
     return Paths(workspace, env={}, home=home)
-
-
-@pytest.fixture
-def echo_adapter(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Register the test adapter, exactly as `ADAPTERS` registers a shipped one."""
-    monkeypatch.setitem(adapters.ADAPTERS, adapter_echo.NAME, adapter_echo)
-    return adapter_echo
 
 
 @pytest.fixture

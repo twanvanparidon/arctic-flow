@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -155,13 +154,11 @@ class TestCheckIsSchema:
 
 
 class TestCheckAgentSpec:
-    def test_a_complete_spec_passes(self, echo_adapter: ModuleType) -> None:
+    def test_a_complete_spec_passes(self) -> None:
         assert check_agent_spec(make.agent_spec("writer"), WHERE) is None
 
     @pytest.mark.parametrize("field", ["name", "description", "adapter"])
-    def test_a_missing_required_field_is_reported(
-        self, echo_adapter: ModuleType, field: str
-    ) -> None:
+    def test_a_missing_required_field_is_reported(self, field: str) -> None:
         spec = make.agent_spec("writer")
         del spec[field]
         with pytest.raises(SpecError, match=f"'{field}' is a required property"):
@@ -171,9 +168,7 @@ class TestCheckAgentSpec:
         with pytest.raises(SpecError, match="unknown adapter 'imaginary'"):
             check_agent_spec(make.agent_spec("writer", adapter="imaginary"), WHERE)
 
-    def test_an_agent_with_tools_is_probed_with_a_placeholder_server(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_an_agent_with_tools_is_probed_with_a_placeholder_server(self) -> None:
         """The real command is not knowable from a spec. What is being asked is whether
         the adapter accepts a turn that has tools at all."""
         assert check_agent_spec(make.agent_spec("writer", tools=["reader"]), WHERE) is None
@@ -191,39 +186,35 @@ class TestCheckAgentSpec:
         with pytest.raises(SpecError, match="'model' is a required property"):
             check_agent_spec(spec, WHERE)
 
-    def test_kind_may_only_say_agent(self, echo_adapter: ModuleType) -> None:
+    def test_kind_may_only_say_agent(self) -> None:
         with pytest.raises(SpecError, match="kind:"):
             check_agent_spec(make.agent_spec("writer", kind="tool"), WHERE)
 
-    def test_a_budget_has_to_be_worth_setting(self, echo_adapter: ModuleType) -> None:
+    def test_a_budget_has_to_be_worth_setting(self) -> None:
         with pytest.raises(SpecError, match="max_budget_usd"):
             check_agent_spec(make.agent_spec("writer", max_budget_usd=0), WHERE)
 
-    def test_an_output_schema_has_to_be_a_schema(self, echo_adapter: ModuleType) -> None:
+    def test_an_output_schema_has_to_be_a_schema(self) -> None:
         spec = make.agent_spec("writer", output_schema={"type": "objekt"})
         with pytest.raises(SpecError, match="output_schema"):
             check_agent_spec(spec, WHERE)
 
-    def test_a_setting_the_adapter_would_reject_is_caught_here_instead(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_a_setting_the_adapter_would_reject_is_caught_here_instead(self) -> None:
         """Asked of the adapter's own schema, so adding a parameter needs no change here."""
         spec = make.agent_spec("writer", effort="colossal")
         with pytest.raises(SpecError, match="rejected by adapter echo"):
             check_agent_spec(spec, WHERE)
 
-    def test_a_setting_the_adapter_accepts_passes(self, echo_adapter: ModuleType) -> None:
+    def test_a_setting_the_adapter_accepts_passes(self) -> None:
         spec = make.agent_spec("writer", model="sonnet", effort="high", max_budget_usd=0.25)
         assert check_agent_spec(spec, WHERE) is None
 
-    def test_an_output_schema_is_probed_under_the_adapters_name_for_it(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_an_output_schema_is_probed_under_the_adapters_name_for_it(self) -> None:
         """The probe is the payload the engine would build, so it is `json_schema` by then."""
         spec = make.agent_spec("writer", output_schema={"type": "object"})
         assert check_agent_spec(spec, WHERE) is None
 
-    def test_tools_must_be_a_list_of_names(self, echo_adapter: ModuleType) -> None:
+    def test_tools_must_be_a_list_of_names(self) -> None:
         with pytest.raises(SpecError, match="tools"):
             check_agent_spec(make.agent_spec("writer", tools="read_file"), WHERE)
 
