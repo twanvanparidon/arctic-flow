@@ -122,7 +122,11 @@ INPUT_SCHEMA = {
             "out of the turn. Set false only when you deliberately want it.",
         },
     },
-    "required": ["prompt"],
+    # `model` is required rather than defaulted. The CLI's own default is a per-machine
+    # dependency, which is what `isolate` exists to remove, so an agent that names none
+    # would behave differently on another machine. The engine's probe makes `atf lint`
+    # refuse such a spec without running anything.
+    "required": ["prompt", "model"],
     "additionalProperties": False,
 }
 

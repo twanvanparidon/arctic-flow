@@ -171,6 +171,26 @@ class TestCheckAgentSpec:
         with pytest.raises(SpecError, match="unknown adapter 'imaginary'"):
             check_agent_spec(make.agent_spec("writer", adapter="imaginary"), WHERE)
 
+    def test_an_agent_with_tools_is_probed_with_a_placeholder_server(
+        self, echo_adapter: ModuleType
+    ) -> None:
+        """The real command is not knowable from a spec. What is being asked is whether
+        the adapter accepts a turn that has tools at all."""
+        assert check_agent_spec(make.agent_spec("writer", tools=["reader"]), WHERE) is None
+
+    def test_unattended_is_the_engines_own_and_never_reaches_an_adapter(self) -> None:
+        """A closed adapter schema would reject it, which is what adding it to FORWARDED
+        would cause. It is enforced in validate(), where the tools are resolved."""
+        spec = make.agent_spec("writer", adapter="claude_code", model="sonnet", unattended=True)
+        assert check_agent_spec(spec, WHERE) is None
+
+    def test_a_claude_code_agent_has_to_name_its_model(self) -> None:
+        """The CLI's own default is the per-machine dependency `isolate` exists to remove,
+        so lint refuses a spec that would inherit it rather than a turn discovering it."""
+        spec = make.agent_spec("writer", adapter="claude_code")
+        with pytest.raises(SpecError, match="'model' is a required property"):
+            check_agent_spec(spec, WHERE)
+
     def test_kind_may_only_say_agent(self, echo_adapter: ModuleType) -> None:
         with pytest.raises(SpecError, match="kind:"):
             check_agent_spec(make.agent_spec("writer", kind="tool"), WHERE)
