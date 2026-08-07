@@ -93,6 +93,11 @@ class Progress:
             if not event.get("ok"):
                 with self._lock:
                     self._line("⟲", step, self._gate_detail(event), dim=True)
+        elif kind == "tool_call":
+            # A call the model made inside a turn, not a step. Indented under the step it
+            # belongs to, because the step's own line is still to come.
+            with self._lock:
+                self._line("  ·", step, self._call_detail(event), dim=True)
         elif kind == "skipped":
             with self._lock:
                 self._running.pop(step, None)
@@ -161,6 +166,13 @@ class Progress:
             f"{event.get('tool')} rejected attempt {attempt}/{allowed}"
             f"{', no attempts left' if last else ', trying again'}"
         )
+
+    @staticmethod
+    def _call_detail(event: dict[str, Any]) -> str:
+        """One in-turn tool call. Whether it failed is the part worth seeing: the model is
+        told and carries on, so a run that looks slow is often one retrying a bad call."""
+        outcome = "ok" if event.get("ok") else "failed"
+        return f"{event.get('tool')} {outcome} ({event.get('ms', 0)}ms)"
 
     @staticmethod
     def _duration(seconds: float) -> str:

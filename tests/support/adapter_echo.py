@@ -46,6 +46,12 @@ INPUT_SCHEMA: dict[str, Any] = {
         "effort": {"type": "string", "enum": ["low", "medium", "high", "xhigh", "max"]},
         "json_schema": {"type": "object"},
         "max_budget_usd": {"type": "number", "exclusiveMinimum": 0},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
+        # Accepted rather than dispatched: this adapter has no runtime to serve them to.
+        # They are here because the schema is closed and `check_agent_spec` probes with
+        # both, so leaving them out would refuse every agent that declares a tool.
+        "tools": {"type": "array", "items": {"type": "string"}},
+        "tool_server": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     },
     "required": ["prompt"],
     "additionalProperties": False,

@@ -94,15 +94,27 @@ AGENT_SPEC_SCHEMA: dict[str, Any] = {
         "model": {"type": "string", "minLength": 1},
         "effort": {"type": "string"},
         "max_budget_usd": {"type": "number", "exclusiveMinimum": 0},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
         "output_schema": {"type": "object"},
+        # Names of the engine's own tools, not the runtime's. An adapter exposes them to
+        # the turn however it can; what a flow declares stays the same across adapters.
         "tools": {"type": "array", "items": {"type": "string"}},
+        # Not forwarded anywhere. It is the engine's own gate on granting a tool that
+        # changes the workspace, enforced in `validate()` where the tools are resolved.
+        "unattended": {"type": "boolean"},
     },
     "required": ["name", "description", "adapter"],
 }
 
 # Agent fields the engine forwards to the adapter, and the adapter's name for each. Kept
 # beside the schema so adding a pass-through field means editing one place, not two.
-FORWARDED = {"model": "model", "effort": "effort", "max_budget_usd": "max_budget_usd"}
+FORWARDED = {
+    "model": "model",
+    "effort": "effort",
+    "max_budget_usd": "max_budget_usd",
+    "timeout_seconds": "timeout_seconds",
+    "tools": "tools",
+}
 
 
 def adapter_parameters(spec: dict[str, Any]) -> dict[str, Any]:
@@ -209,6 +221,11 @@ def check_agent_spec(spec: dict[str, Any], where: str) -> None:
         raise SpecError(f"{where}: {exc}") from exc
 
     probe: dict[str, Any] = {"prompt": "probe", "system": "probe", **adapter_parameters(spec)}
+    if spec.get("tools"):
+        # The engine builds the real one from where it is installed, which is not knowable
+        # from a spec. A placeholder is enough: what is being asked is whether the adapter
+        # accepts a turn that has tools at all.
+        probe["tool_server"] = ["probe"]
 
     _check_against(
         adapter.INPUT_SCHEMA, probe, f"{where} would be rejected by adapter {adapter.NAME}"
