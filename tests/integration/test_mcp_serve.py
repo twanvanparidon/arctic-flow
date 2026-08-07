@@ -13,34 +13,14 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from engine.executor import tool_server_command
 from paths.resolver import Paths
+from support.mcp import HANDSHAKE, LIST, call, frames, parsed
 
 from .conftest import ENTRY_POINT, Runner, requires
-
-HANDSHAKE = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
-LIST = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-
-
-def frames(*messages: dict[str, Any]) -> str:
-    return "".join(json.dumps(message) + "\n" for message in messages)
-
-
-def parsed(out: str) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in out.splitlines() if line]
-
-
-def call(name: str, **arguments: Any) -> dict[str, Any]:
-    return {
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "tools/call",
-        "params": {"name": name, "arguments": arguments},
-    }
 
 
 class TestTheStream:

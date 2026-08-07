@@ -155,15 +155,23 @@ Docker build should not be shown a failure for it.
 **Never invoke a bare `atf`.** The pipeline installs the project into the same job, so there
 is one on `PATH` and it is the checkout. Go through the `atf` fixture.
 
-Three things only this suite can ask, and each is worth knowing before adding to it:
+Four things only this suite can ask, and each is worth knowing before adding to it:
 
 - **A frozen process spawning a system binary.** PyInstaller points `LD_LIBRARY_PATH` at the
   bundle, and a child inheriting it loads the bundle's OpenSSL instead of the system's.
   `child_environment()` undoes that, and `sign_release` is the test which says so.
+- **The binary re-invoking itself as a tool server.** `tool_server_command` branches on
+  `sys.frozen`: frozen, the binary *is* the interpreter and the argv has one launcher
+  element; everywhere else it has two. Only the first branch is reachable here, and getting
+  it wrong reaches a user as a model saying the tool does not work.
 - **`atf` reached through a symlink.** `install.sh` links `<prefix>/bin/atf` at a bundle in
   `<prefix>/lib`, and PyInstaller has to resolve one from the other.
 - **A prompt.** `getpass` opens `/dev/tty`, so it needs a *controlling* terminal, which
   `support/console.py` acquires and `support/terminal.py` cannot.
+
+The tool-server tests read the argv out of an `!invocation` turn and then run it, so what
+gets executed is the command the engine would really have handed a runtime. `support/mcp.py`
+has the frames; the integration suite asks the same questions of the checkout.
 
 Agent steps here use `adapters.echo`, the shipped adapter that answers from the request.
 `ADAPTERS` is frozen into the binary, so a test cannot register one from outside; an adapter
@@ -269,7 +277,8 @@ And in `tests/e2e/conftest.py`:
 the small scripts to give them (`prints`, `fails`, `echoes_env`, `rendezvous`, `sleeps`).
 Prefer adding a script builder there over writing shell inline in a test.
 `support/outcome.py` holds `Outcome` and `Runner`, shared so a test reads the same whether
-it drives the checkout or the artefact.
+it drives the checkout or the artefact. `support/mcp.py` holds the protocol frames, for the
+same reason.
 
 ## Determinism
 

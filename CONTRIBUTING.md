@@ -220,9 +220,10 @@ CLI's protocol, so the adapter spawns a real process without an account or a net
 
 **An end-to-end test is about the artefact, not this source.** It belongs there when it
 would pass against `src/` and still ship something broken: a frozen process spawning
-`openssl`, `atf` reached through the symlink `install.sh` leaves, a password prompt that
-needs a controlling terminal. Its agent steps use `adapters.echo`, which ships and answers
-from the request, because a registry frozen into a binary cannot be added to from outside.
+`openssl`, the binary re-invoking itself to serve an agent's tools, `atf` reached through
+the symlink `install.sh` leaves, a password prompt that needs a controlling terminal. Its
+agent steps use `adapters.echo`, which ships and answers from the request, because a
+registry frozen into a binary cannot be added to from outside.
 
 ## Adding a component
 

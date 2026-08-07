@@ -55,9 +55,10 @@ far more than ruff can. Line length is 100, set in `pyproject.toml`.
 covers what only appears once they are composed: whole commands through the CLI, which
 stream each byte left on, the vault end to end, and the shipped examples. Together they run
 in under half a minute. `tests/e2e` covers what only appears once it is *built*: a frozen
-process spawning `openssl`, `atf` reached through the symlink `install.sh` leaves, and the
-password prompt, which needs a controlling terminal. It drives `dist/atf/atf`, takes about
-half a minute, and skips entirely when there is no binary, so a plain `pytest` is unaffected.
+process spawning `openssl`, the binary re-invoking itself as a tool server, `atf` reached
+through the symlink `install.sh` leaves, and the password prompt, which needs a controlling
+terminal. It drives `dist/atf/atf`, takes about half a minute, and skips entirely when there
+is no binary, so a plain `pytest` is unaffected.
 
 **The rule differs by suite, and it is the thing to know before adding a test.** A unit test
 uses **no doubles at all**: it writes a real tool directory and lets the engine spawn a real

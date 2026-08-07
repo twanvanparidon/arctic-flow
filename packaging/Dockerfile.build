@@ -81,10 +81,13 @@ RUN /out/atf/atf --version \
  && { [ -z "$VERSION" ] || /out/atf/atf --version | grep -Fqx "atf ${VERSION#v}"; } \
  && /out/atf/atf list | tee /tmp/list.txt \
  && grep -q read_file   /tmp/list.txt \
+ && grep -q write_file  /tmp/list.txt \
  && grep -q claude_code /tmp/list.txt \
  && grep -qw echo       /tmp/list.txt \
  && /out/atf/atf --workspace examples/sign-release lint sign_release \
  && /out/atf/atf completion bash | grep -q _atf_complete \
+ && printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+      | /out/atf/atf --workspace examples/sign-release mcp-serve | grep -q '"serverInfo"' \
  && /out/atf/atf --workspace examples/sign-release __complete -- run "" | grep -q '^sign_release$' \
  && ATF_VAULT_PASSWORD=demo /out/atf/atf \
       --workspace examples/sign-release run sign_release --input path=release-notes.md \
