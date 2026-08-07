@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +55,10 @@ SKIPPED_RESULT = {"skipped": True, "text": "(not run)", "json": None}
 
 # One answer plus two chances to act on what the gate said, where the returns flatten out.
 DEFAULT_GATE_ATTEMPTS = 3
+
+# What an input's environment variable is called. See variable_name() for why it is not
+# bare `ATF_`.
+VARIABLE_PREFIX = "ATF_VAR_"
 
 
 class FlowError(RuntimeError):
@@ -898,6 +902,31 @@ def run_flow(
     return rendered.strip(), trace
 
 
+def variable_name(name: str) -> str:
+    """The environment variable an input reads from: `depth` comes from `$ATF_VAR_DEPTH`.
+
+    Prefixed rather than bare, the way Terraform separates `TF_VAR_` from its own `TF_LOG`.
+    `$ATF_PATH` is a search root and `$ATF_VAULT_PASSWORD` is a password. A bare `ATF_`
+    would make an input named `path` collide with the first of those, and would spend a
+    name for every flow ever written each time the engine claims another variable.
+    """
+    return f"{VARIABLE_PREFIX}{name.upper()}"
+
+
+def inputs_from_environment(flow: dict[str, Any], env: Mapping[str, str]) -> dict[str, str]:
+    """The inputs the environment supplies, one variable per input the flow declares.
+
+    Driven by the declaration rather than by scanning `env` for the prefix, so a variable
+    named for an input this flow has no declaration for is ignored instead of reaching
+    check_inputs as an unknown input. A variable is ambient: it outlives the command that
+    wanted it, so one exported for one flow would otherwise refuse every other flow run
+    from that shell. check_inputs names the variable in its own error, which is what keeps
+    a typo findable.
+    """
+    declared = flow.get("inputs") or {}
+    return {name: env[variable_name(name)] for name in declared if variable_name(name) in env}
+
+
 def check_inputs(flow: dict[str, Any], supplied: dict[str, Any]) -> dict[str, Any]:
     """Reject unknown and missing inputs before anything runs.
 
@@ -907,7 +936,9 @@ def check_inputs(flow: dict[str, Any], supplied: dict[str, Any]) -> dict[str, An
     declared = flow.get("inputs") or {}
     for name, meta in declared.items():
         if (meta or {}).get("required") and name not in supplied:
-            raise FlowError(f"missing required input '{name}'")
+            # Names the variable, not the flag. The variable is the engine's own contract;
+            # a flag belongs to whichever front end has one.
+            raise FlowError(f"missing required input '{name}' (or set ${variable_name(name)})")
     for name in supplied:
         if name not in declared:
             raise FlowError(f"unknown input '{name}' (declared: {', '.join(declared) or 'none'})")

@@ -299,6 +299,35 @@ Any tool is a gate, with no second contract to write to. The cost of that is a g
 itself broken: it reports its own error the same way a rejection arrives, and spends the
 attempts before the step fails.
 
+## Inputs
+
+A flow declares what it takes, and `check_inputs` refuses an input it never declared or a
+required one left out. That runs in `prepare`, before the vault is touched and before the
+first step.
+
+An input has two sources: a mapping the caller passes, and `$ATF_VAR_<NAME>` from the
+environment. Three decisions in that are worth knowing.
+
+**The prefix is not a bare `ATF_`.** `$ATF_PATH` is the highest-precedence search root and
+`$ATF_VAULT_PASSWORD` is a password. Bare, an input named `path` would collide with the
+first of those, and every variable the engine claimed afterwards would spend a name for
+every flow ever written. Inputs get their own prefix so the two sets cannot meet.
+
+**Reading is driven by the declaration**, not by scanning the environment for the prefix. A
+variable is ambient: it outlives the command that wanted it. Refusing an `ATF_VAR_` the
+flow has no input for would mean one exported for one flow breaks every other flow in that
+shell, so it is ignored instead. This is the one place the engine prefers ignoring something
+to failing loudly, and the missing-input error names the variable so a typo is still
+findable.
+
+**Precedence lives in `commands.prepare`**, the only place both sources exist. A passed
+input wins, because it was passed for this run and the variable was exported for the shell.
+`inputs_from_environment` reads `paths.env` rather than `os.environ`, so one environment
+decides both the search roots and the inputs, and a caller isolating one isolates both.
+
+Values are strings from either source. A declaration's `type:` is documentation; nothing
+coerces or checks it.
+
 ## Secrets
 
 A step declares what it may read:

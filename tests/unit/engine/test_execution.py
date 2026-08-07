@@ -23,9 +23,11 @@ from engine.executor import (
     check_inputs,
     chosen_targets,
     execute,
+    inputs_from_environment,
     run_flow,
     run_step,
     validate,
+    variable_name,
 )
 from paths.resolver import Paths
 from support import components as make
@@ -65,6 +67,47 @@ class TestCheckInputs:
         checked = check_inputs({"inputs": self.DECLARED}, supplied)
         checked["path"] = "changed"
         assert supplied == {"path": "a"}
+
+    def test_a_missing_input_is_told_which_variable_would_supply_it(self) -> None:
+        with pytest.raises(FlowError, match=r"\$ATF_VAR_PATH"):
+            check_inputs({"inputs": self.DECLARED}, {})
+
+
+class TestInputsFromEnvironment:
+    DECLARED = {"path": {"required": True}, "depth": {}}
+
+    def test_a_declared_input_reads_its_variable(self) -> None:
+        env = {"ATF_VAR_PATH": "notes.md", "ATF_VAR_DEPTH": "2"}
+        assert inputs_from_environment({"inputs": self.DECLARED}, env) == {
+            "path": "notes.md",
+            "depth": "2",
+        }
+
+    @pytest.mark.parametrize("name", ["depth", "max_attempts"])
+    def test_the_variable_is_the_prefix_and_the_name_upper_cased(self, name: str) -> None:
+        assert variable_name(name) == f"ATF_VAR_{name.upper()}"
+
+    def test_a_variable_for_an_input_the_flow_never_declared_is_ignored(self) -> None:
+        """A variable is ambient: one exported for another flow must not refuse this one."""
+        assert inputs_from_environment({"inputs": self.DECLARED}, {"ATF_VAR_ELSEWHERE": "x"}) == {}
+
+    def test_the_engines_own_variables_are_not_inputs(self) -> None:
+        """Why the prefix is not a bare ATF_: $ATF_PATH is the highest-precedence root."""
+        env = {"ATF_PATH": "/roots", "ATF_VAULT_PASSWORD": "demo"}
+        assert inputs_from_environment({"inputs": self.DECLARED}, env) == {}
+
+    def test_a_flow_declaring_no_inputs_reads_nothing(self) -> None:
+        assert inputs_from_environment({}, {"ATF_VAR_PATH": "notes.md"}) == {}
+
+    def test_an_input_with_no_variable_set_is_left_out(self) -> None:
+        """Left out rather than empty, so `required` still fails and an optional stays absent."""
+        assert inputs_from_environment({"inputs": self.DECLARED}, {}) == {}
+
+    def test_an_empty_variable_is_a_value(self) -> None:
+        """`ATF_VAR_PATH= atf run` sets it to the empty string, as `--input path=` does."""
+        assert inputs_from_environment({"inputs": self.DECLARED}, {"ATF_VAR_PATH": ""}) == {
+            "path": ""
+        }
 
 
 class TestChosenTargets:

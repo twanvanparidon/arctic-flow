@@ -12,6 +12,7 @@ that resolves `read_file` is resolving the same thing a user does.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -19,6 +20,7 @@ from types import ModuleType
 import pytest
 
 import adapters
+from engine.executor import VARIABLE_PREFIX
 from paths.resolver import Paths
 from support import adapter_echo
 from support.terminal import Terminal
@@ -37,6 +39,11 @@ AMBIENT = (
 def clean_environment(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
     for name in AMBIENT:
         monkeypatch.delenv(name, raising=False)
+    # ATF_VAR_* supplies a flow input, and its names are open-ended rather than a fixed
+    # list. A developer with one exported would otherwise hand an input to a test that
+    # meant to run without it, and the integration suite reads the real environment.
+    for name in [name for name in os.environ if name.startswith(VARIABLE_PREFIX)]:
+        monkeypatch.delenv(name)
     # shutil.get_terminal_size() consults COLUMNS before it asks the kernel, so pinning it
     # makes every width the CLI computes the same on a laptop and on a runner.
     monkeypatch.setenv("COLUMNS", "80")
