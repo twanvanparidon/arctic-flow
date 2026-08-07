@@ -28,7 +28,7 @@ from pathlib import Path
 import yaml
 
 import commands
-from cli import render
+from cli import mcp_server, render
 from cli.complete import candidates, snippet
 from cli.output import flow_output
 from cli.progress import Progress
@@ -132,6 +132,15 @@ def diagram(args: argparse.Namespace, paths: Paths) -> int:
         # a message: what is printed here should be byte-for-byte what --out would write.
         print(result.markdown, end="")
     return 0
+
+
+def mcp_serve(args: argparse.Namespace, paths: Paths) -> int:
+    """Serve the named tools to an agent's turn, until stdin closes.
+
+    The one handler that neither prints nor frames anything: its stdout is a protocol. See
+    `cli.mcp_server`.
+    """
+    return mcp_server.serve(args.tools, paths, args.events)
 
 
 # --------------------------------------------------------------------------- #

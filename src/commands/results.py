@@ -102,6 +102,40 @@ class DiagramResult:
 
 
 @dataclass(frozen=True)
+class ToolDescription:
+    """One tool as a model needs to see it, rather than as a step needs to run it.
+
+    `description` is the spec's own description followed by its `doc` file. A flow author
+    picks a tool by reading the YAML around it; a model picks by reading this, and the doc
+    is where "when not to use this" is written.
+    """
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool that ran, or tried to. `text` is its stdout, empty when it failed.
+
+    `ok` false is an ordinary outcome here, not an exception, which is the one way this
+    differs from a tool step. A tool called inside an agent's turn reports its failure to
+    the model, which can pick different arguments and try again. Raising would end the turn
+    over something recoverable, after it had already been paid for.
+
+    `error` is not scrubbed, because the server that builds it has no vault. Nothing is
+    granted to an in-turn call, so there is no secret in reach to appear in one.
+    """
+
+    name: str
+    ok: bool
+    text: str
+    error: str | None = None
+    ms: int = 0
+
+
+@dataclass(frozen=True)
 class ComponentEntry:
     """One available name, and the definitions a higher-precedence root is hiding.
 
