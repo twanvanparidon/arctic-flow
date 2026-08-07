@@ -15,12 +15,13 @@ lift that restriction.
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 from commands.results import ToolCall, ToolDescription
-from engine.executor import FlowError, invoke, load_component
+from engine.executor import Cancelled, FlowError, invoke, load_component
 from paths.resolver import Paths
 
 
@@ -57,7 +58,12 @@ def _description(base: Path, spec: dict[str, Any]) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
-def call_tool(name: str, arguments: dict[str, Any], paths: Paths) -> ToolCall:
+def call_tool(
+    name: str,
+    arguments: dict[str, Any],
+    paths: Paths,
+    cancel: threading.Event | None = None,
+) -> ToolCall:
     """Run one tool and report what happened, without raising on its failure.
 
     `FlowError` is what becomes a reported failure, and it covers more than a bad call: a
@@ -67,11 +73,20 @@ def call_tool(name: str, arguments: dict[str, Any], paths: Paths) -> ToolCall:
 
     `load_component` runs again even though `validate()` already resolved every granted
     tool, because this is a different process and the two can disagree.
+
+    `cancel` is the caller withdrawing the request. Set it and the tool's process tree is
+    stopped, and the answer says so rather than reading as a tool that broke.
     """
     started = time.monotonic()
     try:
         base, spec = load_component(paths, "tool", name)
-        text = invoke(base, spec, arguments, paths)
+        text = invoke(base, spec, arguments, paths, cancel=cancel)
+    except Cancelled as exc:
+        # Before FlowError, which it subclasses. The other order reports a withdrawn call as
+        # an ordinary failure, and a caller that stopped waiting gets an answer anyway.
+        return ToolCall(
+            name=name, ok=False, text="", error=str(exc), ms=_since(started), cancelled=True
+        )
     except FlowError as exc:
         return ToolCall(name=name, ok=False, text="", error=str(exc), ms=_since(started))
     return ToolCall(name=name, ok=True, text=text, ms=_since(started))

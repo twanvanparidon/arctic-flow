@@ -19,7 +19,7 @@ import pytest
 from engine.executor import tool_server_command
 from paths.resolver import Paths
 from support import components as make
-from support.mcp import HANDSHAKE, LIST, PING, answered, call, frames, parsed
+from support.mcp import HANDSHAKE, LIST, PING, answered, by_id, call, cancelled, frames, parsed
 
 from .conftest import ENTRY_POINT, Runner, requires
 
@@ -77,6 +77,35 @@ class TestConcurrentReplies:
             stdin=frames(HANDSHAKE, call("dawdle", request_id=7), PING),
         )
         assert [reply["id"] for reply in parsed(result.out)] == [1, PING["id"], 7]
+
+
+class TestCancellation:
+    def test_a_cancelled_call_is_never_answered(
+        self, atf_process: Runner, project: Path, tmp_path: Path
+    ) -> None:
+        """The whole path through a real process. Which of the two stops it, the check
+        before the fork or the signal after, depends on scheduling and is not what this
+        pins; `TestCancellingASpawn` pins the signal."""
+        finished = tmp_path / "finished"
+        make.write_tool(
+            project,
+            "blocker",
+            script=make.finishes_later(tmp_path / "started", finished, seconds=3),
+            run={"command": ["./run.sh"], "timeout_seconds": 30},
+        )
+        result = atf_process(
+            "--workspace",
+            str(project),
+            "mcp-serve",
+            "--tool",
+            "blocker",
+            stdin=frames(HANDSHAKE, call("blocker", request_id=3), cancelled(3)),
+        )
+        assert result.code == 0
+        assert 3 not in by_id(parsed(result.out))
+        # The server waits for its pool before exiting, so a tool that was only unanswered
+        # would have reached its last line by the time this process ended.
+        assert not finished.exists()
 
 
 class TestTheStream:

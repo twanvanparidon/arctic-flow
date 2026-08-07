@@ -131,7 +131,12 @@ def _report(events: Path | None, call: commands.ToolCall) -> None:
     """
     if events is None:
         return
-    line = json.dumps({"tool": call.name, "ok": call.ok, "ms": call.ms}) + "\n"
+    entry: dict[str, Any] = {"tool": call.name, "ok": call.ok, "ms": call.ms}
+    if call.cancelled:
+        # Only where it means something, the way `attempts` is. Without it a call the
+        # model abandoned reads on screen as a tool that broke.
+        entry["cancelled"] = True
+    line = json.dumps(entry) + "\n"
     try:
         with _reporting, events.open("a") as stream:
             stream.write(line)
@@ -140,7 +145,11 @@ def _report(events: Path | None, call: commands.ToolCall) -> None:
 
 
 def _tools_call(
-    params: dict[str, Any], names: list[str], paths: Paths, events: Path | None
+    params: dict[str, Any],
+    names: list[str],
+    paths: Paths,
+    events: Path | None,
+    cancel: threading.Event,
 ) -> dict[str, Any]:
     name = params.get("name")
     if name not in names:
@@ -150,7 +159,7 @@ def _tools_call(
             f"unknown tool '{name}'. Available: {', '.join(names) or 'none'}", is_error=True
         )
 
-    call = commands.call_tool(str(name), params.get("arguments") or {}, paths)
+    call = commands.call_tool(str(name), params.get("arguments") or {}, paths, cancel=cancel)
     _report(events, call)
     if call.ok:
         return _content(call.text, is_error=False)
@@ -175,18 +184,32 @@ def _answer_here(
 
 def serve(names: list[str], paths: Paths, events: Path | None = None) -> int:
     """Answer frames until stdin closes."""
+    # One entry per call in flight. Two threads race for every one: the worker about to
+    # answer it, and the loop handling a cancel for it. Whichever pops the entry acts and
+    # the other does nothing, so a call is never answered twice and a cancelled one is
+    # never answered at all.
+    #
+    # A cancel arriving after the worker popped finds nothing and is dropped, so a client
+    # can still get a reply to a request it withdrew. That is the race the spec says both
+    # sides have to handle, and the client's half of it is to ignore the reply.
+    inflight: dict[Any, threading.Event] = {}
+    settled = threading.Lock()
 
-    def answer(message_id: Any, params: dict[str, Any]) -> None:
-        """Run one call and reply. Its own guard, because the loop's cannot see this far.
+    def answer(message_id: Any, params: dict[str, Any], cancel: threading.Event) -> None:
+        """Run one call and reply, unless a cancel got here first.
 
-        An exception inside a future is kept by the future rather than raised, so without
-        this nothing would be sent and the model would wait for a reply that never comes.
+        Its own guard, because the loop's cannot see this far: an exception inside a future
+        is kept by the future rather than raised, so without this nothing would be sent and
+        the model would wait for a reply that never comes.
         """
         try:
-            reply: dict[str, Any] = {"result": _tools_call(params, names, paths, events)}
+            reply: dict[str, Any] = {"result": _tools_call(params, names, paths, events, cancel)}
         except Exception as exc:
             reply = {"error": {"code": INTERNAL_ERROR, "message": f"{type(exc).__name__}: {exc}"}}
-        _send({"jsonrpc": "2.0", "id": message_id, **reply})
+        with settled:
+            claimed = inflight.pop(message_id, None) is not None
+        if claimed:
+            _send({"jsonrpc": "2.0", "id": message_id, **reply})
 
     submitted: list[Future[None]] = []
     with ThreadPoolExecutor(
@@ -204,14 +227,31 @@ def serve(names: list[str], paths: Paths, events: Path | None = None) -> int:
                 continue
 
             message_id = message.get("id")
-            if message_id is None:
-                continue
             method = message.get("method")
             params = message.get("params") or {}
 
+            if message_id is None:
+                # The method is read before the exit because one notification is not inert.
+                # `notifications/cancelled` is the client withdrawing a request, and acting
+                # on it is still not answering it, which is what the exit protects.
+                #
+                # Handled here rather than submitted: a pooled cancel would queue behind the
+                # very call it cancels, and on a full pool that never resolves.
+                if method == "notifications/cancelled":
+                    with settled:
+                        stop = inflight.pop(params.get("requestId"), None)
+                    if stop is not None:
+                        stop.set()
+                continue
+
             try:
                 if method == "tools/call":
-                    submitted.append(pool.submit(answer, message_id, params))
+                    # Registered before submit, so a cancel for a call still waiting for a
+                    # worker is caught by spawn's check and never starts a process.
+                    stop = threading.Event()
+                    with settled:
+                        inflight[message_id] = stop
+                    submitted.append(pool.submit(answer, message_id, params, stop))
                 else:
                     _answer_here(message_id, method, params, names, paths)
             except Exception as exc:

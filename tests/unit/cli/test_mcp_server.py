@@ -27,7 +27,7 @@ import pytest
 from cli import branding, mcp_server
 from paths.resolver import Paths
 from support import components as make
-from support.mcp import by_id
+from support.mcp import by_id, cancelled
 
 
 def answers(
@@ -366,6 +366,105 @@ class TestPing:
         frames = [call("dawdle", request_id=7), {"jsonrpc": "2.0", "id": 5, "method": "ping"}]
         replies = answers(frames, ["dawdle"], paths, monkeypatch, capsys)
         assert [reply["id"] for reply in replies] == [5, 7]
+
+
+class TestCancellation:
+    """A withdrawn request is answered with nothing, and its tool is really stopped.
+
+    What is pinned here is the wiring: the reply is suppressed, the call is reported as
+    cancelled rather than failed, and the other calls carry on. That the tool never reaches
+    its last line is asserted too, but it does not separate a kill from a skip, because
+    stdin is buffered whole and the reader reaches the cancel before a worker can fork. The
+    stop itself, TERM to a whole process tree, is pinned where it lives:
+    `tests/unit/engine/test_components.py::TestCancellingASpawn`, which uses a rendezvous to
+    guarantee the process is running first.
+
+    Deferred for the same reason: a cancel arriving *after* its call was answered. Reaching
+    it needs a live pipe the test writes to mid-flight. It is the same pop-finds-nothing
+    path as an unknown id, which is covered below.
+    """
+
+    def blocker(self, workspace: Path, tmp_path: Path) -> Path:
+        """A tool that leaves a marker three seconds in, unless it is stopped first."""
+        finished = tmp_path / "finished"
+        make.write_tool(
+            workspace,
+            "blocker",
+            script=make.finishes_later(tmp_path / "started", finished, seconds=3),
+            run={"command": ["./run.sh"], "timeout_seconds": 20},
+        )
+        return finished
+
+    def test_a_cancelled_call_is_never_answered(
+        self,
+        paths: Paths,
+        workspace: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        finished = self.blocker(workspace, tmp_path)
+        replies = by_id(
+            answers(
+                [call("blocker", request_id=3), cancelled(3)],
+                ["blocker"],
+                paths,
+                monkeypatch,
+                capsys,
+            )
+        )
+        assert 3 not in replies
+        # And it did not run to completion: serve() waits for its pool, so a tool left
+        # running would have reached its last line before this returned.
+        assert not finished.exists()
+
+    def test_a_cancelled_call_is_reported_as_cancelled_rather_than_failed(
+        self,
+        paths: Paths,
+        workspace: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The engine reads this file. A withdrawn call is not a tool that broke."""
+        self.blocker(workspace, tmp_path)
+        events = tmp_path / "calls.ndjson"
+        answers(
+            [call("blocker", request_id=3), cancelled(3)],
+            ["blocker"],
+            paths,
+            monkeypatch,
+            capsys,
+            events=events,
+        )
+        [reported] = [json.loads(line) for line in events.read_text().splitlines()]
+        assert reported["ok"] is False
+        assert reported["cancelled"] is True
+
+    def test_a_cancel_for_an_id_that_was_never_seen_is_a_no_op(
+        self, paths: Paths, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The spec permits ignoring one, and a notification is answered with nothing."""
+        assert answers([cancelled(999)], [], paths, monkeypatch, capsys) == []
+
+    def test_other_calls_are_untouched_by_one_cancel(
+        self,
+        paths: Paths,
+        workspace: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        self.blocker(workspace, tmp_path)
+        make.write_tool(workspace, "greet", script=make.prints("hi"))
+        frames = [
+            call("blocker", request_id=3),
+            call("greet", request_id=4),
+            cancelled(3),
+        ]
+        replies = by_id(answers(frames, ["blocker", "greet"], paths, monkeypatch, capsys))
+        assert 3 not in replies
+        assert replies[4]["result"]["content"][0]["text"] == "hi"
 
 
 class TestNotifications:
