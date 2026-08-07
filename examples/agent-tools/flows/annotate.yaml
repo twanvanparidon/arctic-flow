@@ -1,0 +1,66 @@
+# Annotate an incident note, with the agent deciding when to read and when to write.
+#
+#   start: annotate ──> (output)
+#
+# One step. The reading and the writing happen inside the turn, because the agent's
+# spec.json grants it `read_file` and `write_file`, and the engine serves both over MCP
+# for the duration of the turn.
+#
+# The same job as three steps looks like this, and is a better fit for most work:
+#
+#   read_target (tool) ──> draft (agent) ──> persist (tool)
+#
+# That version puts three rows in the trace, and the paths are decided by whoever wrote
+# the YAML. This version puts one row and lets the model decide how many files to touch.
+# Neither is the right default. Grant tools when the number of files is genuinely not
+# knowable in advance; wire steps when it is.
+#
+# What a grant costs, and why the engine makes you say it out loud:
+#
+#   - `write_file` declares `permissions.filesystem: "write"`, so the agent spec has to
+#     carry `"unattended": true`. Nothing approves a call the agent makes for itself.
+#   - a step that runs a tool-granted agent may not declare `secrets`. Nothing scopes a
+#     secret to one in-turn call, so none is put where a tool could read it.
+#   - the tools are the engine's, not the runtime's. The same spec means the same thing
+#     under a different adapter, and `read_file`'s workspace sandbox still applies.
+#
+# `notes/incident.md` ships with this project, so the example runs with nothing to
+# prepare. It calls a model and costs a few cents.
+#
+#   atf --workspace examples/agent-tools \
+#       run annotate --input path=notes/incident.md --input out=out/incident.md
+#
+# Watch stderr. Each in-turn call prints its own `·` line under the step, so a turn that
+# read one file and wrote one file says so rather than looking like a long silence.
+#
+# Check the file, not the exit status. A turn that succeeds while `out/` stays empty is
+# the failure mode isolation causes: `--safe-mode` disables MCP servers, so the adapter
+# spells isolation another way for a turn that has tools.
+
+flow: annotate
+version: 1
+description: Annotate an incident note, with the agent reading and writing for itself.
+
+inputs:
+  path:
+    type: string
+    required: true
+    description: Note to annotate, relative to the workspace root.
+  out:
+    type: string
+    required: true
+    description: Where to write the annotated copy, relative to the workspace root.
+
+start: annotate
+
+steps:
+  - id: annotate
+    agent: annotator
+    prompt: |
+      Annotate {{ inputs.path }} and write the result to {{ inputs.out }}.
+
+      Read the file first. If {{ inputs.out }} already exists, replace it.
+
+output:
+  template: |
+    {{ steps.annotate.text }}

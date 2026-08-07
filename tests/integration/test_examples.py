@@ -29,6 +29,7 @@ FLOWS = [
     ("sign-release", "sign_release"),
     ("file-review", "review_file"),
     ("gated-summary", "summarize"),
+    ("agent-tools", "annotate"),
 ]
 
 

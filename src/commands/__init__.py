@@ -44,6 +44,8 @@ from commands.results import (
     RunResult,
     SecretListing,
     SecretSet,
+    ToolCall,
+    ToolDescription,
     VaultContents,
     VaultCreated,
 )
@@ -57,6 +59,7 @@ from commands.secrets import (
     unlock,
     vault_contents,
 )
+from commands.tools import call_tool, describe_tools
 from engine.executor import FlowError
 from paths.resolver import LookupError_
 from vault.vault import VaultError
@@ -79,6 +82,9 @@ __all__ = [
     "graph",
     "diagram",
     "resolve_flow",
+    # tools, outside a flow: what an agent's turn needs
+    "describe_tools",
+    "call_tool",
     # the installation
     "inventory",
     "search_paths",
@@ -111,6 +117,8 @@ __all__ = [
     "RunResult",
     "SecretListing",
     "SecretSet",
+    "ToolCall",
+    "ToolDescription",
     "VaultContents",
     "VaultCreated",
 ]

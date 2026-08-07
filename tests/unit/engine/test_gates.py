@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from engine import specs
 from engine.executor import (
     DEFAULT_GATE_ATTEMPTS,
     FlowError,
@@ -29,6 +30,16 @@ from engine.executor import (
 )
 from paths.resolver import Paths
 from support import components as make
+
+# One valid value per forwarded field, so the parametrize below is driven by the contract
+# rather than by a list written here that can fall behind it.
+SETTINGS: dict[str, Any] = {
+    "model": "sonnet",
+    "effort": "low",
+    "max_budget_usd": 0.5,
+    "timeout_seconds": 30,
+    "tools": ["reader"],
+}
 
 # Exits 0 only when the text carries the marker, which the feedback is what supplies.
 DEMANDS_MARKER = make.python(
@@ -51,16 +62,17 @@ class TestAgentTurn:
         result = agent_turn(echo_adapter, {"adapter": "echo"}, "be terse", "the question", {})
         assert result["payload"] == {"prompt": "the question", "system": "be terse"}
 
-    @pytest.mark.parametrize(
-        ("field", "value"),
-        [("model", "sonnet"), ("effort", "low"), ("max_budget_usd", 0.5)],
-    )
+    def test_the_sample_covers_every_forwarded_field(self) -> None:
+        """Adding a field to FORWARDED without wiring it fails here, not mid-run."""
+        assert set(SETTINGS) == set(specs.FORWARDED)
+
+    @pytest.mark.parametrize("field", sorted(SETTINGS))
     def test_a_setting_the_agent_declares_is_forwarded(
-        self, echo_adapter: ModuleType, field: str, value: object
+        self, echo_adapter: ModuleType, field: str
     ) -> None:
-        agent = {"adapter": "echo", field: value}
+        agent = {"adapter": "echo", field: SETTINGS[field]}
         result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert result["payload"][field] == value
+        assert result["payload"][specs.FORWARDED[field]] == SETTINGS[field]
 
     def test_a_setting_left_out_is_not_sent_as_null(self, echo_adapter: ModuleType) -> None:
         """The adapter's schema is closed and its defaults are its own to apply."""
@@ -192,6 +204,54 @@ class TestRunAgentWithoutAGate:
         make.write_agent(workspace, "writer", adapter="nonexistent")
         with pytest.raises(FlowError, match="unknown adapter 'nonexistent'"):
             run_agent(agent_step(), {}, paths, {}, lambda _event: None)
+
+
+class TestRunAgentWithTools:
+    """What the engine supplies that the agent spec does not: a command serving its tools."""
+
+    def test_the_engine_supplies_a_server_the_agent_did_not(
+        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+    ) -> None:
+        """A spec names tools; where the engine is installed is not knowable from one."""
+        make.write_tool(workspace, "reader")
+        make.write_agent(workspace, "writer", tools=["reader"])
+        result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
+        assert result["payload"]["tools"] == ["reader"]
+        assert "mcp-serve" in result["payload"]["tool_server"]
+
+    def test_the_server_is_told_which_workspace_to_resolve_tools_in(
+        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+    ) -> None:
+        make.write_tool(workspace, "reader")
+        make.write_agent(workspace, "writer", tools=["reader"])
+        result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
+        server = result["payload"]["tool_server"]
+        assert server[server.index("--workspace") + 1] == str(workspace)
+
+    def test_a_turn_without_tools_is_sent_no_server(
+        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+    ) -> None:
+        make.write_agent(workspace, "writer")
+        result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
+        assert "tool_server" not in result["payload"]
+
+    def test_a_gated_retry_still_carries_the_grant(
+        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+    ) -> None:
+        """The loop must not lose the tools between attempts."""
+        make.write_tool(workspace, "reader")
+        make.write_tool(workspace, "marker", script=DEMANDS_MARKER)
+        make.write_agent(workspace, "writer", tools=["reader"])
+        step = agent_step(
+            gate={
+                "tool": "marker",
+                "feedback": "Say REVISED.",
+                "input": {"text": "{{ this.text }}"},
+            }
+        )
+        result = run_agent(step, {}, paths, {}, lambda _event: None)
+        assert result["attempts"] == 2
+        assert result["payload"]["tools"] == ["reader"]
 
 
 class TestRunAgentWithAGate:

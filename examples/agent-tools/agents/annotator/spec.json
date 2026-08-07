@@ -1,0 +1,17 @@
+{
+  "name": "annotator",
+  "kind": "agent",
+  "version": 1,
+  "description": "Reads an incident note and writes an annotated copy, choosing for itself what to read.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "medium",
+
+  "tools": ["read_file", "write_file"],
+  "unattended": true,
+
+  "timeout_seconds": 900,
+  "max_budget_usd": 0.5
+}

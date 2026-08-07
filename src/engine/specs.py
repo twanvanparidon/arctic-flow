@@ -59,10 +59,25 @@ TOOL_SPEC_SCHEMA: dict[str, Any] = {
             "propertyNames": {"pattern": "^[0-9]+$"},
             "additionalProperties": {"type": "string"},
         },
-        "permissions": {"type": "object"},
+        # Checked rather than described, because it is the gate between a tool an agent
+        # was granted and the workspace. Nothing approves a call an agent makes for
+        # itself, so `validate()` reads `filesystem` to decide whether granting this tool
+        # has to be said out loud. Spelled "rw" or left out, that gate silently opens.
+        "permissions": {
+            "type": "object",
+            "properties": {
+                "filesystem": {"enum": ["none", "read", "write"]},
+                "network": {"type": "boolean"},
+            },
+            "required": ["filesystem"],
+        },
+        # Names the tool expects in its environment, granted by the step that runs it.
+        # `validate()` reads it to refuse granting a credentialled tool to an agent, which
+        # would call it without a step having declared anything.
+        "secrets": {"type": "array", "items": {"type": "string"}},
         "requires": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["name", "description", "run", "input_schema"],
+    "required": ["name", "description", "run", "input_schema", "permissions"],
 }
 
 # An agent is config plus a prompt. `adapter` is the only field the engine cannot proceed
@@ -79,15 +94,47 @@ AGENT_SPEC_SCHEMA: dict[str, Any] = {
         "model": {"type": "string", "minLength": 1},
         "effort": {"type": "string"},
         "max_budget_usd": {"type": "number", "exclusiveMinimum": 0},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
         "output_schema": {"type": "object"},
+        # Names of the engine's own tools, not the runtime's. An adapter exposes them to
+        # the turn however it can; what a flow declares stays the same across adapters.
         "tools": {"type": "array", "items": {"type": "string"}},
+        # Not forwarded anywhere. It is the engine's own gate on granting a tool that
+        # changes the workspace, enforced in `validate()` where the tools are resolved.
+        "unattended": {"type": "boolean"},
     },
     "required": ["name", "description", "adapter"],
 }
 
 # Agent fields the engine forwards to the adapter, and the adapter's name for each. Kept
 # beside the schema so adding a pass-through field means editing one place, not two.
-FORWARDED = {"model": "model", "effort": "effort", "max_budget_usd": "max_budget_usd"}
+FORWARDED = {
+    "model": "model",
+    "effort": "effort",
+    "max_budget_usd": "max_budget_usd",
+    "timeout_seconds": "timeout_seconds",
+    "tools": "tools",
+}
+
+
+def adapter_parameters(spec: dict[str, Any]) -> dict[str, Any]:
+    """The adapter parameters an agent asks for, under the adapter's own names for them.
+
+    Built here rather than in the executor because the lint probe and the turn itself have
+    to send the same thing. A check that validated a different payload from the one that
+    runs is a check that passes on a spec the run then rejects.
+    """
+    parameters = {
+        parameter: spec[field]
+        for field, parameter in FORWARDED.items()
+        if spec.get(field) is not None
+    }
+    # Agent vocabulary stays runtime-neutral: output_schema is what an agent declares,
+    # json_schema is this particular adapter's parameter name. It is not in FORWARDED
+    # because that maps on `is not None` and an empty schema must not be sent.
+    if spec.get("output_schema"):
+        parameters["json_schema"] = spec["output_schema"]
+    return parameters
 
 
 class SpecError(Exception):
@@ -173,12 +220,12 @@ def check_agent_spec(spec: dict[str, Any], where: str) -> None:
     except adapters.AdapterError as exc:
         raise SpecError(f"{where}: {exc}") from exc
 
-    probe: dict[str, Any] = {"prompt": "probe", "system": "probe"}
-    for field, parameter in FORWARDED.items():
-        if spec.get(field) is not None:
-            probe[parameter] = spec[field]
-    if spec.get("output_schema"):
-        probe["json_schema"] = spec["output_schema"]
+    probe: dict[str, Any] = {"prompt": "probe", "system": "probe", **adapter_parameters(spec)}
+    if spec.get("tools"):
+        # The engine builds the real one from where it is installed, which is not knowable
+        # from a spec. A placeholder is enough: what is being asked is whether the adapter
+        # accepts a turn that has tools at all.
+        probe["tool_server"] = ["probe"]
 
     _check_against(
         adapter.INPUT_SCHEMA, probe, f"{where} would be rejected by adapter {adapter.NAME}"

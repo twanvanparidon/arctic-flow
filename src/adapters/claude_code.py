@@ -6,15 +6,17 @@ absent, so an explicit `isolate: false` was read as `true`.
 
 Two decisions that look like defaults but are not:
 
-  **No tools.** Empty by default, disabling the CLI's toolset, so a turn is a plain
-  completion and the engine's loop stays the only one. Passing tools lets the CLI act
-  agentically, but then there are two loops and the engine cannot see the steps.
+  **The engine's tools, not the CLI's.** `--tools` is always `""`, disabling the CLI's own
+  built-in set. An agent's tools are the engine's, served over MCP by `atf mcp-serve`, so
+  one agent spec means the same thing under a different adapter. The two are independent:
+  with `--tools ""` an MCP tool is still callable.
 
-  **Isolated config.** `isolate` defaults true, adding `--safe-mode` so the host's
-  CLAUDE.md, skills, plugins, hooks and MCP servers do not silently join the turn. Without
-  it the same request behaves differently on another machine. Authentication is unaffected.
+  **Isolated config.** `isolate` defaults true, so the host's CLAUDE.md, skills, plugins
+  and hooks do not silently join the turn and the same request behaves the same on another
+  machine. How that is spelled depends on whether the turn has tools; see `build_args`.
+  Authentication is unaffected either way.
 
-Flags were verified against CLI 2.1.222 and move between releases: 2.1.222 has no
+Flags were verified against CLI 2.1.224 and move between releases: 2.1.222 has no
 `--max-turns`, and `speed: fast` was removed from Opus 4.7. Check `claude --help` before
 adding a parameter, and move VERIFIED_CLI_VERSION when you do.
 
@@ -26,17 +28,24 @@ exists to remove, and a latency risk: on one machine it stalled ~100s then faile
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+from typing import Any
 
 from adapters.errors import AdapterProtocolError, AdapterRunFailed, AdapterUnavailable
 
 NAME = "claude_code"
 DESCRIPTION = "Run one LLM turn through the Claude Code CLI and return a normalised envelope."
-VERIFIED_CLI_VERSION = "2.1.222"
+VERIFIED_CLI_VERSION = "2.1.224"
 
 BINARY = "claude"
 TIMEOUT_SECONDS = 600
+
+# What the CLI is told to call the engine's tool server. It prefixes this onto every tool
+# the server offers, so the same string has to be rebuilt to allow one. `cli.mcp_server`
+# reports the same name in its handshake; they are two ends of one convention.
+MCP_SERVER_NAME = "atf"
 
 # Validated by the engine before run() is called, exactly as a tool's schema is.
 INPUT_SCHEMA = {
@@ -78,8 +87,22 @@ INPUT_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
             "default": [],
-            "description": 'Built-in CLI tools to expose, e.g. ["Read", "Grep"]. Empty keeps '
-            'this a pure text completion; ["default"] hands the whole toolset to the CLI.',
+            "description": "Engine tool names to expose for this turn, served over MCP. Not "
+            "the CLI's built-in tools, which stay disabled: what a flow declares has to mean "
+            "the same thing under another adapter. Empty keeps this a pure text completion.",
+        },
+        "tool_server": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": "argv the adapter spawns to serve 'tools'. Supplied by the engine, "
+            "which knows where it is installed. Required whenever 'tools' is non-empty.",
+        },
+        "timeout_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": f"How long this turn may take (default {TIMEOUT_SECONDS}). A turn "
+            "with tools takes many model turns inside it, so the default is short for one.",
         },
         "resume": {
             "type": "string",
@@ -99,7 +122,11 @@ INPUT_SCHEMA = {
             "out of the turn. Set false only when you deliberately want it.",
         },
     },
-    "required": ["prompt"],
+    # `model` is required rather than defaulted. The CLI's own default is a per-machine
+    # dependency, which is what `isolate` exists to remove, so an agent that names none
+    # would behave differently on another machine. The engine's probe makes `atf lint`
+    # refuse such a spec without running anything.
+    "required": ["prompt", "model"],
     "additionalProperties": False,
 }
 
@@ -139,13 +166,48 @@ def build_args(payload: dict) -> list[str]:
     """
     args = ["--print", "--output-format", "json"]
 
-    # "" is the CLI's disable-all. Empty rather than absent, so the default is no tools.
+    # "" is the CLI's disable-all for its own built-in set, and it stays off
+    # unconditionally: the engine's tools arrive over MCP, and the two are independent.
     tools = payload.get("tools") or []
-    args += ["--tools", ",".join(tools) if tools else ""]
+    args += ["--tools", ""]
+
+    if tools:
+        server = payload.get("tool_server")
+        if not server:
+            raise AdapterRunFailed(
+                f"tools were requested ({', '.join(tools)}) with no tool_server to serve them"
+            )
+        config: dict[str, Any] = {
+            "mcpServers": {MCP_SERVER_NAME: {"command": server[0], "args": list(server[1:])}}
+        }
+        # $ATF_PATH is the highest-precedence search root, so a server that does not get it
+        # can resolve the same tool name to a different directory than `lint` checked.
+        # Passed explicitly rather than trusted to inherit: what a client hands a stdio
+        # server is the client's business, and being wrong here is silent.
+        if os.environ.get("ATF_PATH"):
+            config["mcpServers"][MCP_SERVER_NAME]["env"] = {"ATF_PATH": os.environ["ATF_PATH"]}
+        # --mcp-config takes the JSON itself, so there is no temporary file to place, clean
+        # up, or leak. --strict-mcp-config keeps every other MCP source out of the turn.
+        args += ["--mcp-config", json.dumps(config), "--strict-mcp-config"]
+        # Naming an MCP tool in --tools does *not* permit it: the server connects, its tools
+        # are listed, and none is ever called. --allowedTools is what grants them.
+        args += ["--allowedTools", ",".join(f"mcp__{MCP_SERVER_NAME}__{name}" for name in tools)]
 
     # A plain dict lookup, so an explicit False stays False.
     if payload.get("isolate", True):
-        args.append("--safe-mode")
+        if tools:
+            # --safe-mode cannot be used here: its own help lists MCP servers among what it
+            # disables, so the tool server never starts. The turn then *succeeds*, having
+            # cost money, with the model saying it has no such tool.
+            #
+            # These two are the closest equivalent that leaves --mcp-config working, and
+            # they are narrower than the flag they replace: --safe-mode names nine
+            # categories, and settings files and skills are the two covered here. Plugins,
+            # CLAUDE.md, custom agents and output styles are not, and unlike --safe-mode
+            # failing, that gap is silent. Re-check it when moving VERIFIED_CLI_VERSION.
+            args += ["--setting-sources", "", "--disable-slash-commands"]
+        else:
+            args.append("--safe-mode")
 
     for field, flag in _FLAGS.items():
         if payload.get(field) is not None:
@@ -175,6 +237,7 @@ def run(payload: dict, env: dict[str, str]) -> dict:
     and the frozen-build library-path correction.
     """
     version = cli_version()
+    timeout = payload.get("timeout_seconds") or TIMEOUT_SECONDS
 
     try:
         completed = subprocess.run(
@@ -183,10 +246,10 @@ def run(payload: dict, env: dict[str, str]) -> dict:
             capture_output=True,
             text=True,
             env=env,
-            timeout=TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise AdapterRunFailed(f"{BINARY} exceeded {TIMEOUT_SECONDS}s") from exc
+        raise AdapterRunFailed(f"{BINARY} exceeded {timeout}s") from exc
     except OSError as exc:
         raise AdapterUnavailable(f"could not run {BINARY}: {exc}") from exc
 

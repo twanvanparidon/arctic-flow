@@ -244,6 +244,31 @@ def build_parser() -> argparse.ArgumentParser:
         "-o", "--out", type=Path, metavar="FILE", help="write to a file instead of stdout"
     )
 
+    mcp_serve = add(
+        "mcp-serve",
+        dispatch.mcp_serve,
+        "serve tools to an agent's turn, over MCP on stdio",
+        "Spawned by an adapter, not typed. An agent that declares tools reaches them\n"
+        "through this: the adapter starts it, the model calls a tool, and the engine runs\n"
+        "the tool exactly as a step would.\n\n"
+        "stdin and stdout carry JSON-RPC framing, so nothing else may be written to\n"
+        "either. Progress and errors go to stderr.\n",
+    )
+    mcp_serve.add_argument(
+        "--tool",
+        action="append",
+        default=[],
+        dest="tools",
+        metavar="NAME",
+        help="a tool to expose; repeat for several",
+    )
+    mcp_serve.add_argument(
+        "--events",
+        type=Path,
+        metavar="FILE",
+        help="append one JSON line per call, for the engine to report as progress",
+    )
+
     add(
         "list",
         dispatch.list_components,
