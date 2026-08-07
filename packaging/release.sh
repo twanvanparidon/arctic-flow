@@ -41,9 +41,10 @@ fail() { printf 'release.sh: %s\n' "$1" >&2; exit 1; }
 VERSION=$("$DIST/atf" --version | awk '{ print $2 }')
 [[ -n $VERSION ]] || fail "could not read a version out of $DIST/atf --version"
 
-# A tag that disagrees with the binary means the release would be mislabelled, which is
-# worse than no release: the artefact and its name would claim different things, and
-# whoever downloads v0.2.0 has no way to tell it contains 0.1.0.
+# The tag is stamped into the binary during the build, so these agreeing is the proof that
+# happened. When they differ the stamp did not run, and the release would be mislabelled:
+# its name and its artefact claiming different versions, unnoticed until someone installs
+# v0.2.0 and finds it reports 0.0.0.dev0.
 if [[ -n $TAG ]]; then
   expected=${TAG#v}
   [[ $expected == "$VERSION" ]] || fail \
