@@ -9,3 +9,7 @@ __pycache__/
 .venv/
 .coverage
 /reports
+
+# Where the agent-tools example writes. The example is meant to be run.
+examples/agent-tools/out/*
+!examples/agent-tools/out/.gitkeep
