@@ -26,6 +26,7 @@ usage() {
 install.sh: install a released atf binary.
 
   --version <tag>   the release to install, default the latest   ($ATF_VERSION)
+                    the default skips prereleases; name one to get it (v0.2.0-rc.1)
   --prefix <dir>    install root, default ~/.local               ($ATF_PREFIX)
 
 Installs <prefix>/lib/atf and links <prefix>/bin/atf. Uninstalling is removing those two.
@@ -54,7 +55,9 @@ done
 
 if [[ -z $VERSION ]]; then
   # The redirect off /releases/latest, not the JSON API: it needs no parser and no token,
-  # and unauthenticated API calls are rate limited per IP address.
+  # and unauthenticated API calls are rate limited per IP address. GitHub leaves a release
+  # marked prerelease out of this redirect, which is the only thing keeping a -rc tag off
+  # the default install. Asking for one by name still works.
   latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest") \
     || fail "could not reach github.com, or nothing is released yet: pass --version <tag>"
   VERSION=${latest##*/}

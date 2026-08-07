@@ -4,11 +4,17 @@
 name: CI
 
 # A bare branch push runs nothing. Code is checked on the pull request that proposes it, and
-# a v* tag is what publishes.
+# a version tag is what publishes.
+#
+# A release is a version or a candidate for one, so those are the only two tags. A tag
+# matching neither starts no run at all, which looks like a pipeline that is down, so
+# TestVersion carries the same two shapes and fails on the pull request instead.
 on:
   pull_request:
   push:
-    tags: ['v*']
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
 
 # A new commit on a pull request cancels the run for the one before it. A tag is pushed once,
 # so a release is never the run that gets cancelled.
@@ -177,8 +183,8 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
-            dist/release/*
+          args=(--title "$TAG" --generate-notes)
+          if [[ $TAG == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$TAG" "${args[@]}" dist/release/*
