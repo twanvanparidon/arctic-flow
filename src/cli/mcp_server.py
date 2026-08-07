@@ -11,7 +11,7 @@ that a tool does not work. Diagnostics go to stderr.
 A front end rather than a command, because it reads a stream and writes one. It is spawned,
 not typed: `atf mcp-serve` exists so an adapter has something to launch.
 
-Three methods, which is all a tool server needs. Two behaviours here are not obvious and
+Four methods, which is all a tool server needs. Two behaviours here are not obvious and
 both were confirmed against a live client:
 
   A notification carries no `id` and must never be answered, not even to refuse it.
@@ -21,16 +21,27 @@ both were confirmed against a live client:
   A bad tool call is a *result* with `isError`, not a JSON-RPC error. The model chose the
   arguments, so it is the party that can fix them; a protocol error tells it nothing.
 
-Two limits worth knowing before changing this. Calls are answered one at a time, so a
-client that issues several at once has them serialised, and nothing here can be cancelled
-mid-tool. And no secret is in reach: `validate()` refuses a step that both declares
-`secrets` and runs an agent granted tools, so the environment this inherits carries none.
+**Only `tools/call` leaves the read loop.** A model asks for several things at once, and
+running them in turn makes a turn take the sum rather than the longest. Everything else is
+answered where it is read, `ping` above all: the spec says a receiver answers one promptly
+and has no exemption for a busy server, so a queued ping would be the exact stall the pool
+exists to remove. The cost is that a `tools/list` on a stalled filesystem blocks the loop.
+
+That makes two things load-bearing. Writes are serialised, or two replies interleave and
+the framing is gone. And a worker carries its own guard, because an exception inside a
+future is captured by the future: nothing would be sent, and the model would wait for a
+reply that is never coming.
+
+No secret is in reach: `validate()` refuses a step that both declares `secrets` and runs an
+agent granted tools, so the environment this inherits carries none.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -51,10 +62,34 @@ PARSE_ERROR = -32700
 METHOD_NOT_FOUND = -32601
 INTERNAL_ERROR = -32603
 
+# How many tool calls run at once. A model can ask for a dozen in one block, and each is a
+# process tree: read_file is bash running jq, awk and realpath. This bounds those trees, not
+# requests. Past it a call waits for a worker, and its own timeout clock does not start
+# until it does, so nothing times out for having queued.
+#
+# A fixed number rather than one derived from the machine, so a laptop and CI hold the same
+# many open processes and a test means the same thing on both.
+MAX_CONCURRENT_CALLS = 8
+
+# One reply per line, and a reply larger than the stdout buffer is flushed in pieces, so two
+# workers' bytes interleave without this. `sys.stdout` is a TextIOWrapper, which the io docs
+# state is not thread-safe; only the binary layer beneath it takes a lock of its own.
+_writing = threading.Lock()
+
+# Not for the append, which O_APPEND already makes atomic for a line this short. It is for
+# what reads the file: `ToolCallReporter` rewinds on a line it cannot parse and waits for
+# the rest, so two writes that interleave produce a line that never becomes valid and every
+# later call in that turn stops being reported. Silently, which is the part worth locking.
+_reporting = threading.Lock()
+
 
 def _send(message: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
+    # Serialised outside the lock: it is the slow part, it needs no protection, and a large
+    # tool result must not hold up a ping.
+    line = json.dumps(message) + "\n"
+    with _writing:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def _result(message_id: Any, result: dict[str, Any]) -> None:
@@ -96,9 +131,10 @@ def _report(events: Path | None, call: commands.ToolCall) -> None:
     """
     if events is None:
         return
+    line = json.dumps({"tool": call.name, "ok": call.ok, "ms": call.ms}) + "\n"
     try:
-        with events.open("a") as stream:
-            stream.write(json.dumps({"tool": call.name, "ok": call.ok, "ms": call.ms}) + "\n")
+        with _reporting, events.open("a") as stream:
+            stream.write(line)
     except OSError:
         pass
 
@@ -121,38 +157,75 @@ def _tools_call(
     return _content(call.error or f"{call.name} failed without saying why", is_error=True)
 
 
+def _answer_here(
+    message_id: Any, method: str | None, params: dict[str, Any], names: list[str], paths: Paths
+) -> None:
+    """The methods answered on the read loop, because none of them waits on anything."""
+    if method == "initialize":
+        _result(message_id, _initialize(params))
+    elif method == "tools/list":
+        _result(message_id, _tools_list(names, paths))
+    elif method == "ping":
+        # An empty result is the whole answer. It is also the one thing that proves the
+        # loop is still reading while tools run, which is why it is not in the pool.
+        _result(message_id, {})
+    else:
+        _error(message_id, METHOD_NOT_FOUND, f"unsupported method '{method}'")
+
+
 def serve(names: list[str], paths: Paths, events: Path | None = None) -> int:
     """Answer frames until stdin closes."""
-    for raw in sys.stdin:
-        line = raw.strip()
-        if not line:
-            continue
 
+    def answer(message_id: Any, params: dict[str, Any]) -> None:
+        """Run one call and reply. Its own guard, because the loop's cannot see this far.
+
+        An exception inside a future is kept by the future rather than raised, so without
+        this nothing would be sent and the model would wait for a reply that never comes.
+        """
         try:
-            message = json.loads(line)
-        except json.JSONDecodeError as exc:
-            _error(None, PARSE_ERROR, f"not JSON: {exc}")
-            continue
-
-        message_id = message.get("id")
-        if message_id is None:
-            continue
-        method = message.get("method")
-        params = message.get("params") or {}
-
-        try:
-            if method == "initialize":
-                _result(message_id, _initialize(params))
-            elif method == "tools/list":
-                _result(message_id, _tools_list(names, paths))
-            elif method == "tools/call":
-                _result(message_id, _tools_call(params, names, paths, events))
-            else:
-                _error(message_id, METHOD_NOT_FOUND, f"unsupported method '{method}'")
+            reply: dict[str, Any] = {"result": _tools_call(params, names, paths, events)}
         except Exception as exc:
-            # One bad frame must not end the session. Letting this escape would close
-            # stdout mid-turn, and the client would report a transport failure that says
-            # nothing about the cause.
-            _error(message_id, INTERNAL_ERROR, f"{type(exc).__name__}: {exc}")
+            reply = {"error": {"code": INTERNAL_ERROR, "message": f"{type(exc).__name__}: {exc}"}}
+        _send({"jsonrpc": "2.0", "id": message_id, **reply})
 
+    submitted: list[Future[None]] = []
+    with ThreadPoolExecutor(
+        max_workers=MAX_CONCURRENT_CALLS, thread_name_prefix="atf-call"
+    ) as pool:
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError as exc:
+                _error(None, PARSE_ERROR, f"not JSON: {exc}")
+                continue
+
+            message_id = message.get("id")
+            if message_id is None:
+                continue
+            method = message.get("method")
+            params = message.get("params") or {}
+
+            try:
+                if method == "tools/call":
+                    submitted.append(pool.submit(answer, message_id, params))
+                else:
+                    _answer_here(message_id, method, params, names, paths)
+            except Exception as exc:
+                # One bad frame must not end the session. Letting this escape would close
+                # stdout mid-turn, and the client would report a transport failure that says
+                # nothing about the cause.
+                _error(message_id, INTERNAL_ERROR, f"{type(exc).__name__}: {exc}")
+
+    # Leaving the pool waits for what is still running, so a client that closed stdin still
+    # gets the answer to a call it had already sent. Every worker is bounded by its tool's
+    # own timeout, so this cannot wait forever.
+    for future in submitted:
+        # A worker answers its own exceptions; what reaches here is a stream that broke
+        # under it. Raised rather than dropped, so a server whose stdout is gone still
+        # exits non-zero instead of reporting success.
+        future.result()
     return 0

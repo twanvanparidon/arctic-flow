@@ -18,9 +18,65 @@ import pytest
 
 from engine.executor import tool_server_command
 from paths.resolver import Paths
-from support.mcp import HANDSHAKE, LIST, call, frames, parsed
+from support import components as make
+from support.mcp import HANDSHAKE, LIST, PING, answered, call, frames, parsed
 
 from .conftest import ENTRY_POINT, Runner, requires
+
+
+class TestConcurrentReplies:
+    """Two workers writing one real file descriptor.
+
+    The unit suite cannot make this claim: `capsys` writes into a BytesIO, so a reply split
+    around another's would go unnoticed there. Here stdout is a pipe with a buffer, and a
+    reply bigger than it is flushed in pieces, which is what the write lock exists for.
+    """
+
+    def test_replies_bigger_than_the_buffer_do_not_interleave(
+        self, atf_process: Runner, project: Path
+    ) -> None:
+        # Well past the 8K a pipe buffers, so each reply is several flushes.
+        make.write_tool(
+            project,
+            "bulky",
+            script=make.python("sys.stdout.write('x' * 60000)\n"),
+            run={"command": ["./run.sh"], "timeout_seconds": 20},
+        )
+        wanted = [call("bulky", request_id=200 + n) for n in range(6)]
+        result = atf_process(
+            "--workspace",
+            str(project),
+            "mcp-serve",
+            "--tool",
+            "bulky",
+            stdin=frames(HANDSHAKE, *wanted),
+        )
+        assert result.code == 0
+        # Every line whole, and every call answered exactly once.
+        replies = parsed(result.out)
+        assert sorted(reply["id"] for reply in replies) == [1, *(200 + n for n in range(6))]
+        for reply in replies[1:]:
+            assert len(reply["result"]["content"][0]["text"]) == 60000
+
+    def test_a_ping_is_answered_while_tools_are_running(
+        self, atf_process: Runner, project: Path
+    ) -> None:
+        """Answered on the read loop, so it does not queue behind the calls."""
+        make.write_tool(
+            project,
+            "dawdle",
+            script=make.sleeps(0.4),
+            run={"command": ["./run.sh"], "timeout_seconds": 20},
+        )
+        result = atf_process(
+            "--workspace",
+            str(project),
+            "mcp-serve",
+            "--tool",
+            "dawdle",
+            stdin=frames(HANDSHAKE, call("dawdle", request_id=7), PING),
+        )
+        assert [reply["id"] for reply in parsed(result.out)] == [1, PING["id"], 7]
 
 
 class TestTheStream:
@@ -67,7 +123,7 @@ class TestRunningATool:
             "shout",
             stdin=frames(HANDSHAKE, call("shout", text="quiet")),
         )
-        [_, answer] = parsed(result.out)
+        answer = answered(parsed(result.out), 3)
         assert answer["result"]["content"][0]["text"] == "QUIET"
         assert answer["result"]["isError"] is False
 
@@ -110,7 +166,7 @@ class TestTheArgvTheEngineBuilds:
             timeout=60,
         )
         assert completed.returncode == 0
-        [_, answer] = parsed(completed.stdout)
+        answer = answered(parsed(completed.stdout), 3)
         assert answer["result"]["content"][0]["text"] == "OK"
 
     def test_the_calls_it_made_are_reported_where_the_engine_is_reading(
@@ -146,6 +202,6 @@ class TestTheShippedTools:
             "read_file",
             stdin=frames(HANDSHAKE, call("read_file", path="/etc/passwd")),
         )
-        [_, answer] = parsed(result.out)
+        answer = answered(parsed(result.out), 3)
         assert answer["result"]["isError"] is True
         assert "outside the workspace root" in answer["result"]["content"][0]["text"]

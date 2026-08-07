@@ -1,4 +1,4 @@
-"""Tools as something other than a step: described, and called one at a time.
+"""Tools as something other than a step: described, and called one at a time by name.
 
 `commands.run` executes a tool because a flow's graph said to. These two exist because an
 *agent* can also call one mid-turn, so something has to describe the tools it was granted
