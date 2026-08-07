@@ -620,6 +620,13 @@ def tool_server_command(paths: Paths, tools: list[str], events: Path) -> list[st
     `sys.argv[0]` as written, and the runtime starts the server from a directory of its
     own choosing, where it would not resolve.
 
+    The assumption `sys.argv[0]` carries is that this program *is* the engine, which holds
+    for all three of those. It does not hold when the engine is a library inside another
+    program: the argv then names that program, which has no `mcp-serve` to run, and the
+    server exits with an argument error the model reports as the tool not working. A
+    second front end that keeps `atf` on the path has nothing to do; one that does not
+    would need to say where the engine is, and there is no way to ask yet.
+
     `--workspace` precedes the subcommand because it is a global flag. Passing it
     explicitly rather than letting the child inherit a cwd keeps the tool lookup and the
     directory tools run in identical to this process's, wherever the runtime starts it.
