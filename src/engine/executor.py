@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -63,9 +64,26 @@ DEFAULT_GATE_ATTEMPTS = 3
 # bare `ATF_`.
 VARIABLE_PREFIX = "ATF_VAR_"
 
+# How often a running component looks at its cancel event. Invisible to a model, and a
+# component given no event does not poll at all: it waits in one call, as it always has.
+CANCEL_POLL_SECONDS = 0.05
+
+# How long a component gets between TERM and KILL.
+KILL_GRACE_SECONDS = 2.0
+
 
 class FlowError(RuntimeError):
     """A flow is malformed, or one of its steps failed."""
+
+
+class Cancelled(FlowError):
+    """A component was stopped because its caller stopped waiting for it.
+
+    A FlowError, so anything not told to care about the difference still catches it: to
+    `execute()` a cancelled step would simply be a failed one. Only `commands.call_tool`
+    separates it out, because a withdrawn request is answered with nothing at all rather
+    than with a failure.
+    """
 
 
 # --------------------------------------------------------------------------- #
@@ -154,12 +172,79 @@ def check_payload(schema: dict[str, Any], payload: dict[str, Any], who: str) -> 
         raise FlowError(f"input rejected by {who}: {detail}")
 
 
+def _stop(proc: subprocess.Popen[str], grouped: bool) -> None:
+    """End a component, and everything it started. TERM first, KILL after the grace.
+
+    The group rather than the child, because a tool is a program that runs other programs:
+    `read_file` is bash running jq, awk and realpath. Killing bash alone leaves those
+    behind, holding the pipe nothing is draining any more.
+
+    TERM first so a tool with a trap can unwind, which matters because `write_file`
+    truncates in place. KILL after, because a stop that leaves the process running is worse
+    than none: nothing is waiting for its answer, and it still holds the workspace.
+
+    Ungrouped, only the direct child is signalled, so a step whose tool backgrounds
+    something and then times out can leave that behind. It is the price of a step's tool
+    staying in the caller's session, which is what keeps Ctrl-C on `atf run` reaching it.
+    Grouping every spawn would fix the orphan and break the interrupt; a cancellable call
+    has no terminal to answer to, so it groups and gets the whole tree.
+    """
+    for number in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, number) if grouped else proc.send_signal(number)
+        except (ProcessLookupError, PermissionError):
+            # It exited between the last look and the signal, which is the ordinary race.
+            return
+        try:
+            proc.wait(timeout=KILL_GRACE_SECONDS)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _collect(
+    proc: subprocess.Popen[str],
+    payload: str,
+    name: str,
+    timeout: float,
+    cancel: threading.Event | None,
+    grouped: bool,
+) -> tuple[str, str]:
+    """Send the payload, read both streams, and stop early if the caller gave up.
+
+    `communicate` rather than `wait`: a tool that fills the pipe buffer blocks until
+    something drains it, and only this writes stdin and reads both streams at once. It is
+    *resumed* after a TimeoutExpired rather than restarted, which is what lets a short
+    slice be used to look at `cancel`. The payload goes once; sending it again raises.
+
+    Without a `cancel` there is no slicing at all: one call, the tool's own timeout,
+    exactly as `subprocess.run` did it.
+    """
+    deadline = time.monotonic() + timeout
+    sending: str | None = payload
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            _stop(proc, grouped)
+            raise FlowError(f"{name} exceeded its {timeout}s timeout")
+        try:
+            return proc.communicate(
+                sending, timeout=left if cancel is None else min(left, CANCEL_POLL_SECONDS)
+            )
+        except subprocess.TimeoutExpired:
+            sending = None
+            if cancel is not None and cancel.is_set():
+                _stop(proc, grouped)
+                raise Cancelled(f"{name} was cancelled") from None
+
+
 def spawn(
     base: Path,
     spec: dict[str, Any],
     payload: dict[str, Any],
     paths: Paths,
     secrets: dict[str, str] | None = None,
+    cancel: threading.Event | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Validate the payload against the component's own schema, then run it.
 
@@ -169,24 +254,38 @@ def spawn(
 
     `secrets` go into the child's environment and nowhere else, and only the names the
     step declared are present. A component cannot read a secret it was not granted.
+
+    `cancel` is how a caller that stopped waiting stops the work: set it and the tool's
+    process tree is signalled and `Cancelled` is raised. A step passes none and behaves
+    exactly as it always has.
     """
     check_payload(spec["input_schema"], payload, f"{spec['name']}/spec.json")
 
     run = spec["run"]
     timeout = run.get("timeout_seconds", 60)
     command = [str((base / run["command"][0]).resolve()), *run["command"][1:]]
-    try:
-        return subprocess.run(
-            command,
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            cwd=paths.workspace,
-            env=child_environment(secrets),
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise FlowError(f"{spec['name']} exceeded its {timeout}s timeout") from exc
+
+    # Before the fork, so a call cancelled while it waited for a free worker never starts a
+    # process at all.
+    if cancel is not None and cancel.is_set():
+        raise Cancelled(f"{spec['name']} was cancelled")
+
+    # A cancellable tool gets its own session so the whole tree can be signalled at once. A
+    # step deliberately does not: a new session has no controlling terminal, so Ctrl-C on
+    # `atf run` would stop reaching the tool and the run would then wait out its timeout.
+    grouped = cancel is not None
+    with subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=paths.workspace,
+        env=child_environment(secrets),
+        start_new_session=grouped,
+    ) as proc:
+        stdout, stderr = _collect(proc, json.dumps(payload), spec["name"], timeout, cancel, grouped)
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
 def exit_summary(spec: dict[str, Any], proc: subprocess.CompletedProcess[str]) -> str:
@@ -204,9 +303,10 @@ def invoke(
     payload: dict[str, Any],
     paths: Paths,
     secrets: dict[str, str] | None = None,
+    cancel: threading.Event | None = None,
 ) -> str:
     """Run a component and return its stdout. Any exit but 0 fails the step."""
-    proc = spawn(base, spec, payload, paths, secrets)
+    proc = spawn(base, spec, payload, paths, secrets, cancel)
     if proc.returncode != 0:
         raise FlowError(exit_summary(spec, proc))
     return proc.stdout

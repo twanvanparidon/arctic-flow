@@ -13,11 +13,14 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from engine.executor import (
+    Cancelled,
     FlowError,
     check_payload,
     child_environment,
@@ -218,6 +221,57 @@ class TestSpawn:
         base, spec = load_component(paths, "tool", "absent")
         with pytest.raises(FileNotFoundError):
             spawn(base, spec, {}, paths)
+
+
+class TestCancellingASpawn:
+    def test_an_event_already_set_never_starts_a_process(
+        self, paths: Paths, workspace: Path, tmp_path: Path
+    ) -> None:
+        """Checked before the fork, so a call cancelled while it queued costs nothing."""
+        started = tmp_path / "started"
+        make.write_tool(
+            workspace,
+            "blocker",
+            script=make.finishes_later(started, tmp_path / "finished"),
+        )
+        base, spec = load_component(paths, "tool", "blocker")
+        stop = threading.Event()
+        stop.set()
+        with pytest.raises(Cancelled, match="blocker was cancelled"):
+            spawn(base, spec, {}, paths, cancel=stop)
+        assert not started.exists()
+
+    def test_a_running_tool_is_stopped_and_its_tree_with_it(
+        self, paths: Paths, workspace: Path, tmp_path: Path
+    ) -> None:
+        """The claim is the marker, not the exception: a suppressed reply and a real kill
+        look identical from the caller's side, and only the marker tells them apart."""
+        started, finished = tmp_path / "started", tmp_path / "finished"
+        make.write_tool(
+            workspace,
+            "blocker",
+            script=make.finishes_later(started, finished, seconds=3),
+            run={"command": ["./run.sh"], "timeout_seconds": 30},
+        )
+        base, spec = load_component(paths, "tool", "blocker")
+        stop = threading.Event()
+        threading.Thread(target=lambda: (make.wait_for(started), stop.set()), daemon=True).start()
+
+        with pytest.raises(Cancelled, match="blocker was cancelled"):
+            spawn(base, spec, {}, paths, cancel=stop)
+        # Long enough for a survivor to have written it, so this separates a real stop from
+        # an exception raised over a process still running.
+        time.sleep(3.5)
+        assert not finished.exists()
+
+    def test_an_event_never_set_leaves_the_run_alone(self, paths: Paths, workspace: Path) -> None:
+        make.write_tool(workspace, "greet", script=make.prints("hello"))
+        base, spec = load_component(paths, "tool", "greet")
+        assert spawn(base, spec, {}, paths, cancel=threading.Event()).stdout == "hello"
+
+    def test_a_cancelled_tool_is_still_a_flow_error(self) -> None:
+        """So anything not told to care about the difference still catches it."""
+        assert issubclass(Cancelled, FlowError)
 
 
 class TestExitSummary:
