@@ -93,7 +93,7 @@ src/builtin/             tools that ship with the engine
 src/util/                ways of looking at a flow without running it
 examples/                self-contained sample projects
 packaging/               build recipe, PyInstaller spec, release and install scripts
-tests/                   unit and integration (written), e2e (empty for now)
+tests/                   unit, integration, and e2e against the built binary
 ```
 
 `cli/` renders; `engine/` decides. The engine emits events and never formats
@@ -198,8 +198,10 @@ report as artifacts. Coverage never fails the build.
 ## Tests
 
 `tests/unit` and `tests/integration` are written and run in under half a minute.
-`tests/e2e` is still empty. How the suite is built, and what belongs in which of the three,
-is in `.claude/rules/TESTING.md`.
+`tests/e2e` drives the built binary and takes about as long again, but only once there is
+one to drive: without a build it skips, so a plain `pytest` on a checkout runs the first
+two. How the suite is built, and what belongs in which of the three, is in
+`.claude/rules/TESTING.md`.
 
 **A unit test uses no doubles.** A tool test writes a real tool directory and the engine
 spawns a real process; a vault test encrypts with real scrypt and AES-GCM; a test about
@@ -215,6 +217,12 @@ decided, so it is the last resort.
 The one in the tree today is a fake: `tests/support/fake_claude.py` speaks the Claude Code
 CLI's protocol, so the adapter spawns a real process without an account or a network.
 `PATH=/usr/bin:/bin pytest` passes, which is how you can tell nothing reaches the real one.
+
+**An end-to-end test is about the artefact, not this source.** It belongs there when it
+would pass against `src/` and still ship something broken: a frozen process spawning
+`openssl`, `atf` reached through the symlink `install.sh` leaves, a password prompt that
+needs a controlling terminal. Its agent steps use `adapters.echo`, which ships and answers
+from the request, because a registry frozen into a binary cannot be added to from outside.
 
 ## Adding a component
 
@@ -362,6 +370,15 @@ docker cp atf-out:/out/atf ./dist/ && docker rm atf-out
 
 `docker build` fails rather than producing a binary that cannot see its own built-in
 components. That check has already caught a real regression.
+
+Once `dist/atf/atf` exists, the end-to-end suite finds it:
+
+```sh
+pytest tests/e2e
+```
+
+The pipeline runs it on a release tag, between the build and the publish, so a binary that
+fails it is never released.
 
 If you change `pyproject.toml`'s dependencies, regenerate the lock:
 

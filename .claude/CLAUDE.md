@@ -54,7 +54,10 @@ far more than ruff can. Line length is 100, set in `pyproject.toml`.
 `tests/unit` covers every module under `../src`, function by function. `tests/integration`
 covers what only appears once they are composed: whole commands through the CLI, which
 stream each byte left on, the vault end to end, and the shipped examples. Together they run
-in under half a minute. `tests/e2e` is still empty.
+in under half a minute. `tests/e2e` covers what only appears once it is *built*: a frozen
+process spawning `openssl`, `atf` reached through the symlink `install.sh` leaves, and the
+password prompt, which needs a controlling terminal. It drives `dist/atf/atf`, takes about
+half a minute, and skips entirely when there is no binary, so a plain `pytest` is unaffected.
 
 **The rule differs by suite, and it is the thing to know before adding a test.** A unit test
 uses **no doubles at all**: it writes a real tool directory and lets the engine spawn a real
@@ -63,11 +66,15 @@ process, uses real scrypt and AES-GCM, and opens a real pseudo-terminal via
 order of preference**, since a fake can still fail for a real reason and a mock only pins how
 the code went about something.
 
+An e2e test may use them too, and mostly does not have to: agent steps there name
+`adapters.echo`, the shipped adapter that answers from the request, because `ADAPTERS` is
+frozen into the binary and nothing outside it can register one.
+
 `../.claude/rules/TESTING.md` has the whole convention: the taxonomy behind that order, the
-three things a unit test may still do (environment control, the test adapter in
-`tests/support/adapter_echo.py`, and testing a private helper directly), and how to run the
-integration suite. Its `claude`-protocol program, `tests/support/fake_claude.py`, is autouse
-there, because a real `claude` on `PATH` would otherwise be reached by a stray agent step.
+two things a unit test may still do (environment control and testing a private helper
+directly), and how to run each suite. Its `claude`-protocol program,
+`tests/support/fake_claude.py`, is autouse in the last two, because a real `claude` on `PATH`
+would otherwise be reached by a stray agent step.
 
 `pytest` needs no install step: `[tool.pytest.ini_options]` prepends `src` and `tests` to the
 path. `tests/conftest.py` points `$HOME` at `tmp_path`, because `~/.arctic` is a real search
@@ -192,6 +199,12 @@ Adapters are the deliberate exception to name-based lookup: there is no
 an adapter is engine infrastructure called in-process. `ADAPTERS` is static imports on
 purpose: a frozen build misses anything resolved dynamically.
 
+Two ship. `claude_code` calls a model. `echo` answers from the request, so a flow's graph,
+branches, gates and templates run with no runtime, no network and no cost, and its prompt
+can carry `!fail`, `!json` or `!invocation` to steer or inspect a turn. That is also what
+lets `tests/e2e` reach an agent step at all: nothing outside the binary can add to a
+registry that was frozen into it.
+
 A flow must not carry model, effort or output shape; those belong to
 `agents/<name>/spec.json`. `engine/specs.py` checks a spec against what the runtime
 actually reads, so **adding a field the engine reads means adding it to the schema there**;
@@ -227,7 +240,9 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
   `site-packages`. `[tool.setuptools.packages.find]` lists them explicitly, so a new
   directory under `../src` ships only when someone adds it on purpose. `builtin` needs its
   `package-data` entry or the built-in search layer comes up empty in a wheel.
-- Linux x86-64 binaries only (PyInstaller cannot cross-compile); one adapter.
+- Linux x86-64 binaries only (PyInstaller cannot cross-compile). One adapter calls a model:
+  `claude_code`. `echo` answers from the request and is a dry run, not a second runtime, so
+  the adapter interface still has one implementation to be shaped by.
 
 ## House style
 

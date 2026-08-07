@@ -62,12 +62,11 @@ The short version, and it differs by suite:
   A fake is a working implementation and can still fail for a real reason, so reach for it
   first. A stub only answers. A mock asserts on how the code went about something rather
   than on what it decided, so it comes last.
+- **`tests/e2e`: the built binary, not this source.** A test belongs here when it would pass
+  against `src/` and still ship something broken. It needs a build, and skips without one.
 
-TESTING.md has the taxonomy, the three things a unit test may still do, and why none of
-them is a double.
-
-`tests/unit` is written. `tests/integration` and `tests/e2e` are still empty, so a change
-that needs one of those cannot be covered today. Say so rather than skipping it quietly.
+TESTING.md has the taxonomy, the two things a unit test may still do, and why neither is a
+double.
 
 ## Minimal changes
 

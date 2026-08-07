@@ -84,6 +84,12 @@ for.
 atf list             # adapters, and every component name the engine can see
 ```
 
+One of them needs nothing. Point an agent at `"adapter": "echo"` and it answers from the
+request instead of from a model, so a flow's graph, its branches, its gates and every
+template in it run offline and for free. Useful while you are still writing the flow; the
+prompt can say `!fail` to see what a refusal does to the graph, or `!json {"verdict": …}`
+to send a `switch` down the branch you want to look at.
+
 ---
 
 ## Examples
