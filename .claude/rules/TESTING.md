@@ -164,7 +164,9 @@ that could fire on the same flow, so `"unknown step 'ghost'"` earns its extra wo
 Three places where the format **is** the decision, and exact strings are right:
 
 - **Bytes on a stream.** `atf run > file` producing the flow's output and nothing else.
-- **Something a script parses.** `atf --version` printing `atf 0.1.0` on a pipe.
+- **Something a script parses.** `atf --version` printing one line on a pipe, `atf ` then
+  the version. The number is stamped in from the tag at build time, so assert that shape
+  around `branding.__version__` rather than around a literal.
 - **Where the formatting is the logic.** `count(1, "step")`, `_duration(60)`, `_money`.
 
 Do not assert an escape sequence. Ask the painter for it, so the decision is checked and

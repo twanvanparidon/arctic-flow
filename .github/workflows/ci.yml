@@ -115,12 +115,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # VCS_REF labels the image, which is the artefact's only trace back to a commit: the
-      # binary is not stamped, `atf --version` reads src/cli/branding.py.
+      # VCS_REF labels the image, which is the artefact's only trace back to a commit.
+      # VERSION is the tag, and empty on a pull request: the binary then reports the
+      # placeholder in src/cli/branding.py, which is what an untagged build is.
       - name: Build the image
+        env:
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
         run: |
           docker build \
             --build-arg VCS_REF=${{ github.sha }} \
+            --build-arg VERSION="$VERSION" \
             -f packaging/Dockerfile.build \
             -t atf-build .
 
@@ -176,6 +180,13 @@ jobs:
         run: |
           mkdir -p dist
           tar --extract --file atf-dist.tar --directory dist
+
+      # The wheel is built here, from this checkout, rather than in the image that produced
+      # the binary. So it needs the same stamp, or one release ships two versions of itself.
+      # release.sh does not do this: it promises to be runnable locally, and dirtying a
+      # working tree as a side effect of inspecting a release is not that.
+      - name: Stamp the version onto the checkout
+        run: python packaging/stamp_version.py "${{ github.ref_name }}"
 
       - name: Package the release
         run: packaging/release.sh --tag "${{ github.ref_name }}"

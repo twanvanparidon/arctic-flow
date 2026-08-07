@@ -90,9 +90,16 @@ dependencies, regenerate the lock or `../packaging/verify_deps.py` fails the bui
 docker run --rm atf-build pip freeze | grep -viE '^(pip|setuptools|wheel)==' > packaging/requirements-lock.txt
 ```
 
-Releasing is tagging `v*`. Bump `__version__` in `../src/cli/branding.py` first. It is the
-single source of the version (`pyproject.toml` reads it via `tool.setuptools.dynamic`), and
-`../packaging/release.sh` refuses to publish when the tag disagrees with the binary.
+Releasing is tagging `vX.Y.Z`, or `vX.Y.Z-rc.N` for a candidate, which publishes as a
+prerelease and so stays off `install.sh`'s default. The tag is the version: nothing is
+bumped by hand. `../packaging/stamp_version.py` writes it into `../src/cli/branding.py`
+before the build installs the project, and `pyproject.toml` reads it from there via
+`tool.setuptools.dynamic`. A checkout carries `0.0.0.dev0`.
+
+That stamp is the one step that can silently not happen: run after `pip install` rather
+than before, it writes a source tree nothing reads again and the build still passes. So the
+Docker smoke test compares the binary against the tag, and `../packaging/release.sh`
+refuses to publish when they disagree.
 
 ## Architecture
 

@@ -17,10 +17,13 @@ from typing import TextIO
 
 from cli import colour
 
-# Single source of the version: pyproject.toml reads it from here and `--version` prints
-# it, so a release cannot disagree with itself. It sits beside the name and tagline
-# because a flat src/ has no package __init__ left to hold it.
-__version__ = "0.1.0"
+# The git tag is the version. This is the placeholder a checkout carries, and what an
+# unstamped build reports: packaging/stamp_version.py overwrites this line before the build
+# installs the project, and pyproject.toml reads the result through tool.setuptools.dynamic.
+#
+# Deliberately not a plausible release number. A missed stamp is otherwise invisible until
+# someone installs 0.2.0 and finds it reports something older.
+__version__ = "0.0.0.dev0"
 
 NAME = "Arctic Flow"
 COMMAND = "atf"
