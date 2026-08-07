@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from cli import branding
 from support import components as make
 
 from .conftest import ENTRY_POINT, Outcome, Runner
@@ -132,7 +133,7 @@ class TestOnATerminal:
 
     def test_the_banner_appears_only_for_a_person(self, project: Path, atf_process: Runner) -> None:
         assert "A R C T I C" in on_a_terminal(["--version"]).out
-        assert atf_process("--version").out == "atf 0.1.0\n"
+        assert atf_process("--version").out == f"atf {branding.__version__}\n"
 
 
 class TestExitStatus:

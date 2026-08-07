@@ -9,7 +9,6 @@ scripts and read in CI logs.
 from __future__ import annotations
 
 import io
-import re
 
 from cli import branding
 from support.terminal import Terminal
@@ -44,14 +43,3 @@ class TestVersionLine:
         assert branding.version_line("1.2.3", terminal.stream) == branding.banner(
             "1.2.3", terminal.stream
         )
-
-
-class TestVersion:
-    def test_it_is_a_semver_release_number(self) -> None:
-        """pyproject.toml reads this attribute, and release.sh refuses a tag that disagrees.
-
-        The two shapes are the two the workflow's tag filter accepts. Kept in step on
-        purpose: a tag matching neither starts no run at all, so a version that could not be
-        released has to fail here rather than in that silence.
-        """
-        assert re.fullmatch(r"\d+\.\d+\.\d+(-rc\.\d+)?", branding.__version__)

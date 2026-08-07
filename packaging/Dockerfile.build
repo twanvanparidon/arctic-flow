@@ -9,8 +9,9 @@
 #
 #   Reproducibility. The binary embeds a Python interpreter and compiled wheels, so the
 #   build environment is part of the artefact. Pinning it in a Dockerfile means a build
-#   from the same commit produces the same thing on any machine, and it is the same
-#   recipe CI would use.
+#   from the same commit and tag produces the same thing on any machine, and it is the
+#   same recipe CI would use. The tag is part of that: it is the version, and it enters
+#   through --build-arg VERSION because no checkout knows which ref points at it.
 #
 #   glibc. A frozen binary links against the glibc it was built on and will not start on
 #   anything older. Building on bookworm (glibc 2.36) rather than the newest available
@@ -47,6 +48,17 @@ RUN pip install --no-cache-dir -r packaging/requirements-lock.txt
 # a pattern matching no file.
 COPY pyproject.toml LICENSE ./
 COPY src ./src
+
+# Before the install, not after: pyproject.toml's version is dynamic and read out of
+# src/cli/branding.py here, and atf.spec freezes the installed distribution rather than this
+# tree. Stamping later would leave the binary reporting the placeholder.
+#
+# Unset on a pull request, where there is no tag and the placeholder is the honest answer.
+# Only the one script is copied, so editing release.sh does not invalidate the install below.
+ARG VERSION=
+COPY packaging/stamp_version.py ./packaging/
+RUN if [ -n "$VERSION" ]; then python packaging/stamp_version.py "$VERSION"; fi
+
 RUN pip install --no-cache-dir --no-deps .
 
 COPY packaging ./packaging
