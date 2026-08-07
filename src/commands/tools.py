@@ -1,5 +1,8 @@
 """Tools as something other than a step: described, and called one at a time by name.
 
+Reentrant: nothing here holds state between calls, so a server may run several at once
+and does.
+
 `commands.run` executes a tool because a flow's graph said to. These two exist because an
 *agent* can also call one mid-turn, so something has to describe the tools it was granted
 and dispatch them individually. The dispatch is still `engine.executor.invoke`, so an

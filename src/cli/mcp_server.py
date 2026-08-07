@@ -32,6 +32,14 @@ the framing is gone. And a worker carries its own guard, because an exception in
 future is captured by the future: nothing would be sent, and the model would wait for a
 reply that is never coming.
 
+**A cancelled call is stopped, not just dropped.** `notifications/cancelled` is the client
+withdrawing a request: its tool's process tree is signalled and no reply is sent at all,
+which is what the spec asks of a receiver. It is handled on the read loop rather than
+submitted, because a pooled cancel would queue behind the very call it cancels. One entry
+per call in flight settles the race between the worker about to answer and the cancel:
+whichever claims it acts, so a call is never answered twice and a withdrawn one is never
+answered at all.
+
 No secret is in reach: `validate()` refuses a step that both declares `secrets` and runs an
 agent granted tools, so the environment this inherits carries none.
 """
