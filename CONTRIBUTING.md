@@ -260,6 +260,9 @@ Conventions that are load-bearing rather than stylistic:
   `atf mcp-serve`, and run through the same `invoke()` a tool step uses. A tool spec is
   already an MCP tool definition, so nothing in it is written twice. Naming a runtime's own
   built-in tools instead would tie one agent spec to one adapter.
+- **A model asking for several tools at once gets them at once.** `mcp-serve` runs calls
+  on a pool, so a turn takes the longest rather than the sum. Replies come back as calls
+  finish, which is why the test helpers key them by request id and never by position.
 - **Granting a tool that writes needs `unattended: true`.** Nothing approves a call an agent
   makes for itself, so a grant that can change the workspace is declared where the grant is.
 - **A granted tool gets no secrets.** Granting one that declares `secrets` is refused, and

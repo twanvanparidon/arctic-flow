@@ -247,6 +247,13 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
 - **In-turn calls are reported.** `mcp-serve --events` appends one line per call and the
   engine forwards it to `on_event`, so a turn that read nine files does not look like one
   silent step.
+- **Tool calls run concurrently, up to `MAX_CONCURRENT_CALLS`.** Only `tools/call` leaves
+  the read loop; `initialize`, `tools/list` and `ping` are answered where they are read,
+  because a queued `ping` is the stall the pool exists to remove. Two things follow and
+  both are load-bearing: writes are locked, or two replies interleave and the framing is
+  gone, and a worker carries its own error guard, because an exception inside a future is
+  kept by the future rather than raised. Replies arrive as calls finish, so anything
+  reading them keys by request id.
 - **The `claude_code` adapter's flags are verified against CLI 2.1.224** and move between
   releases. Check `claude --help` before adding a parameter and move
   `VERIFIED_CLI_VERSION`. `model` is required, because the CLI's configured default is a
