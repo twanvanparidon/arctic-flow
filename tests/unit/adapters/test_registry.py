@@ -21,6 +21,7 @@ from adapters import (
     AdapterRunFailed,
     AdapterUnavailable,
 )
+from engine import specs
 
 
 class TestLookup:
@@ -60,7 +61,11 @@ class TestTheContractEveryAdapterKeeps:
     def test_it_requires_a_prompt_and_nothing_the_engine_does_not_send(
         self, adapter: ModuleType
     ) -> None:
-        assert adapter.INPUT_SCHEMA["required"] == ["prompt"]
+        """An adapter may require more than the prompt, but only things the engine sends.
+        Requiring anything else would refuse every spec and be found at the first turn."""
+        sendable = {"prompt", "system", "json_schema", *specs.FORWARDED.values()}
+        assert "prompt" in adapter.INPUT_SCHEMA["required"]
+        assert set(adapter.INPUT_SCHEMA["required"]) <= sendable
 
 
 class TestFailureKinds:

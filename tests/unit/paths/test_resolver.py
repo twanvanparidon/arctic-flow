@@ -155,7 +155,10 @@ class TestListing:
     def test_lists_every_name_of_a_kind_sorted(self, paths: Paths, workspace: Path) -> None:
         make.write_tool(workspace, "zebra")
         make.write_tool(workspace, "alpha")
-        assert list(paths.list("tool")) == ["alpha", "read_file", "zebra"]
+        # Derived from what ships rather than written out here, so adding a built-in tool
+        # does not fail a test about ordering.
+        builtin = [tool.name for tool in (builtin_root() / "tools").iterdir()]
+        assert list(paths.list("tool")) == sorted(["alpha", "zebra", *builtin])
 
     def test_a_name_maps_to_the_definition_that_wins(
         self, paths: Paths, workspace: Path, home: Path
@@ -177,7 +180,9 @@ class TestListing:
         (workspace / "tools").mkdir()
         (workspace / "tools" / "notes.md").write_text("stray file")
         (workspace / "tools" / "empty").mkdir()
-        assert list(paths.list("tool")) == ["read_file"]
+        listed = paths.list("tool")
+        assert "notes.md" not in listed
+        assert "empty" not in listed
 
 
 class TestDisplay:

@@ -17,6 +17,7 @@ import pytest
 
 from adapters import echo
 from adapters.errors import AdapterRunFailed
+from engine import specs
 
 VERDICT = {
     "type": "object",
@@ -154,17 +155,13 @@ class TestSchema:
     def test_nothing_the_adapter_does_not_understand_is_accepted(self) -> None:
         assert echo.INPUT_SCHEMA["additionalProperties"] is False
 
-    def test_it_accepts_everything_the_engine_forwards(self) -> None:
-        """An agent spec written against a real runtime has to dry-run unedited, so this
-        covers `specs.FORWARDED` and the two `agent_turn` always builds."""
-        assert set(echo.INPUT_SCHEMA["properties"]) == {
-            "prompt",
-            "system",
-            "model",
-            "effort",
-            "json_schema",
-            "max_budget_usd",
-        }
+    def test_it_accepts_everything_the_engine_forwards_and_nothing_else(self) -> None:
+        """An agent spec written against a real runtime has to dry-run unedited, so the
+        schema has to be exactly what the engine can send. Read off the contract rather
+        than listed here: a new forwarded field fails at lint instead of at the first turn
+        that uses it, and the closed schema means a stale extra fails too."""
+        sends = {"prompt", "system", "json_schema", "tool_server", *specs.FORWARDED.values()}
+        assert set(echo.INPUT_SCHEMA["properties"]) == sends
 
     def test_effort_is_the_same_enumeration_a_real_runtime_enforces(self) -> None:
         assert echo.INPUT_SCHEMA["properties"]["effort"]["enum"] == [

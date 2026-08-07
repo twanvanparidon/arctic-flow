@@ -8,7 +8,7 @@ test cannot afford, since the real CLI needs an account, a network and money, an
 differently every time.
 
 What it imitates is the documented contract of `--print --output-format json` in CLI
-2.1.222: one JSON object of `type: result` on stdout, `is_error` when the turn failed, and
+2.1.224: one JSON object of `type: result` on stdout, `is_error` when the turn failed, and
 a response validating against `--json-schema` when one was given.
 
 The prompt steers it, so a flow decides what happens without anything having to patch
@@ -34,7 +34,7 @@ import os
 import sys
 from typing import Any
 
-VERSION = "2.1.222 (Claude Code)"
+VERSION = "2.1.224 (Claude Code)"
 
 # Flags that take a value. Anything else is a switch.
 VALUED = {
@@ -47,6 +47,9 @@ VALUED = {
     "--json-schema",
     "--output-format",
     "--tools",
+    "--mcp-config",
+    "--allowedTools",
+    "--setting-sources",
 }
 
 
@@ -137,7 +140,16 @@ def main() -> int:
     if directive == "!invocation":
         described = {
             "switches": options["switches"],
+            # How isolation is spelled depends on the turn: --safe-mode disables MCP
+            # servers, so a turn with tools is isolated the other way instead.
             "isolated": "--safe-mode" in options["switches"],
+            "isolated_without_safe_mode": (
+                options.get("--setting-sources") == ""
+                and "--disable-slash-commands" in options["switches"]
+            ),
+            "mcp_config": options.get("--mcp-config"),
+            "strict_mcp_config": "--strict-mcp-config" in options["switches"],
+            "allowed_tools": options.get("--allowedTools"),
             "model": options.get("--model"),
             "effort": options.get("--effort"),
             "tools": options.get("--tools"),

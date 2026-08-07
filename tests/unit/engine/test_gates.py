@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from adapters import echo
+from engine import specs
 from engine.executor import (
     DEFAULT_GATE_ATTEMPTS,
     FlowError,
@@ -35,6 +36,16 @@ from engine.executor import (
 )
 from paths.resolver import Paths
 from support import components as make
+
+# One valid value per forwarded field, so the parametrize below is driven by the contract
+# rather than by a list written here that can fall behind it.
+SETTINGS: dict[str, Any] = {
+    "model": "sonnet",
+    "effort": "low",
+    "max_budget_usd": 0.5,
+    "timeout_seconds": 30,
+    "tools": ["reader"],
+}
 
 # Exits 0 only when the text carries the marker, which the feedback is what supplies.
 DEMANDS_MARKER = make.python(
@@ -50,10 +61,25 @@ def agent_step(**extra: Any) -> dict[str, Any]:
     return {"id": "draft", "agent": "writer", "prompt": "write it", **extra}
 
 
+def probe_step(**extra: Any) -> dict[str, Any]:
+    """A step whose answer is the adapter's report of how it was called."""
+    return agent_step(prompt="!invocation", **extra)
+
+
 def sent(agent: dict[str, Any], secrets: dict[str, str] | None = None) -> dict[str, Any]:
     """One turn, reported by the adapter as it received it: `payload` and `env`."""
     result = agent_turn(echo, agent, "be terse", "!invocation", secrets or {})
     return json.loads(result["text"])
+
+
+def reported(result: dict[str, Any]) -> dict[str, Any]:
+    """The payload an `!invocation` turn answered with, out of a `run_agent` result.
+
+    `run_agent` resolves its adapter by name, so there is no module to hand it and no
+    envelope to read the request off. The answer is the only way back to what was sent,
+    which is the reason the directive exists.
+    """
+    return json.loads(result["text"])["payload"]
 
 
 class TestAgentTurn:
@@ -63,12 +89,14 @@ class TestAgentTurn:
             "system": "be terse",
         }
 
-    @pytest.mark.parametrize(
-        ("field", "value"),
-        [("model", "sonnet"), ("effort", "low"), ("max_budget_usd", 0.5)],
-    )
-    def test_a_setting_the_agent_declares_is_forwarded(self, field: str, value: object) -> None:
-        assert sent({"adapter": "echo", field: value})["payload"][field] == value
+    def test_the_sample_covers_every_forwarded_field(self) -> None:
+        """Adding a field to FORWARDED without wiring it fails here, not mid-run."""
+        assert set(SETTINGS) == set(specs.FORWARDED)
+
+    @pytest.mark.parametrize("field", sorted(SETTINGS))
+    def test_a_setting_the_agent_declares_is_forwarded(self, field: str) -> None:
+        payload = sent({"adapter": "echo", field: SETTINGS[field]})["payload"]
+        assert payload[specs.FORWARDED[field]] == SETTINGS[field]
 
     def test_a_setting_left_out_is_not_sent_as_null(self) -> None:
         """The adapter's schema is closed and its defaults are its own to apply."""
@@ -189,6 +217,49 @@ class TestRunAgentWithoutAGate:
         make.write_agent(workspace, "writer", adapter="nonexistent")
         with pytest.raises(FlowError, match="unknown adapter 'nonexistent'"):
             run_agent(agent_step(), {}, paths, {}, lambda _event: None)
+
+
+class TestRunAgentWithTools:
+    """What the engine supplies that the agent spec does not: a command serving its tools."""
+
+    def test_the_engine_supplies_a_server_the_agent_did_not(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """A spec names tools; where the engine is installed is not knowable from one."""
+        make.write_tool(workspace, "reader")
+        make.write_agent(workspace, "writer", tools=["reader"])
+        payload = reported(run_agent(probe_step(), {}, paths, {}, lambda _event: None))
+        assert payload["tools"] == ["reader"]
+        assert "mcp-serve" in payload["tool_server"]
+
+    def test_the_server_is_told_which_workspace_to_resolve_tools_in(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        make.write_tool(workspace, "reader")
+        make.write_agent(workspace, "writer", tools=["reader"])
+        server = reported(run_agent(probe_step(), {}, paths, {}, lambda _e: None))["tool_server"]
+        assert server[server.index("--workspace") + 1] == str(workspace)
+
+    def test_a_turn_without_tools_is_sent_no_server(self, paths: Paths, workspace: Path) -> None:
+        make.write_agent(workspace, "writer")
+        payload = reported(run_agent(probe_step(), {}, paths, {}, lambda _event: None))
+        assert "tool_server" not in payload
+
+    def test_a_gated_retry_still_carries_the_grant(self, paths: Paths, workspace: Path) -> None:
+        """The loop must not lose the tools between attempts."""
+        make.write_tool(workspace, "reader")
+        make.write_tool(workspace, "marker", script=DEMANDS_MARKER)
+        make.write_agent(workspace, "writer", tools=["reader"])
+        step = probe_step(
+            gate={
+                "tool": "marker",
+                "feedback": "Say REVISED.",
+                "input": {"text": "{{ this.text }}"},
+            }
+        )
+        result = run_agent(step, {}, paths, {}, lambda _event: None)
+        assert result["attempts"] == 2
+        assert reported(result)["tools"] == ["reader"]
 
 
 class TestRunAgentWithAGate:

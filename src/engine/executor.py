@@ -29,10 +29,13 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -554,15 +557,47 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
             raise FlowError(str(exc)) from exc
 
         # An agent's tool grant is checked here because the agent declares it, not the
-        # flow. The tools have to resolve *and* the refusal below still applies: naming
-        # one that does not exist is the more confusing error, so it is reported first.
+        # flow. Resolving the names first means a typo is reported as a typo, before the
+        # rules below talk about permissions the reader has not got to yet.
+        writes = []
+        credentialled = []
         for tool in spec.get("tools") or []:
-            load_component(paths, "tool", tool)
-        if spec.get("tools"):
+            tool_base, tool_spec = load_component(paths, "tool", tool)
+            try:
+                specs.check_tool_spec(tool_spec, tool_base, paths.display(tool_base / "spec.json"))
+            except specs.SpecError as exc:
+                raise FlowError(str(exc)) from exc
+            if (tool_spec.get("permissions") or {}).get("filesystem") == "write":
+                writes.append(tool)
+            if tool_spec.get("secrets"):
+                credentialled.append(tool)
+
+        # A tool an agent calls itself runs without anyone approving the call, so granting
+        # one that writes has to be said out loud rather than inferred from the tool list.
+        if writes and not spec.get("unattended"):
             raise FlowError(
-                f"agent '{step['agent']}' requests in-turn tools "
-                f"({', '.join(sorted(spec['tools']))}), which the engine cannot dispatch yet. "
-                "Give it the output of a tool step instead"
+                f"agent '{step['agent']}' grants {', '.join(sorted(writes))}, which "
+                f"{'change' if len(writes) > 1 else 'changes'} the workspace. Set "
+                '"unattended": true in its spec to say that is intended'
+            )
+
+        # Nothing scopes a secret to one in-turn call yet, so a tool that needs one cannot
+        # be reached this way. Refused where the grant is, rather than mid-turn when the
+        # tool finds its environment empty and the model starts reasoning about it.
+        if credentialled:
+            raise FlowError(
+                f"agent '{step['agent']}' grants {', '.join(sorted(credentialled))}, which "
+                "expects a secret in its environment. An agent's tools are not granted one. "
+                "Run it as a tool step, which declares its own 'secrets'"
+            )
+
+        # Same rule from the other side: the adapter is given the step's secrets, so a
+        # turn that can also call tools would hand every one of them the whole grant.
+        if spec.get("tools") and step.get("secrets"):
+            raise FlowError(
+                f"step '{step['id']}' declares secrets and runs agent '{step['agent']}', which is "
+                "granted tools. A tool the agent calls would inherit them, so the two "
+                "cannot be combined. Move the secret to a tool step"
             )
 
     return steps
@@ -571,6 +606,115 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 # execution
 # --------------------------------------------------------------------------- #
+
+
+def tool_server_command(paths: Paths, tools: list[str], events: Path) -> list[str]:
+    """How to re-invoke this engine as a tool server, for an adapter to spawn.
+
+    An agent's tools reach its runtime over a protocol, and the server is this program
+    again. The argv has to work from all three ways the engine runs: a frozen build *is*
+    the executable, while a checkout and an installed wheel are the interpreter plus an
+    entry point, which `sys.argv[0]` names in both.
+
+    That entry point is resolved here when it is relative. `python3 src/main.py` leaves
+    `sys.argv[0]` as written, and the runtime starts the server from a directory of its
+    own choosing, where it would not resolve.
+
+    The assumption `sys.argv[0]` carries is that this program *is* the engine, which holds
+    for all three of those. It does not hold when the engine is a library inside another
+    program: the argv then names that program, which has no `mcp-serve` to run, and the
+    server exits with an argument error the model reports as the tool not working. A
+    second front end that keeps `atf` on the path has nothing to do; one that does not
+    would need to say where the engine is, and there is no way to ask yet.
+
+    `--workspace` precedes the subcommand because it is a global flag. Passing it
+    explicitly rather than letting the child inherit a cwd keeps the tool lookup and the
+    directory tools run in identical to this process's, wherever the runtime starts it.
+    """
+    entry = Path(sys.argv[0])
+    launcher = (
+        [sys.executable]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, str(entry if entry.is_absolute() else entry.resolve())]
+    )
+    command = [*launcher, "--workspace", str(paths.workspace), "mcp-serve"]
+    for tool in tools:
+        command += ["--tool", tool]
+    return [*command, "--events", str(events)]
+
+
+class ToolCallReporter:
+    """Forwards what the tool server appends to `on_event`, while a turn is running.
+
+    Without this an in-turn call is invisible: the engine sees one agent step, and a turn
+    that read nine files reports as one row. The server cannot notify directly because it
+    is two processes away, spawned by the runtime rather than by the engine.
+
+    A file rather than a pipe. The server is not this process's child, so there is no fd
+    to hand it, and a FIFO would block on open when a turn never calls a tool.
+    """
+
+    def __init__(self, path: Path, notify: Callable[[dict[str, Any]], None], step: str) -> None:
+        self._path = path
+        self._notify = notify
+        self._step = step
+        self._read = 0
+
+    def drain(self) -> None:
+        """Forward whatever has appeared since the last call. Safe to call repeatedly."""
+        try:
+            lines = self._path.read_text().splitlines()
+        except OSError:
+            return
+        for line in lines[self._read :]:
+            self._read += 1
+            try:
+                call = json.loads(line)
+            except json.JSONDecodeError:
+                # A half-written line: the server appends and flushes per call, so the
+                # rest arrives on the next drain. Rewind so it is read again whole.
+                self._read -= 1
+                return
+            self._notify({"kind": "tool_call", "step": self._step, **call})
+
+
+# How often the reporter looks for new calls. Short enough that a call appears while the
+# turn is still running, which is the whole point of reporting it at all.
+TOOL_EVENT_POLL_SECONDS = 0.05
+
+
+@contextmanager
+def tool_calls_reported(
+    paths: Paths, tools: list[str], notify: Callable[[dict[str, Any]], None], step: str
+) -> Iterator[list[str] | None]:
+    """Yields the server command, forwarding each call it reports until the turn is done.
+
+    Granting nothing yields None and starts neither a file nor a thread, so an ordinary
+    turn pays nothing for this. The final drain matters on the other path: the last call
+    usually lands between two polls.
+    """
+    if not tools:
+        yield None
+        return
+
+    with tempfile.TemporaryDirectory(prefix="atf-tool-events-") as directory:
+        events = Path(directory) / "calls.ndjson"
+        events.touch()
+        reporter = ToolCallReporter(events, notify, step)
+        stop = threading.Event()
+
+        def poll() -> None:
+            while not stop.wait(TOOL_EVENT_POLL_SECONDS):
+                reporter.drain()
+
+        watcher = threading.Thread(target=poll, daemon=True, name=f"atf-tool-events-{step}")
+        watcher.start()
+        try:
+            yield tool_server_command(paths, tools, events)
+        finally:
+            stop.set()
+            watcher.join(timeout=1)
+            reporter.drain()
 
 
 @dataclass(frozen=True)
@@ -676,42 +820,50 @@ def run_agent(
     spent = 0.0
     attempt = 0
 
-    while True:
-        attempt += 1
-        result = agent_turn(adapter, agent, system, prompt, secrets)
-        if gate is None:
-            return result
+    # Wraps the whole loop rather than one turn, so a retry's tool calls are reported too.
+    # Yields None when the agent was granted nothing, which is the no-tools turn.
+    with tool_calls_reported(paths, agent.get("tools") or [], notify, step["id"]) as server:
+        while True:
+            attempt += 1
+            result = agent_turn(adapter, agent, system, prompt, secrets, server)
+            if gate is None:
+                return result
 
-        # Every attempt was paid for. The envelope only carries what the last turn cost,
-        # so a gated step reports the total or the trace under-counts a retried step.
-        spent += result.get("cost_usd") or 0.0
-        result["cost_usd"] = spent
-        result["attempts"] = attempt
+            # Every attempt was paid for. The envelope only carries what the last turn
+            # cost, so a gated step reports the total or the trace under-counts a retry.
+            # `attempts` counts these, not the model turns inside one: a turn with tools
+            # makes many, and reports them as `num_turns`.
+            spent += result.get("cost_usd") or 0.0
+            result["cost_usd"] = spent
+            result["attempts"] = attempt
 
-        outcome = check_gate(gate, result, context, paths, secrets)
-        notify(
-            {
-                "kind": "gated",
-                "step": step["id"],
-                "tool": gate["tool"],
-                "attempt": attempt,
-                "of": allowed,
-                "ok": outcome.ok,
-            }
-        )
-        if outcome.ok:
-            return result
-        if attempt >= allowed:
-            # execute() prefixes the step id onto step failures, so don't repeat it.
-            raise FlowError(
-                f"did not pass gate '{gate['tool']}' in {allowed} attempts. {outcome.text}"
+            outcome = check_gate(gate, result, context, paths, secrets)
+            notify(
+                {
+                    "kind": "gated",
+                    "step": step["id"],
+                    "tool": gate["tool"],
+                    "attempt": attempt,
+                    "of": allowed,
+                    "ok": outcome.ok,
+                }
             )
-        feedback_context = {
-            **context,
-            "this": result,
-            "gate": {"text": outcome.text, "json": outcome.json},
-        }
-        prompt = f"{first}\n\n{render(gate['feedback'], feedback_context)}"
+            if outcome.ok:
+                return result
+            if attempt >= allowed:
+                # execute() prefixes the step id onto step failures, so don't repeat it.
+                raise FlowError(
+                    f"did not pass gate '{gate['tool']}' in {allowed} attempts. {outcome.text}"
+                )
+            # A retry starts from the original prompt, but not from the original
+            # workspace: a granted write tool may already have changed it, and only the
+            # feedback carries history.
+            feedback_context = {
+                **context,
+                "this": result,
+                "gate": {"text": outcome.text, "json": outcome.json},
+            }
+            prompt = f"{first}\n\n{render(gate['feedback'], feedback_context)}"
 
 
 def agent_turn(
@@ -720,16 +872,20 @@ def agent_turn(
     system: str,
     prompt: str,
     secrets: dict[str, str],
+    tool_server: list[str] | None = None,
 ) -> dict[str, Any]:
     """One turn through the agent's adapter, as the normalised envelope plus `json`."""
-    payload: dict[str, Any] = {"prompt": prompt, "system": system}
-    for key in ("model", "effort", "max_budget_usd"):
-        if agent.get(key) is not None:
-            payload[key] = agent[key]
-    # Agent vocabulary stays runtime-neutral: output_schema is what an agent declares,
-    # json_schema is this particular adapter's parameter name.
-    if agent.get("output_schema"):
-        payload["json_schema"] = agent["output_schema"]
+    # The same builder `check_agent_spec` probes with, so what lint validated is what runs.
+    payload: dict[str, Any] = {
+        "prompt": prompt,
+        "system": system,
+        **specs.adapter_parameters(agent),
+    }
+    if tool_server is not None:
+        # The names and a command that serves them, never a config in the adapter's own
+        # shape. An adapter able to dispatch tools itself ignores the command and uses the
+        # names, which is what keeps the agent spec runtime-neutral.
+        payload["tool_server"] = tool_server
 
     check_payload(adapter.INPUT_SCHEMA, payload, f"adapter {adapter.NAME}")
     try:

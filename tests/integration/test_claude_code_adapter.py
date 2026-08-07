@@ -47,7 +47,10 @@ class TestASuccessfulTurn:
         assert result["num_turns"] == 1
 
     def test_the_runtimes_version_is_recorded_on_the_envelope(self) -> None:
-        assert turn("hello")["adapter"] == {"name": "claude_code", "cli_version": "2.1.222"}
+        assert turn("hello")["adapter"] == {
+            "name": "claude_code",
+            "cli_version": claude_code.VERIFIED_CLI_VERSION,
+        }
 
     def test_the_model_that_was_asked_for_is_recorded(self) -> None:
         assert turn("hello", model="sonnet")["requested_model"] == "sonnet"
@@ -124,7 +127,8 @@ class TestTheFourWaysATurnFails:
 
 class TestVersionProbe:
     def test_it_reads_the_installed_version(self) -> None:
-        assert claude_code.cli_version() == "2.1.222"
+        """The number itself is pinned by the test below, so it is not repeated here."""
+        assert claude_code.cli_version() == claude_code.VERIFIED_CLI_VERSION
 
     def test_the_flags_were_verified_against_the_version_the_module_names(self) -> None:
         """A reminder in the form of a test: move VERIFIED_CLI_VERSION when you add a flag."""

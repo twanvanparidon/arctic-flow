@@ -1,0 +1,55 @@
+{
+  "name": "write_file",
+  "version": 1,
+  "description": "Write a text file into the workspace, creating it or replacing one already there. Use when a result has to land on disk rather than in the answer.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 10
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Path to write, relative to the workspace root (e.g. \"notes/summary.md\"). Absolute paths are accepted but must still resolve inside the workspace root. The parent directory has to exist already."
+      },
+      "content": {
+        "type": "string",
+        "description": "The file's contents, written verbatim. No newline is added, so end it with one if the file should have a final newline."
+      },
+      "overwrite": {
+        "type": "boolean",
+        "default": false,
+        "description": "Replace a file that is already there. Left false, an existing path is refused rather than clobbered."
+      }
+    },
+    "required": ["path", "content"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One line of the form \"wrote N bytes to <path>\", with no trailing newline."
+  },
+
+  "exit_codes": {
+    "0": "success (the file was written)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
+    "3": "no such directory (the path's parent does not exist; this tool does not create directories)",
+    "4": "not permitted (the path resolves outside the workspace root, is not a regular file, or is not writable)",
+    "5": "already exists (the path is there and overwrite was not set)"
+  },
+
+  "permissions": {
+    "filesystem": "write",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "realpath", "wc"]
+}

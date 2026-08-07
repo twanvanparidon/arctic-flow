@@ -231,6 +231,7 @@ Copy the nearest existing one. That is the intended way in.
 | Adding | Copy | Needs |
 | ------ | ---- | ----- |
 | A tool | `src/builtin/tools/read_file` | `spec.json`, `tool.md`, executable `run.sh` |
+| A tool that writes | `src/builtin/tools/write_file` | the same, plus `permissions.filesystem: "write"` |
 | An adapter | `src/adapters/claude_code.py` | one Python module, plus an entry in `ADAPTERS` |
 | An agent | `examples/file-review/agents/summarizer` | `spec.json`, `agent.md` |
 | A flow | `examples/sign-release/flows/sign_release.yaml` | one YAML file |
@@ -242,7 +243,8 @@ Conventions that are load-bearing rather than stylistic:
   The engine turns that code back into a message using your own text.
 - **`spec.json` is checked before anything runs.** `engine/specs.py` requires what the
   runtime actually reads (`name`, `description`, `run.command`, `input_schema` for a tool;
-  `name`, `description`, `adapter` for an agent) and verifies that `run.command` exists and
+  `name`, `description`, `adapter` for an agent; `permissions` for a tool, because a grant
+  is decided from it) and verifies that `run.command` exists and
   is executable, that declared schemas are valid schemas, and that an agent's settings are
   ones its adapter accepts. Add a field the engine reads, and add it to the schema there.
 - **`input_schema` is enforced twice.** Against the real payload at run time, and against the
@@ -253,9 +255,16 @@ Conventions that are load-bearing rather than stylistic:
   reviewable as prose instead of escaped into a JSON string.
 - **A flow names the graph, nothing else.** Model, effort, tools and output shape belong to
   the agent, in `agents/<name>/spec.json`.
-- **An agent cannot use tools inside a turn.** One declaring `tools` is refused with an
-  explanation rather than quietly ignored, so the engine's loop stays the only loop. Feed it
-  the output of a tool step instead.
+- **An agent's `tools` are the engine's tools.** They reach the turn over MCP, served by
+  `atf mcp-serve`, and run through the same `invoke()` a tool step uses. A tool spec is
+  already an MCP tool definition, so nothing in it is written twice. Naming a runtime's own
+  built-in tools instead would tie one agent spec to one adapter.
+- **Granting a tool that writes needs `unattended: true`.** Nothing approves a call an agent
+  makes for itself, so a grant that can change the workspace is declared where the grant is.
+- **A granted tool gets no secrets.** Granting one that declares `secrets` is refused, and
+  so is a step that declares `secrets` and runs a tool-granted agent. Scoping a grant to a
+  single in-turn call is the follow-up that would lift that; until then, secrets belong to
+  tool steps.
 - **Do not append a trailing newline to a single-value tool output.** A digest or an id gets
   templated mid-line, and a stray newline breaks the line it lands in.
 
@@ -357,6 +366,37 @@ Secret values are scrubbed from errors and traces, but **not** from step results
 is data the flow asked for, and scrubbing it would corrupt the workflow rather than
 protect it. So never template a secret into something you would not print.
 
+A third rule follows from agents being able to call tools. **A tool an agent calls gets no
+secrets**, and `lint` enforces that from both ends: granting a tool that declares `secrets`
+is refused, and so is a step that declares `secrets` and runs a tool-granted agent. The
+reason is that the adapter is handed the step's grant, and a tool the agent calls would
+inherit the lot, which is wider than what `spawn` promises a component. The engine keeps
+the secret out of the process tree entirely rather than trying to strip it two processes
+down. Scoping a grant to one in-turn call is what would lift the restriction, and nothing
+does that yet.
+
+## Deferred, and what would earn it
+
+Written down so the decision is not re-litigated, and so the trigger is recognisable.
+
+**A portable model vocabulary.** An agent names `model: "sonnet"`, which is one provider's
+word. The obvious fix is a `tier` enum on the agent (`fast`/`balanced`/`deep`) plus a
+`MODELS: dict[str, str]` on each adapter, resolved inside `specs.adapter_parameters` so the
+existing lint probe is the check, with `tier` and `model` together refused.
+
+It is not built, for two reasons. The vocabulary is unknowable with one adapter: `model`
+and `effort` both move depth, so whether `deep` means the bigger model or more thinking has
+no evidence behind it, and `AGENT_SPEC_SCHEMA` is a contract with a release already tagged.
+And it would not deliver what it looks like it delivers, because `adapter` is itself
+required in every agent spec with no override anywhere. A tier changes what you edit per
+spec from two fields to one. The larger coupling is `adapter`, and an ambient `$ATF_ADAPTER`
+would recreate exactly the per-machine dependency `isolate` and the required `model` exist
+to remove.
+
+**The trigger is a second adapter.** It settles the vocabulary, and it is what the rule in
+`.claude/rules/CONTRIBUTING.md` already names: the second adapter is what earns a change to
+the adapter interface, not the first.
+
 ## Building
 
 The build runs in a container, which is also what CI does. The binary embeds an interpreter
@@ -441,8 +481,8 @@ behind.
 
 Prefer failing loudly over doing something plausible. The engine refuses a flow that reads
 from a step it does not depend on, a switch value matching no case, an agent granted a tool
-the engine cannot dispatch, and a release whose tag disagrees with its version. Each of
-those could have been a default, a guess, or a silent no-op instead.
+that writes without saying it is unattended, and a release whose tag disagrees with its
+version. Each of those could have been a default, a guess, or a silent no-op instead.
 
 ## Licence
 

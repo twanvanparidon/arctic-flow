@@ -451,15 +451,12 @@ class TestTheComponentsAFlowNames:
             validate(flow(step), project)
 
 
-class TestAgentsCannotUseTools:
-    def test_an_agent_requesting_in_turn_tools_is_refused(
+class TestAnAgentsToolGrant:
+    def test_a_grant_that_resolves_and_validates_is_accepted(
         self, project: Paths, workspace: Path
     ) -> None:
-        """The engine's loop stays the only loop; feed it a tool step's output instead."""
         make.write_agent(workspace, "handy", tools=["noop"])
-        step = {"id": "a", "agent": "handy", "prompt": "x"}
-        with pytest.raises(FlowError, match="in-turn tools"):
-            validate(flow(step), project)
+        assert validate(flow({"id": "a", "agent": "handy", "prompt": "x"}), project)
 
     def test_naming_a_tool_that_does_not_exist_is_reported_first(
         self, project: Paths, workspace: Path
@@ -468,4 +465,64 @@ class TestAgentsCannotUseTools:
         make.write_agent(workspace, "handy", tools=["ghost"])
         step = {"id": "a", "agent": "handy", "prompt": "x"}
         with pytest.raises(FlowError, match="unknown tool 'ghost'"):
+            validate(flow(step), project)
+
+    def test_a_granted_tool_is_held_to_the_tool_contract(
+        self, project: Paths, workspace: Path
+    ) -> None:
+        """Otherwise a broken grant is discovered by a model saying the tool does not work."""
+        base = make.write_tool(workspace, "broken")
+        make.make_unexecutable(base / "run.sh")
+        make.write_agent(workspace, "handy", tools=["broken"])
+        step = {"id": "a", "agent": "handy", "prompt": "x"}
+        with pytest.raises(FlowError, match="is not executable"):
+            validate(flow(step), project)
+
+    def test_granting_a_tool_that_writes_needs_saying_so(
+        self, project: Paths, workspace: Path
+    ) -> None:
+        """Nothing approves a call an agent makes for itself, so the grant says it out loud."""
+        make.write_tool(workspace, "scribe", permissions={"filesystem": "write"})
+        make.write_agent(workspace, "handy", tools=["scribe"])
+        step = {"id": "a", "agent": "handy", "prompt": "x"}
+        with pytest.raises(FlowError, match="unattended"):
+            validate(flow(step), project)
+
+    def test_saying_it_is_unattended_allows_the_grant(
+        self, project: Paths, workspace: Path
+    ) -> None:
+        make.write_tool(workspace, "scribe", permissions={"filesystem": "write"})
+        make.write_agent(workspace, "handy", tools=["scribe"], unattended=True)
+        assert validate(flow({"id": "a", "agent": "handy", "prompt": "x"}), project)
+
+    def test_a_read_only_tool_needs_no_declaration(self, project: Paths, workspace: Path) -> None:
+        make.write_tool(workspace, "reader", permissions={"filesystem": "read"})
+        make.write_agent(workspace, "handy", tools=["reader"])
+        assert validate(flow({"id": "a", "agent": "handy", "prompt": "x"}), project)
+
+    def test_two_write_tools_read_as_plural(self, project: Paths, workspace: Path) -> None:
+        make.write_tool(workspace, "scribe", permissions={"filesystem": "write"})
+        make.write_tool(workspace, "editor", permissions={"filesystem": "write"})
+        make.write_agent(workspace, "handy", tools=["scribe", "editor"])
+        step = {"id": "a", "agent": "handy", "prompt": "x"}
+        with pytest.raises(FlowError, match="editor, scribe, which change the workspace"):
+            validate(flow(step), project)
+
+    def test_granting_a_tool_that_needs_a_secret_is_refused(
+        self, project: Paths, workspace: Path
+    ) -> None:
+        """Nothing scopes a secret to one in-turn call, so the tool would find none."""
+        make.write_tool(workspace, "signer", secrets=["signing_key"])
+        make.write_agent(workspace, "handy", tools=["signer"])
+        step = {"id": "a", "agent": "handy", "prompt": "x"}
+        with pytest.raises(FlowError, match="expects a secret in its environment"):
+            validate(flow(step), project)
+
+    def test_a_step_cannot_grant_secrets_to_a_turn_that_has_tools(
+        self, project: Paths, workspace: Path
+    ) -> None:
+        """The adapter is given the step's secrets, so every in-turn tool would inherit them."""
+        make.write_agent(workspace, "handy", tools=["noop"])
+        step = {"id": "a", "agent": "handy", "prompt": "x", "secrets": ["token"]}
+        with pytest.raises(FlowError, match="cannot be combined"):
             validate(flow(step), project)

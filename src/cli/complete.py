@@ -33,7 +33,7 @@ WORKSPACE_FLAG = "--workspace"
 # Commands that are never offered, though both are real and both still run. `__complete` is
 # what the snippet types and nobody else. `completion` is typed once, into a startup file, so
 # a prompt is the one place it is no use: `atf --help` is where it belongs.
-UNOFFERED = ("__complete", "completion")
+UNOFFERED = ("__complete", "completion", "mcp-serve")
 
 
 def snippet(shell: str) -> str:

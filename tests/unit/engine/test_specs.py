@@ -43,7 +43,7 @@ class TestCheckToolSpec:
         spec, base = written(workspace)
         assert check_tool_spec(spec, base, WHERE) is None
 
-    @pytest.mark.parametrize("field", ["name", "description", "run", "input_schema"])
+    @pytest.mark.parametrize("field", ["name", "description", "run", "input_schema", "permissions"])
     def test_a_missing_required_field_is_reported(self, workspace: Path, field: str) -> None:
         full = make.tool_spec("sample")
         del full[field]
@@ -119,8 +119,25 @@ class TestCheckToolSpec:
             "description": "the least a tool can say",
             "run": {"command": ["./run.sh"]},
             "input_schema": {"type": "object"},
+            "permissions": {"filesystem": "none"},
         }
         spec, base = written(workspace, spec=minimal)
+        assert check_tool_spec(spec, base, WHERE) is None
+
+    @pytest.mark.parametrize("reach", ["rw", "readwrite", "all", "Write", ""])
+    def test_a_reach_the_engine_does_not_know_is_refused(self, workspace: Path, reach: str) -> None:
+        """Every one of these would read as "not write" and silently open the gate."""
+        spec, base = written(workspace, permissions={"filesystem": reach})
+        with pytest.raises(SpecError, match="permissions/filesystem"):
+            check_tool_spec(spec, base, WHERE)
+
+    @pytest.mark.parametrize("reach", ["none", "read", "write"])
+    def test_the_three_reaches_a_tool_may_declare(self, workspace: Path, reach: str) -> None:
+        spec, base = written(workspace, permissions={"filesystem": reach})
+        assert check_tool_spec(spec, base, WHERE) is None
+
+    def test_the_secrets_a_tool_expects_are_named_as_text(self, workspace: Path) -> None:
+        spec, base = written(workspace, secrets=["signing_key"])
         assert check_tool_spec(spec, base, WHERE) is None
 
 
@@ -150,6 +167,24 @@ class TestCheckAgentSpec:
     def test_an_adapter_that_is_not_registered_is_reported(self) -> None:
         with pytest.raises(SpecError, match="unknown adapter 'imaginary'"):
             check_agent_spec(make.agent_spec("writer", adapter="imaginary"), WHERE)
+
+    def test_an_agent_with_tools_is_probed_with_a_placeholder_server(self) -> None:
+        """The real command is not knowable from a spec. What is being asked is whether
+        the adapter accepts a turn that has tools at all."""
+        assert check_agent_spec(make.agent_spec("writer", tools=["reader"]), WHERE) is None
+
+    def test_unattended_is_the_engines_own_and_never_reaches_an_adapter(self) -> None:
+        """A closed adapter schema would reject it, which is what adding it to FORWARDED
+        would cause. It is enforced in validate(), where the tools are resolved."""
+        spec = make.agent_spec("writer", adapter="claude_code", model="sonnet", unattended=True)
+        assert check_agent_spec(spec, WHERE) is None
+
+    def test_a_claude_code_agent_has_to_name_its_model(self) -> None:
+        """The CLI's own default is the per-machine dependency `isolate` exists to remove,
+        so lint refuses a spec that would inherit it rather than a turn discovering it."""
+        spec = make.agent_spec("writer", adapter="claude_code")
+        with pytest.raises(SpecError, match="'model' is a required property"):
+            check_agent_spec(spec, WHERE)
 
     def test_kind_may_only_say_agent(self) -> None:
         with pytest.raises(SpecError, match="kind:"):

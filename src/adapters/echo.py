@@ -25,6 +25,13 @@ prompt, so a flow written for a real runtime dry-runs without being edited. `!js
 that, because the smallest instance takes an enum's first value and a switch needs to be
 pointed at a particular case.
 
+Tools are accepted and never dispatched. There is no runtime here to serve them to, and
+serving them would make this a second engine loop rather than a way of looking at the first.
+They are in the schema because it is closed and `check_agent_spec` probes with them, so
+leaving them out would refuse every agent that grants a tool. `!invocation` reports both the
+names and the `tool_server` argv the engine built, which is the only way to see that command
+without a model on the other end of it.
+
 The vocabulary is deliberately the one `tests/support/fake_claude.py` answers to. Two ways
 of running an agent step without a model that disagreed on how to ask would be worse than
 either alone.
@@ -81,6 +88,24 @@ INPUT_SCHEMA: dict[str, Any] = {
             "exclusiveMinimum": 0,
             "description": "Accepted and ignored. A turn costs a flat "
             f"${COST_PER_TURN}, which no budget can exceed.",
+        },
+        "timeout_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Accepted and ignored. Answering from the request takes no time.",
+        },
+        "tools": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Accepted and never dispatched: there is no runtime here to serve "
+            "them to. !invocation reports them, so a flow can check what it granted.",
+        },
+        "tool_server": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": "argv the engine would have the runtime spawn. Reported by "
+            "!invocation and otherwise unused, which is the one way to see it without a model.",
         },
     },
     "required": ["prompt"],

@@ -106,6 +106,9 @@ def tool_spec(name: str, **overrides: Any) -> dict[str, Any]:
         # Well under the engine's 60s default: a test that hangs should fail quickly.
         "run": {"command": ["./run.sh"], "timeout_seconds": 20},
         "input_schema": {"type": "object"},
+        # Required by TOOL_SPEC_SCHEMA. "none" keeps the default tool grantable to an
+        # agent without `unattended`; a test about that gate overrides it with "write".
+        "permissions": {"filesystem": "none"},
     }
     spec.update(overrides)
     return spec
