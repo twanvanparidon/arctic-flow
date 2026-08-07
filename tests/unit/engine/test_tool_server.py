@@ -158,6 +158,12 @@ class TestToolCallsReported:
         assert [event["tool"] for event in seen] == ["reader"]
 
     def test_the_file_does_not_outlive_the_turn(self, paths: Paths) -> None:
-        with tool_calls_reported(paths, [], lambda _event: None, "draft") as command:
+        with tool_calls_reported(paths, ["reader"], lambda _event: None, "draft") as command:
+            assert command is not None
             events = Path(command[command.index("--events") + 1])
         assert not events.exists()
+
+    def test_granting_nothing_starts_no_server_and_no_watcher(self, paths: Paths) -> None:
+        """An ordinary turn is the common case and should pay nothing for reporting."""
+        with tool_calls_reported(paths, [], lambda _event: None, "draft") as command:
+            assert command is None

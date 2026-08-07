@@ -686,12 +686,17 @@ TOOL_EVENT_POLL_SECONDS = 0.05
 @contextmanager
 def tool_calls_reported(
     paths: Paths, tools: list[str], notify: Callable[[dict[str, Any]], None], step: str
-) -> Iterator[list[str]]:
+) -> Iterator[list[str] | None]:
     """Yields the server command, forwarding each call it reports until the turn is done.
 
-    Wraps the whole gate loop rather than one turn, so a retry's tool calls are reported
-    too. The final drain matters: the last call usually lands between two polls.
+    Granting nothing yields None and starts neither a file nor a thread, so an ordinary
+    turn pays nothing for this. The final drain matters on the other path: the last call
+    usually lands between two polls.
     """
+    if not tools:
+        yield None
+        return
+
     with tempfile.TemporaryDirectory(prefix="atf-tool-events-") as directory:
         events = Path(directory) / "calls.ndjson"
         events.touch()
@@ -808,25 +813,6 @@ def run_agent(
     except adapters.AdapterError as exc:
         raise FlowError(str(exc)) from exc
 
-    if agent.get("tools"):
-        # Reported for the whole loop, not one turn, so a retry's calls are seen too.
-        with tool_calls_reported(paths, list(agent["tools"]), notify, step["id"]) as server:
-            return _turns(step, context, paths, secrets, notify, adapter, agent, system, server)
-    return _turns(step, context, paths, secrets, notify, adapter, agent, system, None)
-
-
-def _turns(
-    step: dict[str, Any],
-    context: dict[str, Any],
-    paths: Paths,
-    secrets: dict[str, str],
-    notify: Callable[[dict[str, Any]], None],
-    adapter: ModuleType,
-    agent: dict[str, Any],
-    system: str,
-    server: list[str] | None,
-) -> dict[str, Any]:
-    """The loop itself, once the agent, its adapter and its tool server are resolved."""
     gate = step.get("gate")
     allowed = (gate or {}).get("max_attempts", DEFAULT_GATE_ATTEMPTS)
     first = render(step["prompt"], context)
@@ -834,42 +820,50 @@ def _turns(
     spent = 0.0
     attempt = 0
 
-    while True:
-        attempt += 1
-        result = agent_turn(adapter, agent, system, prompt, secrets, server)
-        if gate is None:
-            return result
+    # Wraps the whole loop rather than one turn, so a retry's tool calls are reported too.
+    # Yields None when the agent was granted nothing, which is the no-tools turn.
+    with tool_calls_reported(paths, agent.get("tools") or [], notify, step["id"]) as server:
+        while True:
+            attempt += 1
+            result = agent_turn(adapter, agent, system, prompt, secrets, server)
+            if gate is None:
+                return result
 
-        # Every attempt was paid for. The envelope only carries what the last turn cost,
-        # so a gated step reports the total or the trace under-counts a retried step.
-        spent += result.get("cost_usd") or 0.0
-        result["cost_usd"] = spent
-        result["attempts"] = attempt
+            # Every attempt was paid for. The envelope only carries what the last turn
+            # cost, so a gated step reports the total or the trace under-counts a retry.
+            # `attempts` counts these, not the model turns inside one: a turn with tools
+            # makes many, and reports them as `num_turns`.
+            spent += result.get("cost_usd") or 0.0
+            result["cost_usd"] = spent
+            result["attempts"] = attempt
 
-        outcome = check_gate(gate, result, context, paths, secrets)
-        notify(
-            {
-                "kind": "gated",
-                "step": step["id"],
-                "tool": gate["tool"],
-                "attempt": attempt,
-                "of": allowed,
-                "ok": outcome.ok,
-            }
-        )
-        if outcome.ok:
-            return result
-        if attempt >= allowed:
-            # execute() prefixes the step id onto step failures, so don't repeat it.
-            raise FlowError(
-                f"did not pass gate '{gate['tool']}' in {allowed} attempts. {outcome.text}"
+            outcome = check_gate(gate, result, context, paths, secrets)
+            notify(
+                {
+                    "kind": "gated",
+                    "step": step["id"],
+                    "tool": gate["tool"],
+                    "attempt": attempt,
+                    "of": allowed,
+                    "ok": outcome.ok,
+                }
             )
-        feedback_context = {
-            **context,
-            "this": result,
-            "gate": {"text": outcome.text, "json": outcome.json},
-        }
-        prompt = f"{first}\n\n{render(gate['feedback'], feedback_context)}"
+            if outcome.ok:
+                return result
+            if attempt >= allowed:
+                # execute() prefixes the step id onto step failures, so don't repeat it.
+                raise FlowError(
+                    f"did not pass gate '{gate['tool']}' in {allowed} attempts. {outcome.text}"
+                )
+            # A retry starts from the original prompt, but not from the original
+            # workspace: a granted write tool may already have changed it, and only the
+            # feedback carries history.
+            feedback_context = {
+                **context,
+                "this": result,
+                "gate": {"text": outcome.text, "json": outcome.json},
+            }
+            prompt = f"{first}\n\n{render(gate['feedback'], feedback_context)}"
 
 
 def agent_turn(
