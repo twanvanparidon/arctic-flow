@@ -73,6 +73,20 @@ class TestBuildArgs:
         """Two ends of one convention: if they drift, the turn silently has no tools."""
         assert claude_code.MCP_SERVER_NAME == mcp_server.SERVER_NAME
 
+    def test_a_namespaced_grant_is_allowed_under_its_flat_spelling(self) -> None:
+        """A slash is not legal in a tool name here, and the server does not offer one, so
+        allowing the slashed spelling would permit nothing the server listed."""
+        args = claude_code.build_args(
+            {"prompt": "p", "tools": ["common/read_file"], "tool_server": ["atf"]}
+        )
+        assert args[args.index("--allowedTools") + 1] == "mcp__atf__common__read_file"
+
+    def test_a_deep_namespace_is_flattened_all_the_way(self) -> None:
+        args = claude_code.build_args(
+            {"prompt": "p", "tools": ["git/worktree/add"], "tool_server": ["atf"]}
+        )
+        assert args[args.index("--allowedTools") + 1] == "mcp__atf__git__worktree__add"
+
     def test_a_turn_with_tools_is_isolated_without_safe_mode(self) -> None:
         """--safe-mode disables MCP servers, so the turn would succeed with no tools at all."""
         args = claude_code.build_args(

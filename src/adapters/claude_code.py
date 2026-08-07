@@ -34,6 +34,7 @@ import subprocess
 from typing import Any
 
 from adapters.errors import AdapterProtocolError, AdapterRunFailed, AdapterUnavailable
+from paths.resolver import flat_name
 
 NAME = "claude_code"
 DESCRIPTION = "Run one LLM turn through the Claude Code CLI and return a normalised envelope."
@@ -191,7 +192,14 @@ def build_args(payload: dict) -> list[str]:
         args += ["--mcp-config", json.dumps(config), "--strict-mcp-config"]
         # Naming an MCP tool in --tools does *not* permit it: the server connects, its tools
         # are listed, and none is ever called. --allowedTools is what grants them.
-        args += ["--allowedTools", ",".join(f"mcp__{MCP_SERVER_NAME}__{name}" for name in tools)]
+        #
+        # `flat_name` because a namespaced tool is not offered under its slash: the server
+        # calls `common/read_file` `common__read_file`, and allowing the slashed spelling
+        # would match no tool the server listed.
+        args += [
+            "--allowedTools",
+            ",".join(f"mcp__{MCP_SERVER_NAME}__{flat_name(name)}" for name in tools),
+        ]
 
     # A plain dict lookup, so an explicit False stays False.
     if payload.get("isolate", True):

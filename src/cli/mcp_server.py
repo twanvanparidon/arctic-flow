@@ -32,6 +32,11 @@ the framing is gone. And a worker carries its own guard, because an exception in
 future is captured by the future: nothing would be sent, and the model would wait for a
 reply that is never coming.
 
+**A namespaced tool loses its slash here.** `common/read_file` is offered as
+`common__read_file`, because a client builds `mcp__atf__<tool>` out of the name and a slash
+is not legal in one. `serve` keeps the mapping and looks a call up in it rather than undoing
+the spelling, since `git__commit` is a name a tool directory can have of its own.
+
 **A cancelled call is stopped, not just dropped.** `notifications/cancelled` is the client
 withdrawing a request: its tool's process tree is signalled and no reply is sent at all,
 which is what the spec asks of a receiver. It is handled on the read loop rather than
@@ -55,7 +60,7 @@ from typing import Any
 
 import commands
 from cli import branding
-from paths.resolver import Paths
+from paths.resolver import Paths, flat_name
 
 # What this speaks when a client states no preference. A client's own revision is echoed
 # back instead of negotiated down: these three methods are unchanged across every revision
@@ -121,11 +126,21 @@ def _initialize(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _tools_list(names: list[str], paths: Paths) -> dict[str, Any]:
+def _tools_list(exposed: dict[str, str], paths: Paths) -> dict[str, Any]:
+    """The granted tools, each under the name a model may call it by.
+
+    `ToolDescription.name` is the name the tool was looked up by, so flattening it here
+    lands on a key of `exposed` by construction. Pairing the two lists by position would
+    have said the same thing while depending on an order neither one promises.
+    """
     return {
         "tools": [
-            {"name": tool.name, "description": tool.description, "inputSchema": tool.input_schema}
-            for tool in commands.describe_tools(names, paths)
+            {
+                "name": flat_name(tool.name),
+                "description": tool.description,
+                "inputSchema": tool.input_schema,
+            }
+            for tool in commands.describe_tools(list(exposed.values()), paths)
         ]
     }
 
@@ -154,20 +169,24 @@ def _report(events: Path | None, call: commands.ToolCall) -> None:
 
 def _tools_call(
     params: dict[str, Any],
-    names: list[str],
+    exposed: dict[str, str],
     paths: Paths,
     events: Path | None,
     cancel: threading.Event,
 ) -> dict[str, Any]:
-    name = params.get("name")
-    if name not in names:
+    requested = params.get("name")
+    # Through the mapping, never by unflattening the string: `common__read_file` is what a
+    # namespaced grant is called here, and it is also what a tool directory of that literal
+    # name would be called.
+    name = exposed.get(requested) if isinstance(requested, str) else None
+    if name is None:
         # Reported to the model rather than raised: it picked the name, and picking another
         # is a recovery. Naming what it may call is what makes that possible.
         return _content(
-            f"unknown tool '{name}'. Available: {', '.join(names) or 'none'}", is_error=True
+            f"unknown tool '{requested}'. Available: {', '.join(exposed) or 'none'}", is_error=True
         )
 
-    call = commands.call_tool(str(name), params.get("arguments") or {}, paths, cancel=cancel)
+    call = commands.call_tool(name, params.get("arguments") or {}, paths, cancel=cancel)
     _report(events, call)
     if call.ok:
         return _content(call.text, is_error=False)
@@ -175,13 +194,17 @@ def _tools_call(
 
 
 def _answer_here(
-    message_id: Any, method: str | None, params: dict[str, Any], names: list[str], paths: Paths
+    message_id: Any,
+    method: str | None,
+    params: dict[str, Any],
+    exposed: dict[str, str],
+    paths: Paths,
 ) -> None:
     """The methods answered on the read loop, because none of them waits on anything."""
     if method == "initialize":
         _result(message_id, _initialize(params))
     elif method == "tools/list":
-        _result(message_id, _tools_list(names, paths))
+        _result(message_id, _tools_list(exposed, paths))
     elif method == "ping":
         # An empty result is the whole answer. It is also the one thing that proves the
         # loop is still reading while tools run, which is why it is not in the pool.
@@ -192,6 +215,14 @@ def _answer_here(
 
 def serve(names: list[str], paths: Paths, events: Path | None = None) -> int:
     """Answer frames until stdin closes."""
+    # What each granted tool is called over MCP, mapped back to the name the engine resolves
+    # it by. A namespaced tool cannot keep its slash: a client builds `mcp__atf__<tool>` out
+    # of this, and a slash is not legal in a tool name there.
+    #
+    # Built once and kept, rather than undone per call. `engine.executor.validate` refuses a
+    # grant where two names flatten onto one, so this stays one-to-one.
+    exposed = {flat_name(name): name for name in names}
+
     # One entry per call in flight. Two threads race for every one: the worker about to
     # answer it, and the loop handling a cancel for it. Whichever pops the entry acts and
     # the other does nothing, so a call is never answered twice and a cancelled one is
@@ -211,7 +242,7 @@ def serve(names: list[str], paths: Paths, events: Path | None = None) -> int:
         the model would wait for a reply that never comes.
         """
         try:
-            reply: dict[str, Any] = {"result": _tools_call(params, names, paths, events, cancel)}
+            reply: dict[str, Any] = {"result": _tools_call(params, exposed, paths, events, cancel)}
         except Exception as exc:
             reply = {"error": {"code": INTERNAL_ERROR, "message": f"{type(exc).__name__}: {exc}"}}
         with settled:
@@ -261,7 +292,7 @@ def serve(names: list[str], paths: Paths, events: Path | None = None) -> int:
                         inflight[message_id] = stop
                     submitted.append(pool.submit(answer, message_id, params, stop))
                 else:
-                    _answer_here(message_id, method, params, names, paths)
+                    _answer_here(message_id, method, params, exposed, paths)
             except Exception as exc:
                 # One bad frame must not end the session. Letting this escape would close
                 # stdout mid-turn, and the client would report a transport failure that says
