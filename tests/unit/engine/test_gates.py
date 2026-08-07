@@ -1,23 +1,29 @@
 """One agent turn, and the loop that repeats it until a tool accepts the answer.
 
-The adapter here is `support.adapter_echo`: a real adapter that answers with the prompt it
-was given. That is what makes the retry loop observable without a model. The engine appends
-the gate's feedback to the prompt for the next attempt, so the second turn produces
-genuinely different text, and a gate keyed on that text genuinely changes its verdict.
+The adapter here is `adapters.echo`, the shipped one that answers from the request instead
+of from a model. That is what makes the retry loop observable without paying for it. The
+engine appends the gate's feedback to the prompt for the next attempt, so the second turn
+produces genuinely different text, and a gate keyed on that text genuinely changes its
+verdict.
 
 `agent_turn` takes its adapter as an argument, so those tests pass the module straight in.
-`run_agent` looks one up by name, so those register it in `ADAPTERS` the way the docs say
-an adapter is registered.
+`run_agent` looks one up by name, and `echo` is in `ADAPTERS`, so nothing has to be
+registered for them.
+
+What the engine sent is read back out of an `!invocation` turn rather than off the
+envelope. An adapter's envelope is a contract every adapter keeps, and widening it so that
+one of them can be inspected would be paying for these tests in the shipped code.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
 
+from adapters import echo
 from engine.executor import (
     DEFAULT_GATE_ATTEMPTS,
     FlowError,
@@ -44,64 +50,59 @@ def agent_step(**extra: Any) -> dict[str, Any]:
     return {"id": "draft", "agent": "writer", "prompt": "write it", **extra}
 
 
+def sent(agent: dict[str, Any], secrets: dict[str, str] | None = None) -> dict[str, Any]:
+    """One turn, reported by the adapter as it received it: `payload` and `env`."""
+    result = agent_turn(echo, agent, "be terse", "!invocation", secrets or {})
+    return json.loads(result["text"])
+
+
 class TestAgentTurn:
-    def test_the_prompt_and_the_system_prompt_are_what_is_sent(
-        self, echo_adapter: ModuleType
-    ) -> None:
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "be terse", "the question", {})
-        assert result["payload"] == {"prompt": "the question", "system": "be terse"}
+    def test_the_prompt_and_the_system_prompt_are_what_is_sent(self) -> None:
+        assert sent({"adapter": "echo"})["payload"] == {
+            "prompt": "!invocation",
+            "system": "be terse",
+        }
 
     @pytest.mark.parametrize(
         ("field", "value"),
         [("model", "sonnet"), ("effort", "low"), ("max_budget_usd", 0.5)],
     )
-    def test_a_setting_the_agent_declares_is_forwarded(
-        self, echo_adapter: ModuleType, field: str, value: object
-    ) -> None:
-        agent = {"adapter": "echo", field: value}
-        result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert result["payload"][field] == value
+    def test_a_setting_the_agent_declares_is_forwarded(self, field: str, value: object) -> None:
+        assert sent({"adapter": "echo", field: value})["payload"][field] == value
 
-    def test_a_setting_left_out_is_not_sent_as_null(self, echo_adapter: ModuleType) -> None:
+    def test_a_setting_left_out_is_not_sent_as_null(self) -> None:
         """The adapter's schema is closed and its defaults are its own to apply."""
         agent = {"adapter": "echo", "model": None, "effort": None}
-        result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert set(result["payload"]) == {"prompt", "system"}
+        assert set(sent(agent)["payload"]) == {"prompt", "system"}
 
-    def test_output_schema_is_translated_to_the_adapters_own_name_for_it(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_output_schema_is_translated_to_the_adapters_own_name_for_it(self) -> None:
         """Agent vocabulary stays runtime-neutral: `output_schema` in, `json_schema` out."""
-        agent = {"adapter": "echo", "output_schema": {"type": "object"}}
-        result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert result["payload"]["json_schema"] == {"type": "object"}
-        assert "output_schema" not in result["payload"]
+        payload = sent({"adapter": "echo", "output_schema": {"type": "object"}})["payload"]
+        assert payload["json_schema"] == {"type": "object"}
+        assert "output_schema" not in payload
 
-    def test_the_payload_is_checked_against_the_adapters_schema(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_the_payload_is_checked_against_the_adapters_schema(self) -> None:
         agent = {"adapter": "echo", "effort": "enormous"}
         with pytest.raises(FlowError, match="input rejected by adapter echo"):
-            agent_turn(echo_adapter, agent, "system", "prompt", {})
+            agent_turn(echo, agent, "system", "prompt", {})
 
-    def test_an_adapter_failure_is_reported_as_a_flow_error(self, echo_adapter: ModuleType) -> None:
+    def test_an_adapter_failure_is_reported_as_a_flow_error(self) -> None:
         with pytest.raises(FlowError, match="echo: the runtime refused"):
-            agent_turn(echo_adapter, {"adapter": "echo"}, "system", "!fail the runtime refused", {})
+            agent_turn(echo, {"adapter": "echo"}, "system", "!fail the runtime refused", {})
 
-    def test_the_turns_text_is_also_offered_parsed(self, echo_adapter: ModuleType) -> None:
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "s", '{"verdict": "pass"}', {})
+    def test_the_turns_text_is_also_offered_parsed(self) -> None:
+        result = agent_turn(echo, {"adapter": "echo"}, "s", '{"verdict": "pass"}', {})
         assert result["json"] == {"verdict": "pass"}
 
-    def test_prose_leaves_the_parsed_view_empty(self, echo_adapter: ModuleType) -> None:
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "s", "just words", {})
+    def test_prose_leaves_the_parsed_view_empty(self) -> None:
+        result = agent_turn(echo, {"adapter": "echo"}, "s", "just words", {})
         assert result["json"] is None
 
-    def test_the_steps_secrets_reach_the_adapters_environment(
-        self, echo_adapter: ModuleType
-    ) -> None:
+    def test_the_steps_secrets_reach_the_adapters_environment(self) -> None:
         """Credentials reach a runtime through the environment, never through the prompt."""
-        result = agent_turn(echo_adapter, {"adapter": "echo"}, "s", "p", {"API_KEY": "abc"})
-        assert result["environment"]["API_KEY"] == "abc"
+        reported = sent({"adapter": "echo"}, {"ATF_PROBE_key": "abc"})
+        assert reported["env"]["ATF_PROBE_key"] == "abc"
+        assert "ATF_PROBE_key" not in reported["payload"]["prompt"]
 
 
 class TestCheckGate:
@@ -166,22 +167,18 @@ class TestCheckGate:
 
 
 class TestRunAgentWithoutAGate:
-    def test_runs_exactly_once(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
-    ) -> None:
+    def test_runs_exactly_once(self, paths: Paths, workspace: Path) -> None:
         make.write_agent(workspace, "writer")
         result = run_agent(agent_step(), {}, paths, {}, lambda _event: None)
         assert result["text"] == "write it"
 
-    def test_reports_no_attempt_count(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
-    ) -> None:
+    def test_reports_no_attempt_count(self, paths: Paths, workspace: Path) -> None:
         """`attempts` is only meaningful where a gate ran; null on every other step is noise."""
         make.write_agent(workspace, "writer")
         assert "attempts" not in run_agent(agent_step(), {}, paths, {}, lambda _event: None)
 
     def test_the_prompt_is_rendered_against_the_context(
-        self, paths: Paths, workspace: Path, echo_adapter: ModuleType
+        self, paths: Paths, workspace: Path
     ) -> None:
         make.write_agent(workspace, "writer")
         step = agent_step(prompt="summarise {{ steps.read.text }}")
@@ -196,7 +193,7 @@ class TestRunAgentWithoutAGate:
 
 class TestRunAgentWithAGate:
     @pytest.fixture(autouse=True)
-    def components(self, workspace: Path, echo_adapter: ModuleType) -> None:
+    def components(self, workspace: Path) -> None:
         make.write_agent(workspace, "writer")
         make.write_tool(workspace, "marker", script=DEMANDS_MARKER)
 
