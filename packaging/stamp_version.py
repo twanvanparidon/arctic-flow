@@ -5,10 +5,10 @@ where both build paths look: `pip install` resolves pyproject.toml's dynamic ver
 `cli.branding.__version__`, and packaging/atf.spec freezes the installed distribution rather
 than the checkout.
 
-Ordering is the whole contract. Run this before `pip install`, or the binary reports the
-placeholder while the tag, the archive name and the wheel agree on something else.
-packaging/release.sh compares the tag against the built binary, and is what catches a stamp
-that never ran.
+Ordering is the whole contract. Run this before `pip install`, or it writes a source tree
+nothing reads again: the build still succeeds and the binary still ships the placeholder.
+Dockerfile.build's smoke test compares the binary against the tag rather than trusting the
+order, and packaging/release.sh checks again before publishing.
 """
 
 from __future__ import annotations

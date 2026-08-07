@@ -96,8 +96,10 @@ bumped by hand. `../packaging/stamp_version.py` writes it into `../src/cli/brand
 before the build installs the project, and `pyproject.toml` reads it from there via
 `tool.setuptools.dynamic`. A checkout carries `0.0.0.dev0`.
 
-That stamp is the one step that can silently not happen, so `../packaging/release.sh`
-refuses to publish when the built binary disagrees with the tag.
+That stamp is the one step that can silently not happen: run after `pip install` rather
+than before, it writes a source tree nothing reads again and the build still passes. So the
+Docker smoke test compares the binary against the tag, and `../packaging/release.sh`
+refuses to publish when they disagree.
 
 ## Architecture
 
