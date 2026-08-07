@@ -8,6 +8,11 @@ to a real file object. That is environment control rather than a double.
 Two behaviours carry the weight, and both are reasons rather than shapes: a notification
 must never be answered, and a bad *call* is a result the model can act on while a bad
 *method* is a protocol error the model cannot.
+
+Reading `capsys` after `serve()` returns is deterministic even though calls run on a pool,
+because the pool is left through a `with` and its shutdown joins every worker. Replies are
+keyed by id rather than indexed, since a call answers when it finishes and not when it was
+asked for.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import pytest
 from cli import branding, mcp_server
 from paths.resolver import Paths
 from support import components as make
+from support.mcp import by_id, cancelled
 
 
 def answers(
@@ -43,10 +49,10 @@ def answers(
 HANDSHAKE = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
 
 
-def call(name: str, **arguments: Any) -> dict[str, Any]:
+def call(name: str, *, request_id: int = 2, **arguments: Any) -> dict[str, Any]:
     return {
         "jsonrpc": "2.0",
-        "id": 2,
+        "id": request_id,
         "method": "tools/call",
         "params": {"name": name, "arguments": arguments},
     }
@@ -146,9 +152,11 @@ class TestToolsList:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         frame = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-        replies = answers([frame, {**HANDSHAKE, "id": 2}], ["ghost"], paths, monkeypatch, capsys)
-        assert replies[0]["error"]["code"] == mcp_server.INTERNAL_ERROR
-        assert replies[1]["id"] == 2
+        replies = by_id(
+            answers([frame, {**HANDSHAKE, "id": 2}], ["ghost"], paths, monkeypatch, capsys)
+        )
+        assert replies[1]["error"]["code"] == mcp_server.INTERNAL_ERROR
+        assert 2 in replies
 
 
 class TestToolsCall:
@@ -267,6 +275,198 @@ class TestReportingCalls:
         assert reply["result"]["isError"] is False
 
 
+class TestConcurrency:
+    def test_two_calls_run_at_the_same_time(
+        self,
+        paths: Paths,
+        workspace: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Two mirrored rendezvous tools each finish only if the other was also running.
+
+        No clock in the assertion: answered one at a time, the first exhausts its wait and
+        exits 9, so the outcome differs rather than the duration. Its deadline is well
+        under the tools' own timeout, or which of the two fires would be a coin flip.
+        """
+        left = make.rendezvous(tmp_path / "left.flag", tmp_path / "right.flag", timeout=5)
+        right = make.rendezvous(tmp_path / "right.flag", tmp_path / "left.flag", timeout=5)
+        run = {"command": ["./run.sh"], "timeout_seconds": 20}
+        make.write_tool(workspace, "meet_left", script=left, run=run)
+        make.write_tool(workspace, "meet_right", script=right, run=run)
+
+        replies = by_id(
+            answers(
+                [call("meet_left", request_id=10), call("meet_right", request_id=11)],
+                ["meet_left", "meet_right"],
+                paths,
+                monkeypatch,
+                capsys,
+            )
+        )
+        assert replies[10]["result"]["content"][0]["text"] == "met"
+        assert replies[11]["result"]["content"][0]["text"] == "met"
+
+    def test_every_call_is_answered_even_when_more_arrive_than_run_at_once(
+        self,
+        paths: Paths,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Past the limit a call waits for a worker rather than being refused."""
+        make.write_tool(workspace, "greet", script=make.prints("hi"))
+        wanted = mcp_server.MAX_CONCURRENT_CALLS + 3
+        frames = [call("greet", request_id=100 + n) for n in range(wanted)]
+        replies = by_id(answers(frames, ["greet"], paths, monkeypatch, capsys))
+        assert sorted(replies) == [100 + n for n in range(wanted)]
+
+    def test_a_call_still_answered_when_stdin_closes_under_it(
+        self,
+        paths: Paths,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Leaving the pool waits, so a client that sent a call and closed still gets it."""
+        make.write_tool(
+            workspace,
+            "dawdle",
+            script=make.sleeps(0.3),
+            run={"command": ["./run.sh"], "timeout_seconds": 20},
+        )
+        [reply] = answers([call("dawdle")], ["dawdle"], paths, monkeypatch, capsys)
+        assert reply["result"]["isError"] is False
+
+
+class TestPing:
+    def test_it_is_answered_with_an_empty_result(
+        self, paths: Paths, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The spec says a receiver answers one promptly, with no exemption for being busy."""
+        frame = {"jsonrpc": "2.0", "id": 5, "method": "ping"}
+        [reply] = answers([frame], [], paths, monkeypatch, capsys)
+        assert reply["result"] == {}
+
+    def test_it_is_answered_while_a_tool_is_still_running(
+        self,
+        paths: Paths,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The observable proof the read loop is not blocked: the pong overtakes the call."""
+        make.write_tool(
+            workspace,
+            "dawdle",
+            script=make.sleeps(0.3),
+            run={"command": ["./run.sh"], "timeout_seconds": 20},
+        )
+        frames = [call("dawdle", request_id=7), {"jsonrpc": "2.0", "id": 5, "method": "ping"}]
+        replies = answers(frames, ["dawdle"], paths, monkeypatch, capsys)
+        assert [reply["id"] for reply in replies] == [5, 7]
+
+
+class TestCancellation:
+    """A withdrawn request is answered with nothing, and its tool is really stopped.
+
+    What is pinned here is the wiring: the reply is suppressed, the call is reported as
+    cancelled rather than failed, and the other calls carry on. That the tool never reaches
+    its last line is asserted too, but it does not separate a kill from a skip, because
+    stdin is buffered whole and the reader reaches the cancel before a worker can fork. The
+    stop itself, TERM to a whole process tree, is pinned where it lives:
+    `tests/unit/engine/test_components.py::TestCancellingASpawn`, which uses a rendezvous to
+    guarantee the process is running first.
+
+    Deferred for the same reason: a cancel arriving *after* its call was answered. Reaching
+    it needs a live pipe the test writes to mid-flight. It is the same pop-finds-nothing
+    path as an unknown id, which is covered below.
+    """
+
+    def blocker(self, workspace: Path, tmp_path: Path) -> Path:
+        """A tool that leaves a marker three seconds in, unless it is stopped first."""
+        finished = tmp_path / "finished"
+        make.write_tool(
+            workspace,
+            "blocker",
+            script=make.finishes_later(tmp_path / "started", finished, seconds=3),
+            run={"command": ["./run.sh"], "timeout_seconds": 20},
+        )
+        return finished
+
+    def test_a_cancelled_call_is_never_answered(
+        self,
+        paths: Paths,
+        workspace: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        finished = self.blocker(workspace, tmp_path)
+        replies = by_id(
+            answers(
+                [call("blocker", request_id=3), cancelled(3)],
+                ["blocker"],
+                paths,
+                monkeypatch,
+                capsys,
+            )
+        )
+        assert 3 not in replies
+        # And it did not run to completion: serve() waits for its pool, so a tool left
+        # running would have reached its last line before this returned.
+        assert not finished.exists()
+
+    def test_a_cancelled_call_is_reported_as_cancelled_rather_than_failed(
+        self,
+        paths: Paths,
+        workspace: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The engine reads this file. A withdrawn call is not a tool that broke."""
+        self.blocker(workspace, tmp_path)
+        events = tmp_path / "calls.ndjson"
+        answers(
+            [call("blocker", request_id=3), cancelled(3)],
+            ["blocker"],
+            paths,
+            monkeypatch,
+            capsys,
+            events=events,
+        )
+        [reported] = [json.loads(line) for line in events.read_text().splitlines()]
+        assert reported["ok"] is False
+        assert reported["cancelled"] is True
+
+    def test_a_cancel_for_an_id_that_was_never_seen_is_a_no_op(
+        self, paths: Paths, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The spec permits ignoring one, and a notification is answered with nothing."""
+        assert answers([cancelled(999)], [], paths, monkeypatch, capsys) == []
+
+    def test_other_calls_are_untouched_by_one_cancel(
+        self,
+        paths: Paths,
+        workspace: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        self.blocker(workspace, tmp_path)
+        make.write_tool(workspace, "greet", script=make.prints("hi"))
+        frames = [
+            call("blocker", request_id=3),
+            call("greet", request_id=4),
+            cancelled(3),
+        ]
+        replies = by_id(answers(frames, ["blocker", "greet"], paths, monkeypatch, capsys))
+        assert 3 not in replies
+        assert replies[4]["result"]["content"][0]["text"] == "hi"
+
+
 class TestNotifications:
     def test_a_frame_with_no_id_is_never_answered(
         self, paths: Paths, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -284,7 +484,7 @@ class TestNotifications:
             {**HANDSHAKE, "id": 7},
         ]
         replies = answers(frames, [], paths, monkeypatch, capsys)
-        assert [reply["id"] for reply in replies] == [1, 7]
+        assert sorted(reply["id"] for reply in replies) == [1, 7]
 
     def test_an_explicit_null_id_is_a_notification_too(
         self, paths: Paths, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -325,9 +525,9 @@ class TestFraming:
         """Letting it escape closes stdout mid-turn, and the client then reports a
         transport failure that says nothing about the cause."""
         broken = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": 5}
-        replies = answers([broken, {**HANDSHAKE, "id": 2}], [], paths, monkeypatch, capsys)
-        assert replies[0]["error"]["code"] == mcp_server.INTERNAL_ERROR
-        assert replies[1]["id"] == 2
+        replies = by_id(answers([broken, {**HANDSHAKE, "id": 2}], [], paths, monkeypatch, capsys))
+        assert replies[1]["error"]["code"] == mcp_server.INTERNAL_ERROR
+        assert 2 in replies
 
     def test_every_answer_is_exactly_one_line(
         self,

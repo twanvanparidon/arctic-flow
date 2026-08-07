@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 
 from support import components as make
-from support.mcp import HANDSHAKE, LIST, call, frames, parsed
+from support.mcp import HANDSHAKE, LIST, answered, call, frames, parsed
 from support.outcome import Runner
 
 SERVED = "served from a frozen build"
@@ -136,20 +136,20 @@ class TestServingFromTheFrozenBinary:
         is the claim, and a frozen build is where it has never been checked."""
         served = serve(server_argv, HANDSHAKE, LIST)
         assert served.returncode == 0, served.stderr
-        [_, listing] = parsed(served.stdout)
+        listing = answered(parsed(served.stdout), 2)
         assert [tool["name"] for tool in listing["result"]["tools"]] == ["reader"]
 
     def test_a_tool_that_was_not_granted_is_not_offered(self, server_argv: list[str]) -> None:
         """`ungranted` is resolvable in the same workspace, so this is the grant filtering
         rather than the lookup coming up empty."""
-        listing = parsed(serve(server_argv, HANDSHAKE, LIST).stdout)[1]
+        listing = answered(parsed(serve(server_argv, HANDSHAKE, LIST).stdout), 2)
         assert "ungranted" not in [tool["name"] for tool in listing["result"]["tools"]]
 
     def test_calling_one_really_runs_it(self, server_argv: list[str]) -> None:
         """A frozen process, spawned by nothing it controls, spawning a tool of its own."""
-        answered = parsed(serve(server_argv, HANDSHAKE, call("reader")).stdout)[1]
-        assert answered["result"]["isError"] is False
-        assert answered["result"]["content"][0]["text"] == SERVED
+        reply = answered(parsed(serve(server_argv, HANDSHAKE, call("reader")).stdout), 3)
+        assert reply["result"]["isError"] is False
+        assert reply["result"]["content"][0]["text"] == SERVED
 
     def test_it_resolves_tools_where_it_was_told_and_not_where_it_started(
         self, server_argv: list[str], tmp_path: Path
@@ -157,8 +157,10 @@ class TestServingFromTheFrozenBinary:
         """Started from an unrelated directory, the way a runtime would start it."""
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
-        answered = parsed(serve(server_argv, HANDSHAKE, call("reader"), cwd=elsewhere).stdout)[1]
-        assert answered["result"]["content"][0]["text"] == SERVED
+        reply = answered(
+            parsed(serve(server_argv, HANDSHAKE, call("reader"), cwd=elsewhere).stdout), 3
+        )
+        assert reply["result"]["content"][0]["text"] == SERVED
 
     def test_stdout_carries_the_protocol_and_nothing_else(self, server_argv: list[str]) -> None:
         """One stray print anywhere below the server corrupts the framing, and a bundle can

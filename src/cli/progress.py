@@ -171,7 +171,7 @@ class Progress:
     def _call_detail(event: dict[str, Any]) -> str:
         """One in-turn tool call. Whether it failed is the part worth seeing: the model is
         told and carries on, so a run that looks slow is often one retrying a bad call."""
-        outcome = "ok" if event.get("ok") else "failed"
+        outcome = "cancelled" if event.get("cancelled") else "ok" if event.get("ok") else "failed"
         return f"{event.get('tool')} {outcome} ({event.get('ms', 0)}ms)"
 
     @staticmethod

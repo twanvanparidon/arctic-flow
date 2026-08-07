@@ -126,6 +126,10 @@ class ToolCall:
 
     `error` is not scrubbed, because the server that builds it has no vault. Nothing is
     granted to an in-turn call, so there is no secret in reach to appear in one.
+
+    `cancelled` is not a third kind of failure. `ok` is false either way, but the caller
+    withdrew the request rather than the tool going wrong, so a server answers it with
+    nothing at all and a progress display must not call it failed.
     """
 
     name: str
@@ -133,6 +137,7 @@ class ToolCall:
     text: str
     error: str | None = None
     ms: int = 0
+    cancelled: bool = False
 
 
 @dataclass(frozen=True)

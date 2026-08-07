@@ -11,7 +11,7 @@ that a tool does not work. Diagnostics go to stderr.
 A front end rather than a command, because it reads a stream and writes one. It is spawned,
 not typed: `atf mcp-serve` exists so an adapter has something to launch.
 
-Three methods, which is all a tool server needs. Two behaviours here are not obvious and
+Four methods, which is all a tool server needs. Two behaviours here are not obvious and
 both were confirmed against a live client:
 
   A notification carries no `id` and must never be answered, not even to refuse it.
@@ -21,16 +21,35 @@ both were confirmed against a live client:
   A bad tool call is a *result* with `isError`, not a JSON-RPC error. The model chose the
   arguments, so it is the party that can fix them; a protocol error tells it nothing.
 
-Two limits worth knowing before changing this. Calls are answered one at a time, so a
-client that issues several at once has them serialised, and nothing here can be cancelled
-mid-tool. And no secret is in reach: `validate()` refuses a step that both declares
-`secrets` and runs an agent granted tools, so the environment this inherits carries none.
+**Only `tools/call` leaves the read loop.** A model asks for several things at once, and
+running them in turn makes a turn take the sum rather than the longest. Everything else is
+answered where it is read, `ping` above all: the spec says a receiver answers one promptly
+and has no exemption for a busy server, so a queued ping would be the exact stall the pool
+exists to remove. The cost is that a `tools/list` on a stalled filesystem blocks the loop.
+
+That makes two things load-bearing. Writes are serialised, or two replies interleave and
+the framing is gone. And a worker carries its own guard, because an exception inside a
+future is captured by the future: nothing would be sent, and the model would wait for a
+reply that is never coming.
+
+**A cancelled call is stopped, not just dropped.** `notifications/cancelled` is the client
+withdrawing a request: its tool's process tree is signalled and no reply is sent at all,
+which is what the spec asks of a receiver. It is handled on the read loop rather than
+submitted, because a pooled cancel would queue behind the very call it cancels. One entry
+per call in flight settles the race between the worker about to answer and the cancel:
+whichever claims it acts, so a call is never answered twice and a withdrawn one is never
+answered at all.
+
+No secret is in reach: `validate()` refuses a step that both declares `secrets` and runs an
+agent granted tools, so the environment this inherits carries none.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -51,10 +70,34 @@ PARSE_ERROR = -32700
 METHOD_NOT_FOUND = -32601
 INTERNAL_ERROR = -32603
 
+# How many tool calls run at once. A model can ask for a dozen in one block, and each is a
+# process tree: read_file is bash running jq, awk and realpath. This bounds those trees, not
+# requests. Past it a call waits for a worker, and its own timeout clock does not start
+# until it does, so nothing times out for having queued.
+#
+# A fixed number rather than one derived from the machine, so a laptop and CI hold the same
+# many open processes and a test means the same thing on both.
+MAX_CONCURRENT_CALLS = 8
+
+# One reply per line, and a reply larger than the stdout buffer is flushed in pieces, so two
+# workers' bytes interleave without this. `sys.stdout` is a TextIOWrapper, which the io docs
+# state is not thread-safe; only the binary layer beneath it takes a lock of its own.
+_writing = threading.Lock()
+
+# Not for the append, which O_APPEND already makes atomic for a line this short. It is for
+# what reads the file: `ToolCallReporter` rewinds on a line it cannot parse and waits for
+# the rest, so two writes that interleave produce a line that never becomes valid and every
+# later call in that turn stops being reported. Silently, which is the part worth locking.
+_reporting = threading.Lock()
+
 
 def _send(message: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
+    # Serialised outside the lock: it is the slow part, it needs no protection, and a large
+    # tool result must not hold up a ping.
+    line = json.dumps(message) + "\n"
+    with _writing:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def _result(message_id: Any, result: dict[str, Any]) -> None:
@@ -96,15 +139,25 @@ def _report(events: Path | None, call: commands.ToolCall) -> None:
     """
     if events is None:
         return
+    entry: dict[str, Any] = {"tool": call.name, "ok": call.ok, "ms": call.ms}
+    if call.cancelled:
+        # Only where it means something, the way `attempts` is. Without it a call the
+        # model abandoned reads on screen as a tool that broke.
+        entry["cancelled"] = True
+    line = json.dumps(entry) + "\n"
     try:
-        with events.open("a") as stream:
-            stream.write(json.dumps({"tool": call.name, "ok": call.ok, "ms": call.ms}) + "\n")
+        with _reporting, events.open("a") as stream:
+            stream.write(line)
     except OSError:
         pass
 
 
 def _tools_call(
-    params: dict[str, Any], names: list[str], paths: Paths, events: Path | None
+    params: dict[str, Any],
+    names: list[str],
+    paths: Paths,
+    events: Path | None,
+    cancel: threading.Event,
 ) -> dict[str, Any]:
     name = params.get("name")
     if name not in names:
@@ -114,45 +167,113 @@ def _tools_call(
             f"unknown tool '{name}'. Available: {', '.join(names) or 'none'}", is_error=True
         )
 
-    call = commands.call_tool(str(name), params.get("arguments") or {}, paths)
+    call = commands.call_tool(str(name), params.get("arguments") or {}, paths, cancel=cancel)
     _report(events, call)
     if call.ok:
         return _content(call.text, is_error=False)
     return _content(call.error or f"{call.name} failed without saying why", is_error=True)
 
 
+def _answer_here(
+    message_id: Any, method: str | None, params: dict[str, Any], names: list[str], paths: Paths
+) -> None:
+    """The methods answered on the read loop, because none of them waits on anything."""
+    if method == "initialize":
+        _result(message_id, _initialize(params))
+    elif method == "tools/list":
+        _result(message_id, _tools_list(names, paths))
+    elif method == "ping":
+        # An empty result is the whole answer. It is also the one thing that proves the
+        # loop is still reading while tools run, which is why it is not in the pool.
+        _result(message_id, {})
+    else:
+        _error(message_id, METHOD_NOT_FOUND, f"unsupported method '{method}'")
+
+
 def serve(names: list[str], paths: Paths, events: Path | None = None) -> int:
     """Answer frames until stdin closes."""
-    for raw in sys.stdin:
-        line = raw.strip()
-        if not line:
-            continue
+    # One entry per call in flight. Two threads race for every one: the worker about to
+    # answer it, and the loop handling a cancel for it. Whichever pops the entry acts and
+    # the other does nothing, so a call is never answered twice and a cancelled one is
+    # never answered at all.
+    #
+    # A cancel arriving after the worker popped finds nothing and is dropped, so a client
+    # can still get a reply to a request it withdrew. That is the race the spec says both
+    # sides have to handle, and the client's half of it is to ignore the reply.
+    inflight: dict[Any, threading.Event] = {}
+    settled = threading.Lock()
 
+    def answer(message_id: Any, params: dict[str, Any], cancel: threading.Event) -> None:
+        """Run one call and reply, unless a cancel got here first.
+
+        Its own guard, because the loop's cannot see this far: an exception inside a future
+        is kept by the future rather than raised, so without this nothing would be sent and
+        the model would wait for a reply that never comes.
+        """
         try:
-            message = json.loads(line)
-        except json.JSONDecodeError as exc:
-            _error(None, PARSE_ERROR, f"not JSON: {exc}")
-            continue
-
-        message_id = message.get("id")
-        if message_id is None:
-            continue
-        method = message.get("method")
-        params = message.get("params") or {}
-
-        try:
-            if method == "initialize":
-                _result(message_id, _initialize(params))
-            elif method == "tools/list":
-                _result(message_id, _tools_list(names, paths))
-            elif method == "tools/call":
-                _result(message_id, _tools_call(params, names, paths, events))
-            else:
-                _error(message_id, METHOD_NOT_FOUND, f"unsupported method '{method}'")
+            reply: dict[str, Any] = {"result": _tools_call(params, names, paths, events, cancel)}
         except Exception as exc:
-            # One bad frame must not end the session. Letting this escape would close
-            # stdout mid-turn, and the client would report a transport failure that says
-            # nothing about the cause.
-            _error(message_id, INTERNAL_ERROR, f"{type(exc).__name__}: {exc}")
+            reply = {"error": {"code": INTERNAL_ERROR, "message": f"{type(exc).__name__}: {exc}"}}
+        with settled:
+            claimed = inflight.pop(message_id, None) is not None
+        if claimed:
+            _send({"jsonrpc": "2.0", "id": message_id, **reply})
 
+    submitted: list[Future[None]] = []
+    with ThreadPoolExecutor(
+        max_workers=MAX_CONCURRENT_CALLS, thread_name_prefix="atf-call"
+    ) as pool:
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError as exc:
+                _error(None, PARSE_ERROR, f"not JSON: {exc}")
+                continue
+
+            message_id = message.get("id")
+            method = message.get("method")
+            params = message.get("params") or {}
+
+            if message_id is None:
+                # The method is read before the exit because one notification is not inert.
+                # `notifications/cancelled` is the client withdrawing a request, and acting
+                # on it is still not answering it, which is what the exit protects.
+                #
+                # Handled here rather than submitted: a pooled cancel would queue behind the
+                # very call it cancels, and on a full pool that never resolves.
+                if method == "notifications/cancelled":
+                    with settled:
+                        stop = inflight.pop(params.get("requestId"), None)
+                    if stop is not None:
+                        stop.set()
+                continue
+
+            try:
+                if method == "tools/call":
+                    # Registered before submit, so a cancel for a call still waiting for a
+                    # worker is caught by spawn's check and never starts a process.
+                    stop = threading.Event()
+                    with settled:
+                        inflight[message_id] = stop
+                    submitted.append(pool.submit(answer, message_id, params, stop))
+                else:
+                    _answer_here(message_id, method, params, names, paths)
+            except Exception as exc:
+                # One bad frame must not end the session. Letting this escape would close
+                # stdout mid-turn, and the client would report a transport failure that says
+                # nothing about the cause.
+                _error(message_id, INTERNAL_ERROR, f"{type(exc).__name__}: {exc}")
+
+    # Leaving the pool waits for what is still running, so a client that closed stdin still
+    # gets the answer to a call it had already sent. Every worker is bounded by its tool's
+    # own timeout, so this cannot wait forever.
+    for future in submitted:
+        # A worker answers its own exceptions; what reaches here is a stream that broke
+        # under it. Raised rather than dropped, so a server whose stdout is gone still
+        # exits non-zero instead of reporting success.
+        future.result()
     return 0

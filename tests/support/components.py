@@ -17,6 +17,7 @@ import json
 import os
 import shlex
 import stat
+import time
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,36 @@ def echoes_environment() -> str:
 def sleeps(seconds: float) -> str:
     """Outlives a timeout. Reads stdin first, or the engine's write breaks on a closed pipe."""
     return sh(f"cat >/dev/null\nsleep {seconds}\nprintf slept\n")
+
+
+def finishes_later(started: Path, finished: Path, seconds: float = 3.0) -> str:
+    """Signals `started`, then leaves `finished` behind `seconds` later.
+
+    For proving a component was really stopped rather than merely unanswered. Those two
+    look identical from the caller's side, and the only difference is whether the process
+    ever reached its last line, so `finished` is the discriminator: a component that was
+    not stopped writes it, one that was does not.
+
+    The wait has to outlast whatever is being tested, and nothing must release it early. An
+    earlier version waited on a file the test wrote *after* the run, which meant a survivor
+    hit its own deadline and skipped the marker anyway, and the test passed either way.
+
+    The marker is written by a backgrounded child, so what has to be stopped is a tree.
+    Signalling the shell alone leaves the child, and the marker still appears.
+    """
+    waiter = (
+        "import pathlib, time\n"
+        f"time.sleep({seconds})\n"
+        f"pathlib.Path({str(finished)!r}).write_text('done')\n"
+    )
+    return sh(
+        f"cat >/dev/null\n"
+        f"python3 -c {shlex.quote(waiter)} &\n"
+        f"child=$!\n"
+        f"printf %s $child > {shlex.quote(str(started))}\n"
+        f"wait $child\n"
+        f"printf released\n"
+    )
 
 
 def rendezvous(mine: Path, theirs: Path, timeout: float = 20.0) -> str:
@@ -214,3 +245,17 @@ def one_step_flow(step: dict[str, Any], **overrides: Any) -> dict[str, Any]:
 
 def is_executable(path: Path) -> bool:
     return os.access(path, os.X_OK)
+
+
+def wait_for(path: Path, timeout: float = 20.0) -> None:
+    """Block until `path` appears. The Python half of `rendezvous`.
+
+    How a test knows a component has really started before it does something to it. Its own
+    deadline and a failure that says which file, so a regression fails the test rather than
+    hanging the suite.
+    """
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{path} never appeared")
+        time.sleep(0.01)

@@ -247,6 +247,20 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
 - **In-turn calls are reported.** `mcp-serve --events` appends one line per call and the
   engine forwards it to `on_event`, so a turn that read nine files does not look like one
   silent step.
+- **Tool calls run concurrently, up to `MAX_CONCURRENT_CALLS`.** Only `tools/call` leaves
+  the read loop; `initialize`, `tools/list` and `ping` are answered where they are read,
+  because a queued `ping` is the stall the pool exists to remove. Two things follow and
+  both are load-bearing: writes are locked, or two replies interleave and the framing is
+  gone, and a worker carries its own error guard, because an exception inside a future is
+  kept by the future rather than raised. Replies arrive as calls finish, so anything
+  reading them keys by request id.
+- **A cancelled call is stopped, not just unanswered.** `notifications/cancelled` sets
+  the call's event; `spawn` signals its process tree, TERM then KILL, and no reply is
+  sent. That is why a cancellable call gets `start_new_session` and a step deliberately
+  does not: a step's tool stays in the caller's process group so Ctrl-C on `atf run`
+  still reaches it, and the price is that a step's timeout can only signal the direct
+  child. The cancel is handled on the read loop, because pooled it would queue behind
+  the call it cancels.
 - **The `claude_code` adapter's flags are verified against CLI 2.1.224** and move between
   releases. Check `claude --help` before adding a parameter and move
   `VERIFIED_CLI_VERSION`. `model` is required, because the CLI's configured default is a
