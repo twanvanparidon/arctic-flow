@@ -377,13 +377,25 @@ need runners on those platforms.
 
 ## Releasing
 
-Tag it. `.github/workflows/ci.yml` runs lint, test and build on every pull request; a `v*`
-tag runs them again and adds the release job, which publishes a GitHub Release.
+Tag it. `.github/workflows/ci.yml` runs lint, test and build on every pull request; a
+version tag runs them again and adds the release job, which publishes a GitHub Release.
 
 ```sh
 # bump src/cli/branding.py first: the release refuses to publish if the tag disagrees
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.2.0 && git push origin v0.2.0            # what install.sh installs
+git tag v0.2.0-rc.1 && git push origin v0.2.0-rc.1  # published, but not by default
 ```
+
+The hyphen is what makes it a prerelease. GitHub leaves those out of `/releases/latest`,
+the redirect `install.sh` follows, so a candidate is installed only when named:
+`install.sh --version v0.2.0-rc.1`.
+
+Those two shapes are the only tags the workflow answers to. Anything else starts no run at
+all, so the version test carries the same two and catches it on the pull request.
+
+The suffix goes in `src/cli/branding.py` too, since `release.sh` compares the two verbatim.
+The wheel is the exception: setuptools normalises to PEP 440, so `v0.2.0-rc.1` ships
+`arctic_flow-0.2.0rc1-*.whl` beside the tarball's `atf-0.2.0-rc.1-linux-x86_64.tar.gz`.
 
 `packaging/release.sh` builds the tarball, a `sha256` that verifies with `sha256sum -c`,
 and a wheel. The tarball is reproducible (`--sort`, `--mtime`, fixed ownership), so the
