@@ -188,6 +188,16 @@ components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and t
 project-level `read_file` replaces the built-in and inherits nothing. Where a component is
 *found* never changes where it *runs*: tools execute with cwd set to the workspace root.
 
+A name may carry a namespace, at any depth and for all three kinds: `common/read_file` is
+`tools/common/read_file`, `release/sign` is `flows/release/sign.yaml`. A directory holding
+a `spec.json` is a component and any other directory is a namespace, so there is nothing to
+declare. The name is the whole path, so `common/read_file` and `read_file` neither override
+nor fall back to each other, and `spec.json` still carries only the leaf. `check_name`
+refuses a name whose segments would leave the root (`..`, an absolute path, an empty
+segment), which is why the check sits in the resolver and not in `lint`: one place covers
+`run`, a grant and `mcp-serve` alike. Granted tools reach a turn under `flat_name`, where
+the separator is `__`, because `mcp__atf__<tool>` cannot carry a slash.
+
 | Kind | Is | Contract |
 | --- | --- | --- |
 | tool | directory | `spec.json`, a markdown doc, executable `run.sh`; one JSON object on stdin, result on stdout, errors one line on stderr with a code listed in its own `exit_codes` |
@@ -233,9 +243,17 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
 - **An agent's `tools` are the engine's tools, not its runtime's.** They reach the turn
   over MCP, served by `atf mcp-serve`, and run through the same `invoke()` a tool step
   uses, so containment, schema check and timeout are unchanged. A tool spec is already an
-  MCP tool definition (`name`, `description` plus its doc, `input_schema`); there is no
-  second spec. Naming a runtime's own built-ins instead would tie one agent spec to one
-  adapter.
+  MCP tool definition (`description` plus its doc, `input_schema`); there is no second
+  spec. The tool's *name* there is the one it was looked up by, not `spec["name"]`, which
+  for a namespaced tool is only the leaf. Naming a runtime's own built-ins instead would
+  tie one agent spec to one adapter.
+- **A granted tool's MCP name is `flat_name` of its lookup name.** `common/read_file` is
+  offered as `common__read_file`, because a client builds `mcp__atf__<tool>` and a slash is
+  not legal in a tool name. `cli.mcp_server` decides it and `adapters.claude_code` writes
+  the same string into `--allowedTools`; drift and every tool in the turn is unpermitted,
+  which reaches a user as a model saying they do not work. Never undo it by string surgery:
+  `git__commit` is a legal directory name, so `serve` keeps the mapping and `validate`
+  refuses a grant where two names flatten onto one.
 - **Granting a tool whose `permissions.filesystem` is `write` needs `unattended: true`**
   on the agent spec. Nothing approves a call an agent makes for itself. That gate is why
   `permissions` is required and `filesystem` is an enum: `"rw"` or a typo would read as

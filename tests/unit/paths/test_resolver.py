@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from paths.resolver import LookupError_, Paths, builtin_root
+from paths.resolver import LookupError_, Paths, builtin_root, flat_name
 from support import components as make
 
 
@@ -151,6 +151,117 @@ class TestFinding:
         assert paths.find_all("tool", "absent") == []
 
 
+class TestNamespaces:
+    """A name may carry a namespace, so `common/read_file` is `tools/common/read_file`."""
+
+    def test_finds_a_tool_inside_a_namespace(self, paths: Paths, workspace: Path) -> None:
+        base = make.write_tool(workspace, "common/greet")
+        assert paths.find("tool", "common/greet") == base
+
+    def test_the_namespace_may_be_any_depth(self, paths: Paths, workspace: Path) -> None:
+        base = make.write_tool(workspace, "git/worktree/add")
+        assert paths.find("tool", "git/worktree/add") == base
+
+    def test_an_agent_may_be_namespaced_too(self, paths: Paths, workspace: Path) -> None:
+        base = make.write_agent(workspace, "review/summarizer")
+        assert paths.find("agent", "review/summarizer") == base
+
+    def test_a_flow_is_namespaced_by_the_directory_holding_it(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        path = make.write_text_flow(workspace, "release/sign", "flow: sign\n")
+        assert paths.find("flow", "release/sign") == path
+
+    def test_a_namespaced_name_does_not_fall_back_to_the_bare_one(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """Two names, not one name with a search path. Overriding stays per whole name."""
+        make.write_tool(workspace, "greet")
+        with pytest.raises(LookupError_, match="unknown tool 'common/greet'"):
+            paths.find("tool", "common/greet")
+
+    def test_a_bare_name_does_not_reach_into_a_namespace(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        make.write_tool(workspace, "common/greet")
+        with pytest.raises(LookupError_, match="unknown tool 'greet'"):
+            paths.find("tool", "greet")
+
+    def test_precedence_applies_to_the_whole_name(
+        self, paths: Paths, workspace: Path, home: Path
+    ) -> None:
+        make.write_tool(home / ".arctic", "common/greet")
+        project = make.write_tool(workspace, "common/greet")
+        assert paths.find("tool", "common/greet") == project
+
+    def test_a_namespace_directory_is_not_itself_a_component(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        make.write_tool(workspace, "common/greet")
+        with pytest.raises(LookupError_, match="unknown tool 'common'"):
+            paths.find("tool", "common")
+
+    def test_the_message_names_the_namespaced_candidate(self, paths: Paths) -> None:
+        message = str(pytest.raises(LookupError_, paths.find, "tool", "common/absent").value)
+        assert "./tools/common/absent" in message
+
+
+class TestNameChecking:
+    """`root / subdir / name` resolves whatever it is handed, so the name is checked first."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../../../etc/passwd",
+            "common/../../../etc",
+            "/etc/passwd",
+            "git//commit",
+            "git/./commit",
+            "git/commit/",
+        ],
+    )
+    def test_a_name_that_would_leave_the_root_is_refused(self, paths: Paths, name: str) -> None:
+        with pytest.raises(LookupError_, match="is not a component name"):
+            paths.find("tool", name)
+
+    def test_refused_before_the_filesystem_is_touched(self, paths: Paths, tmp_path: Path) -> None:
+        """A real spec.json outside every root must not be reachable by naming its way there."""
+        outside = tmp_path / "elsewhere"
+        make.write_tool(outside, "greet")
+        reach = os.path.relpath(outside / "tools" / "greet", paths.workspace / "tools")
+        with pytest.raises(LookupError_, match="is not a component name"):
+            paths.find("tool", reach)
+
+    @pytest.mark.parametrize("name", ["", "   "])
+    def test_an_empty_name_is_refused(self, paths: Paths, name: str) -> None:
+        with pytest.raises(LookupError_, match="cannot be empty"):
+            paths.find("tool", name)
+
+    def test_find_all_refuses_it_too_rather_than_answering_nothing(self, paths: Paths) -> None:
+        """It is the same lookup, so a bad name is a bad name and not an absence."""
+        with pytest.raises(LookupError_, match="is not a component name"):
+            paths.find_all("tool", "../escape")
+
+
+class TestFlatName:
+    """How a name is spelled where a slash cannot go: an MCP tool name, via `mcp__atf__`."""
+
+    @pytest.mark.parametrize(
+        ("name", "flat"),
+        [
+            ("read_file", "read_file"),
+            ("common/read_file", "common__read_file"),
+            ("git/worktree/add", "git__worktree__add"),
+        ],
+    )
+    def test_the_separator_becomes_a_double_underscore(self, name: str, flat: str) -> None:
+        assert flat_name(name) == flat
+
+    def test_two_names_can_flatten_onto_one(self) -> None:
+        """Which is why nothing reverses it by string surgery. `validate` refuses the pair."""
+        assert flat_name("git/commit") == flat_name("git__commit")
+
+
 class TestListing:
     def test_lists_every_name_of_a_kind_sorted(self, paths: Paths, workspace: Path) -> None:
         make.write_tool(workspace, "zebra")
@@ -183,6 +294,60 @@ class TestListing:
         listed = paths.list("tool")
         assert "notes.md" not in listed
         assert "empty" not in listed
+
+    def test_a_file_that_is_not_a_flow_file_is_not_listed_as_a_flow(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """The suffix decides. `find` only ever builds one, and the walk has to agree."""
+        (workspace / "flows").mkdir()
+        (workspace / "flows" / "notes.md").write_text("stray file")
+        assert paths.list("flow") == {}
+
+    def test_a_namespaced_name_is_listed_qualified(self, paths: Paths, workspace: Path) -> None:
+        """The name a flow would write, not the leaf in a directory the listing cannot show."""
+        base = make.write_tool(workspace, "common/greet")
+        assert paths.list("tool")["common/greet"] == base
+
+    def test_a_namespace_of_any_depth_is_listed(self, paths: Paths, workspace: Path) -> None:
+        make.write_tool(workspace, "git/worktree/add")
+        assert "git/worktree/add" in paths.list("tool")
+
+    def test_a_namespaced_flow_is_listed_by_its_directory_and_stem(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        make.write_text_flow(workspace, "release/sign", "flow: sign\n")
+        assert list(paths.list("flow")) == ["release/sign"]
+
+    def test_a_namespace_holding_no_component_contributes_nothing(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        (workspace / "tools" / "common" / "notes").mkdir(parents=True)
+        listed = paths.list("tool")
+        assert "common" not in listed
+        assert "common/notes" not in listed
+
+    def test_a_dotted_directory_is_not_walked(self, paths: Paths, workspace: Path) -> None:
+        """A .git or an editor's cache is not a namespace. Descending into one would list
+        components nobody put there."""
+        make.write_tool(workspace, ".cache/greet")
+        assert ".cache/greet" not in paths.list("tool")
+
+    def test_a_component_nested_inside_another_is_still_listed(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """`find` would resolve it, since it just joins the name onto a root. A listing that
+        hid it would be a listing that does not show everything the engine can be asked for."""
+        make.write_tool(workspace, "greet")
+        nested = make.write_tool(workspace, "greet/inner")
+        assert paths.list("tool")["greet/inner"] == nested
+        assert paths.find("tool", "greet/inner") == nested
+
+    def test_precedence_is_per_namespaced_name(
+        self, paths: Paths, workspace: Path, home: Path
+    ) -> None:
+        make.write_tool(home / ".arctic", "common/greet")
+        project = make.write_tool(workspace, "common/greet")
+        assert paths.list("tool")["common/greet"] == project
 
 
 class TestDisplay:

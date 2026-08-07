@@ -34,6 +34,12 @@ precedence order and the first match wins: working directory first, then `~/.arc
 what ships with the engine. A project overrides anything it inherits by defining
 the same name. Adapters are not part of this: see above.
 
+**A name may carry a namespace.** `common/read_file` is `tools/common/read_file` under
+whichever root wins, at any depth, with nothing to declare: a directory holding a
+`spec.json` is a component and any other directory is a namespace. `common/read_file` and
+`read_file` are two names, so grouping a tool moves it rather than aliasing it, and neither
+name falls back to the other.
+
 **A branch that is not taken skips its subtree.** `switch` picks one case; the edges to the
 others are marked skipped, and skipping propagates. That is what lets a join downstream of
 a branch run on both paths instead of waiting forever. A skipped step still resolves in
@@ -254,12 +260,19 @@ Conventions that are load-bearing rather than stylistic:
   the first of those works.
 - **`agent.md` *is* the system prompt**, read verbatim. That keeps prompts editable and
   reviewable as prose instead of escaped into a JSON string.
+- **A namespace is a directory, not a field.** Put the component in `tools/git/commit/` and
+  a flow names it `git/commit`. `spec.json` still says `"name": "commit"`: the namespace is
+  where the directory sits, which the spec has no way of knowing.
 - **A flow names the graph, nothing else.** Model, effort, tools and output shape belong to
   the agent, in `agents/<name>/spec.json`.
 - **An agent's `tools` are the engine's tools.** They reach the turn over MCP, served by
   `atf mcp-serve`, and run through the same `invoke()` a tool step uses. A tool spec is
   already an MCP tool definition, so nothing in it is written twice. Naming a runtime's own
   built-in tools instead would tie one agent spec to one adapter.
+- **A granted namespaced tool loses its slash on the way to the model.** A client builds
+  `mcp__atf__<tool>` out of the name and a slash is not legal in one, so `common/read_file`
+  is offered as `common__read_file`. Granting two names that flatten onto one is refused by
+  `lint`, since the model would see a single tool where there are two.
 - **A model asking for several tools at once gets them at once.** `mcp-serve` runs calls
   on a pool, so a turn takes the longest rather than the sum. Replies come back as calls
   finish, which is why the test helpers key them by request id and never by position.

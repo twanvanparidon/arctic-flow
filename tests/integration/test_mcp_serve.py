@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from adapters import claude_code
+from cli import mcp_server
 from engine.executor import tool_server_command
 from paths.resolver import Paths
 from support import components as make
@@ -215,6 +217,50 @@ class TestTheArgvTheEngineBuilds:
         assert reported["tool"] == "shout"
         assert reported["ok"] is True
         assert reported["ms"] >= 0
+
+
+class TestANamespacedGrant:
+    """The other pair that has to agree, and nothing else checks it.
+
+    A namespaced tool is offered without its slash, because a client builds
+    `mcp__atf__<tool>` out of the name. `cli.mcp_server` decides that spelling and
+    `adapters.claude_code` writes it into `--allowedTools`. Drift and the turn runs with a
+    server whose every tool is unpermitted, which reads as a model saying they do not work.
+    """
+
+    def test_what_the_adapter_allows_is_what_the_server_offers(
+        self, atf_process: Runner, project: Path
+    ) -> None:
+        make.write_tool(project, "common/shout", script=make.python("print('OK')\n"))
+        result = atf_process(
+            "--workspace",
+            str(project),
+            "mcp-serve",
+            "--tool",
+            "common/shout",
+            stdin=frames(HANDSHAKE, LIST),
+        )
+        offered = [tool["name"] for tool in answered(parsed(result.out), 2)["result"]["tools"]]
+
+        args = claude_code.build_args(
+            {"prompt": "p", "tools": ["common/shout"], "tool_server": ["atf"]}
+        )
+        allowed = args[args.index("--allowedTools") + 1].split(",")
+        assert allowed == [f"mcp__{mcp_server.SERVER_NAME}__{name}" for name in offered]
+
+    def test_the_flat_name_reaches_the_tool_in_its_namespace(
+        self, atf_process: Runner, project: Path
+    ) -> None:
+        make.write_tool(project, "common/shout", script=make.python("print('OK')\n"))
+        result = atf_process(
+            "--workspace",
+            str(project),
+            "mcp-serve",
+            "--tool",
+            "common/shout",
+            stdin=frames(HANDSHAKE, call("common__shout")),
+        )
+        assert answered(parsed(result.out), 3)["result"]["content"][0]["text"].strip() == "OK"
 
 
 class TestTheShippedTools:

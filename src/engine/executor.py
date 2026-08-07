@@ -47,7 +47,7 @@ from jsonschema import Draft202012Validator
 
 import adapters
 from engine import specs
-from paths.resolver import LookupError_, Paths
+from paths.resolver import LookupError_, Paths, flat_name
 from vault.vault import Vault, VaultError
 
 TEMPLATE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
@@ -661,6 +661,7 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
         # rules below talk about permissions the reader has not got to yet.
         writes = []
         credentialled = []
+        flattened: dict[str, str] = {}
         for tool in spec.get("tools") or []:
             tool_base, tool_spec = load_component(paths, "tool", tool)
             try:
@@ -671,6 +672,16 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 writes.append(tool)
             if tool_spec.get("secrets"):
                 credentialled.append(tool)
+            # An in-turn call arrives by a name with no separator in it, so two grants that
+            # flatten onto one are a single name for two tools and the server cannot tell
+            # which was asked for. Refused here rather than mid-turn, where the model would
+            # be told a tool it can see does not exist.
+            clash = flattened.setdefault(flat_name(tool), tool)
+            if clash != tool:
+                raise FlowError(
+                    f"agent '{step['agent']}' grants both '{clash}' and '{tool}', which a model "
+                    f"sees as one tool called '{flat_name(tool)}'. Rename one of them"
+                )
 
         # A tool an agent calls itself runs without anyone approving the call, so granting
         # one that writes has to be said out loud rather than inferred from the tool list.

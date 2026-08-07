@@ -34,7 +34,8 @@ where it pushes its result next, so the engine reads forwards.
 
 Flows, tools, agents and adapters are named, not pathed. Names resolve
 working-directory-first, so a project overrides what it inherits. `paths` shows the
-order, `list` shows what wins.
+order, `list` shows what wins. A name may carry a namespace: `common/read_file` is
+the directory `tools/common/read_file`.
 """
 
 PROG = branding.COMMAND

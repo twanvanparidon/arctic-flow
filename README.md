@@ -123,6 +123,27 @@ A project is a directory with `flows/` in it. There is nothing to initialise. `a
 lists the rest, and only `run` calls a model: `lint`, `graph` and `diagram` read a flow
 without executing it.
 
+### Grouping components
+
+Put a component in a subdirectory and its name says so. There is nothing to declare and no
+depth limit: a directory holding a `spec.json` is a component, and any other directory is a
+namespace.
+
+```txt
+tools/
+   common/
+      read_file/        ->  tool: common/read_file
+      write_file/
+   git/
+      commit/           ->  tool: git/commit
+      worktree/add/     ->  tool: git/worktree/add
+```
+
+`agents/` and `flows/` group the same way, so `atf run release/sign_release` runs
+`flows/release/sign_release.yaml`. The name is the whole path: `common/read_file` and
+`read_file` are two tools, and overriding one does not touch the other. `atf list` prints
+every name qualified.
+
 ---
 
 ## More
