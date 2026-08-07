@@ -59,10 +59,25 @@ TOOL_SPEC_SCHEMA: dict[str, Any] = {
             "propertyNames": {"pattern": "^[0-9]+$"},
             "additionalProperties": {"type": "string"},
         },
-        "permissions": {"type": "object"},
+        # Checked rather than described, because it is the gate between a tool an agent
+        # was granted and the workspace. Nothing approves a call an agent makes for
+        # itself, so `validate()` reads `filesystem` to decide whether granting this tool
+        # has to be said out loud. Spelled "rw" or left out, that gate silently opens.
+        "permissions": {
+            "type": "object",
+            "properties": {
+                "filesystem": {"enum": ["none", "read", "write"]},
+                "network": {"type": "boolean"},
+            },
+            "required": ["filesystem"],
+        },
+        # Names the tool expects in its environment, granted by the step that runs it.
+        # `validate()` reads it to refuse granting a credentialled tool to an agent, which
+        # would call it without a step having declared anything.
+        "secrets": {"type": "array", "items": {"type": "string"}},
         "requires": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["name", "description", "run", "input_schema"],
+    "required": ["name", "description", "run", "input_schema", "permissions"],
 }
 
 # An agent is config plus a prompt. `adapter` is the only field the engine cannot proceed

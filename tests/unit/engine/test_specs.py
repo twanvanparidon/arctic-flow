@@ -44,7 +44,7 @@ class TestCheckToolSpec:
         spec, base = written(workspace)
         assert check_tool_spec(spec, base, WHERE) is None
 
-    @pytest.mark.parametrize("field", ["name", "description", "run", "input_schema"])
+    @pytest.mark.parametrize("field", ["name", "description", "run", "input_schema", "permissions"])
     def test_a_missing_required_field_is_reported(self, workspace: Path, field: str) -> None:
         full = make.tool_spec("sample")
         del full[field]
@@ -120,8 +120,25 @@ class TestCheckToolSpec:
             "description": "the least a tool can say",
             "run": {"command": ["./run.sh"]},
             "input_schema": {"type": "object"},
+            "permissions": {"filesystem": "none"},
         }
         spec, base = written(workspace, spec=minimal)
+        assert check_tool_spec(spec, base, WHERE) is None
+
+    @pytest.mark.parametrize("reach", ["rw", "readwrite", "all", "Write", ""])
+    def test_a_reach_the_engine_does_not_know_is_refused(self, workspace: Path, reach: str) -> None:
+        """Every one of these would read as "not write" and silently open the gate."""
+        spec, base = written(workspace, permissions={"filesystem": reach})
+        with pytest.raises(SpecError, match="permissions/filesystem"):
+            check_tool_spec(spec, base, WHERE)
+
+    @pytest.mark.parametrize("reach", ["none", "read", "write"])
+    def test_the_three_reaches_a_tool_may_declare(self, workspace: Path, reach: str) -> None:
+        spec, base = written(workspace, permissions={"filesystem": reach})
+        assert check_tool_spec(spec, base, WHERE) is None
+
+    def test_the_secrets_a_tool_expects_are_named_as_text(self, workspace: Path) -> None:
+        spec, base = written(workspace, secrets=["signing_key"])
         assert check_tool_spec(spec, base, WHERE) is None
 
 
