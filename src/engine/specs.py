@@ -105,6 +105,26 @@ AGENT_SPEC_SCHEMA: dict[str, Any] = {
 FORWARDED = {"model": "model", "effort": "effort", "max_budget_usd": "max_budget_usd"}
 
 
+def adapter_parameters(spec: dict[str, Any]) -> dict[str, Any]:
+    """The adapter parameters an agent asks for, under the adapter's own names for them.
+
+    Built here rather than in the executor because the lint probe and the turn itself have
+    to send the same thing. A check that validated a different payload from the one that
+    runs is a check that passes on a spec the run then rejects.
+    """
+    parameters = {
+        parameter: spec[field]
+        for field, parameter in FORWARDED.items()
+        if spec.get(field) is not None
+    }
+    # Agent vocabulary stays runtime-neutral: output_schema is what an agent declares,
+    # json_schema is this particular adapter's parameter name. It is not in FORWARDED
+    # because that maps on `is not None` and an empty schema must not be sent.
+    if spec.get("output_schema"):
+        parameters["json_schema"] = spec["output_schema"]
+    return parameters
+
+
 class SpecError(Exception):
     """A component's spec.json cannot be run as written.
 
@@ -188,12 +208,7 @@ def check_agent_spec(spec: dict[str, Any], where: str) -> None:
     except adapters.AdapterError as exc:
         raise SpecError(f"{where}: {exc}") from exc
 
-    probe: dict[str, Any] = {"prompt": "probe", "system": "probe"}
-    for field, parameter in FORWARDED.items():
-        if spec.get(field) is not None:
-            probe[parameter] = spec[field]
-    if spec.get("output_schema"):
-        probe["json_schema"] = spec["output_schema"]
+    probe: dict[str, Any] = {"prompt": "probe", "system": "probe", **adapter_parameters(spec)}
 
     _check_against(
         adapter.INPUT_SCHEMA, probe, f"{where} would be rejected by adapter {adapter.NAME}"

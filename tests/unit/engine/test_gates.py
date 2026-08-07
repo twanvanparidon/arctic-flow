@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from engine import specs
 from engine.executor import (
     DEFAULT_GATE_ATTEMPTS,
     FlowError,
@@ -29,6 +30,10 @@ from engine.executor import (
 )
 from paths.resolver import Paths
 from support import components as make
+
+# One valid value per forwarded field, so the parametrize below is driven by the contract
+# rather than by a list written here that can fall behind it.
+SETTINGS: dict[str, Any] = {"model": "sonnet", "effort": "low", "max_budget_usd": 0.5}
 
 # Exits 0 only when the text carries the marker, which the feedback is what supplies.
 DEMANDS_MARKER = make.python(
@@ -51,16 +56,17 @@ class TestAgentTurn:
         result = agent_turn(echo_adapter, {"adapter": "echo"}, "be terse", "the question", {})
         assert result["payload"] == {"prompt": "the question", "system": "be terse"}
 
-    @pytest.mark.parametrize(
-        ("field", "value"),
-        [("model", "sonnet"), ("effort", "low"), ("max_budget_usd", 0.5)],
-    )
+    def test_the_sample_covers_every_forwarded_field(self) -> None:
+        """Adding a field to FORWARDED without wiring it fails here, not mid-run."""
+        assert set(SETTINGS) == set(specs.FORWARDED)
+
+    @pytest.mark.parametrize("field", sorted(SETTINGS))
     def test_a_setting_the_agent_declares_is_forwarded(
-        self, echo_adapter: ModuleType, field: str, value: object
+        self, echo_adapter: ModuleType, field: str
     ) -> None:
-        agent = {"adapter": "echo", field: value}
+        agent = {"adapter": "echo", field: SETTINGS[field]}
         result = agent_turn(echo_adapter, agent, "system", "prompt", {})
-        assert result["payload"][field] == value
+        assert result["payload"][specs.FORWARDED[field]] == SETTINGS[field]
 
     def test_a_setting_left_out_is_not_sent_as_null(self, echo_adapter: ModuleType) -> None:
         """The adapter's schema is closed and its defaults are its own to apply."""

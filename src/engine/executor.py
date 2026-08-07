@@ -722,14 +722,12 @@ def agent_turn(
     secrets: dict[str, str],
 ) -> dict[str, Any]:
     """One turn through the agent's adapter, as the normalised envelope plus `json`."""
-    payload: dict[str, Any] = {"prompt": prompt, "system": system}
-    for key in ("model", "effort", "max_budget_usd"):
-        if agent.get(key) is not None:
-            payload[key] = agent[key]
-    # Agent vocabulary stays runtime-neutral: output_schema is what an agent declares,
-    # json_schema is this particular adapter's parameter name.
-    if agent.get("output_schema"):
-        payload["json_schema"] = agent["output_schema"]
+    # The same builder `check_agent_spec` probes with, so what lint validated is what runs.
+    payload: dict[str, Any] = {
+        "prompt": prompt,
+        "system": system,
+        **specs.adapter_parameters(agent),
+    }
 
     check_payload(adapter.INPUT_SCHEMA, payload, f"adapter {adapter.NAME}")
     try:
