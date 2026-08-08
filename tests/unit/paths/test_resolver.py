@@ -21,7 +21,7 @@ from support import components as make
 
 class TestBuiltinRoot:
     def test_points_at_the_components_that_ship_with_the_engine(self) -> None:
-        assert (builtin_root() / "tools" / "read_file" / "spec.json").is_file()
+        assert (builtin_root() / "tools" / "common" / "read_file" / "spec.json").is_file()
 
     def test_sits_beside_the_paths_package(self) -> None:
         """One expression for all three ways the engine runs, so there is no frozen branch."""
@@ -267,8 +267,10 @@ class TestListing:
         make.write_tool(workspace, "zebra")
         make.write_tool(workspace, "alpha")
         # Derived from what ships rather than written out here, so adding a built-in tool
-        # does not fail a test about ordering.
-        builtin = [tool.name for tool in (builtin_root() / "tools").iterdir()]
+        # does not fail a test about ordering. By spec.json rather than by directory, so a
+        # built-in landing in a new namespace is picked up at whatever depth it sits.
+        shipped = builtin_root() / "tools"
+        builtin = [str(spec.parent.relative_to(shipped)) for spec in shipped.rglob("spec.json")]
         assert list(paths.list("tool")) == sorted(["alpha", "zebra", *builtin])
 
     def test_a_name_maps_to_the_definition_that_wins(

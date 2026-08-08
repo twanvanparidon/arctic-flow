@@ -45,7 +45,7 @@ Input (one JSON object on stdin):
 Run it directly, the same way the engine does:
 
 ```sh
-echo '{"path":"out/summary.md","content":"# Summary\n"}' | src/builtin/tools/write_file/run.sh
+echo '{"path":"out/summary.md","content":"# Summary\n"}' | src/builtin/tools/common/write_file/run.sh
 ```
 
 Output on stdout, one line with no trailing newline:
@@ -62,7 +62,7 @@ Failures write one line to stderr and set an exit code from `spec.json`'s
 exists and `overwrite` was not set.
 
 ```
-$ echo '{"path":"/etc/passwd","content":"x"}' | src/builtin/tools/write_file/run.sh
+$ echo '{"path":"/etc/passwd","content":"x"}' | src/builtin/tools/common/write_file/run.sh
 write_file: path resolves outside the workspace root: /etc/passwd
 $ echo $?
 4

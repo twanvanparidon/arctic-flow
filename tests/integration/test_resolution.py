@@ -41,26 +41,30 @@ class TestOverriding:
     ) -> None:
         """Overriding is per name and total: the project's copy inherits nothing."""
         (project / "note.txt").write_text("the real file\n")
-        one_step(project, "read_file")
+        one_step(project, "common/read_file")
         assert atf("--workspace", str(project), "run", "probe").out == "the real file\n"
 
-        make.write_tool(project, "read_file", script=make.prints("from the project"))
+        make.write_tool(project, "common/read_file", script=make.prints("from the project"))
         assert atf("--workspace", str(project), "run", "probe").out == "from the project\n"
 
     def test_the_dot_directory_beats_the_project_root(self, project: Path, atf: Runner) -> None:
-        make.write_tool(project, "read_file", script=make.prints("top level"))
-        make.write_tool(project / ".arctic", "read_file", script=make.prints("dot directory"))
-        one_step(project, "read_file")
+        make.write_tool(project, "common/read_file", script=make.prints("top level"))
+        make.write_tool(
+            project / ".arctic", "common/read_file", script=make.prints("dot directory")
+        )
+        one_step(project, "common/read_file")
         assert atf("--workspace", str(project), "run", "probe").out == "dot directory\n"
 
     def test_atf_path_beats_everything(
         self, project: Path, tmp_path: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        make.write_tool(project / ".arctic", "read_file", script=make.prints("dot directory"))
+        make.write_tool(
+            project / ".arctic", "common/read_file", script=make.prints("dot directory")
+        )
         override = tmp_path / "override"
-        make.write_tool(override, "read_file", script=make.prints("from ATF_PATH"))
+        make.write_tool(override, "common/read_file", script=make.prints("from ATF_PATH"))
         monkeypatch.setenv("ATF_PATH", str(override))
-        one_step(project, "read_file")
+        one_step(project, "common/read_file")
         assert atf("--workspace", str(project), "run", "probe").out == "from ATF_PATH\n"
 
     def test_a_tool_installed_at_home_is_available_to_every_project(

@@ -50,7 +50,10 @@ class TestInventory:
         assert _entry(paths, "tool", "greet").shadows == ()
 
     def test_the_built_in_tools_are_in_the_listing(self, paths: Paths) -> None:
-        assert _entry(paths, "tool", "read_file").path == builtin_root() / "tools" / "read_file"
+        assert (
+            _entry(paths, "tool", "common/read_file").path
+            == builtin_root() / "tools" / "common" / "read_file"
+        )
 
 
 def _entry(paths: Paths, kind: str, name: str) -> commands.ComponentEntry:
