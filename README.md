@@ -204,6 +204,23 @@ tools/
 replace a shipped tool, match its full name: `tools/common/read_file/` in your project.
 `atf list` prints every name qualified.
 
+### Writing them with Claude Code
+
+Two skills, installed as a plugin from this repository:
+
+```
+/plugin marketplace add twanvanparidon/arctic-flow
+/plugin install arctic-flow@arctic-flow
+```
+
+`/atf-create` scaffolds a flow, an agent or a tool and fills it in, and does not report the
+work done until `atf lint` passes. `/atf-help` diagnoses one that will not lint or will not
+run: it asks the engine before it reads the YAML, and carries references for the parts no
+command prints.
+
+Both drive the `atf` you already have, so neither is a second copy of the engine.
+[claude-plugins](claude-plugins) has the rest.
+
 ---
 
 ## More
