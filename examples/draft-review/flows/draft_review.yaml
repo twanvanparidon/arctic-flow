@@ -1,0 +1,117 @@
+# Write a section, have a reviewer accept it or send it back.
+#
+#   start: read_brief ──> write ──> review ──approved──> (output)
+#                          ^                  │
+#                          └────rejected──────┘
+#
+# The edge back to `write` is a real edge. Nothing declares it: `rejected` names a step
+# that is already upstream, and that is what makes it a loop. `lint` works it out from the
+# graph and then insists on `max_loops`, because an unbounded cycle of agent steps is the
+# one mistake here that spends money rather than failing.
+#
+# `max_loops: 3` is how many times `review` may send the work back, so `write` runs at most
+# four times. Running out fails the step. A loop that never converged has not done its job,
+# and half a draft is not an answer.
+#
+# The first pass is rejected every time, on purpose. Both agents are handed the same brief,
+# so the reviewer's system prompt is the one place that can hold something the writer has
+# not been told: `agents/reviewer/agent.md` carries a house rule the brief does not restate,
+# and a first draft cannot satisfy a rule nobody gave it. The reviewer quotes the rule in
+# its notes, the second draft has it, and the loop is the only thing that could have got
+# it there. Delete the house rule and the example still works, but you may have to run it
+# more than once to see it go round.
+#
+# After that it is a real review. The checklist rejects on any single item, so this
+# example genuinely runs out sometimes, which is the other half of what is worth seeing: a
+# bound you have never watched fail is a bound you have not tested. Three dials, in the
+# order to reach for them: `max_loops` here, the checklist in the reviewer, and the brief's
+# word range, which is the constraint that misses most.
+#
+# Compare examples/gated-summary. A gate is a tool checking one answer against a fixed rule,
+# retried inside the step with no edge to draw. Here the reviewer is a step of its own: it
+# has an agent, a cost line and a row in `atf inspect flow`, and what it said is in `steps`
+# for the next pass to read.
+#
+# `brief.md` ships with this project, so the example runs with nothing to prepare.
+#
+#   atf --workspace examples/draft-review run draft_review --input path=brief.md
+#
+# Watch stderr. Each trip back prints a ⟲ line with the count, and every pass after the
+# first is marked on the step's own line, so three passes do not read as three steps.
+#
+#   atf --workspace examples/draft-review inspect flow draft_review -o md
+#
+# draws the edge back and reports which steps a pass runs again.
+
+flow: draft_review
+version: 1
+description: Draft a section, and let a reviewer send it back until it passes or runs out.
+
+inputs:
+  path:
+    type: string
+    required: true
+    description: The brief to write from, relative to the workspace root.
+
+start: read_brief
+
+steps:
+  - id: read_brief
+    tool: common/read_file
+    input:
+      path: "{{ inputs.path }}"
+      max_lines: 200
+    push: [write]
+
+  # Reads two things from the last pass, and both are what make the loop converge.
+  #
+  # `steps.review` is the review that sent the work back. `steps.write` is this step's own
+  # previous answer: a loop makes a step its own ancestor, so a step may read itself here
+  # and nowhere else. Without it the writer starts from the brief every pass, and a draft
+  # that fixes what was flagged breaks something that had passed. Handing it the draft turns
+  # each pass into an edit instead of a rewrite, which is the difference between a loop that
+  # converges and one that runs out.
+  #
+  # Both resolve to `(not run)` on the first pass, the same literal a skipped step gives.
+  #
+  # `.text` and not `.json.notes` on purpose. The reference is legal before `review` has
+  # run, but there is nothing to reach into until it has, so a first pass would fail on the
+  # path rather than read the placeholder.
+  - id: write
+    agent: writer
+    prompt: |
+      Write the section the brief asks for.
+
+      Brief:
+      {{ steps.read_brief.text }}
+
+      Your previous draft, or "(not run)" if you have not written one yet:
+      {{ steps.write.text }}
+
+      The review of that draft, as JSON, or "(not run)" if nobody has reviewed one yet:
+      {{ steps.review.text }}
+    push: [review]
+
+  # The switch reads `this`, which is always the answer this step just gave, so a schema
+  # is safe here in a way it is not on the edge back to `write`.
+  - id: review
+    agent: reviewer
+    prompt: |
+      Review this draft against the brief. Approve it or send it back.
+
+      Brief:
+      {{ steps.read_brief.text }}
+
+      Draft:
+      {{ steps.write.text }}
+    switch: "{{ this.json.verdict }}"
+    max_loops: 3
+    cases:
+      # Ends the flow: the approved draft is what `output` emits, so
+      # `run draft_review > section.md` is the deliverable.
+      approved: []
+      rejected: [write]
+
+output:
+  template: |
+    {{ steps.write.text }}

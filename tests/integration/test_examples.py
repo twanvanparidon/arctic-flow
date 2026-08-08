@@ -12,6 +12,10 @@ example produces a correct HMAC, not that it produces the same bytes as last tim
 demonstrate is the engine's part, and none of that needs a real answer: a branch is taken,
 the other subtree is skipped, a join runs anyway, and a gate that is never satisfied stops
 the flow instead of letting it through.
+
+`draft-review` loops, and `$FAKE_CLAUDE_PREFER` picks which value of the reviewer's enum
+the fake answers with, so the same example runs both ways: approved leaves on the first
+pass, and rejected never converges, which is what the bound is for.
 """
 
 from __future__ import annotations
@@ -23,12 +27,15 @@ from pathlib import Path
 import pytest
 import yaml
 
+from support.outcome import Outcome
+
 from .conftest import Runner, requires
 
 FLOWS = [
     ("sign-release", "sign_release"),
     ("file-review", "review_file"),
     ("gated-summary", "summarize"),
+    ("draft-review", "draft_review"),
     ("agent-tools", "annotate"),
 ]
 
@@ -143,6 +150,50 @@ class TestSignRelease:
         )
         assert result.code == 1
         assert "read_file" in result.err
+
+
+class TestDraftReview:
+    """A loop: the reviewer's verdict decides whether the writer goes round again."""
+
+    @pytest.fixture(autouse=True)
+    def needs(self) -> None:
+        requires("jq", "awk", "realpath")
+
+    @pytest.fixture
+    def project(self, examples: Path) -> Path:
+        return examples / "draft-review"
+
+    def run_it(self, atf: Runner, project: Path) -> Outcome:
+        return atf("--workspace", str(project), "run", "draft_review", "--input", "path=brief.md")
+
+    def test_an_approved_draft_leaves_on_the_first_pass(
+        self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_CLAUDE_PREFER", "approved")
+        result = self.run_it(atf, project)
+        assert result.code == 0, result.err
+        assert "⟲" not in result.err
+
+    def test_the_first_pass_is_told_there_is_no_review_yet(
+        self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`write` reads `steps.review`, which is downstream of it and has not run. The fake
+        answers with the prompt it was given, so what the flow emits is that prompt with the
+        placeholder still in it."""
+        monkeypatch.setenv("FAKE_CLAUDE_PREFER", "approved")
+        assert "(not run)" in self.run_it(atf, project).out
+
+    def test_a_reviewer_that_never_approves_runs_out_of_passes(
+        self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Which is a failure, not a quiet exit. Nothing downstream gets a draft the
+        reviewer refused, and the bound is what stops it costing turns forever."""
+        monkeypatch.setenv("FAKE_CLAUDE_PREFER", "rejected")
+        result = self.run_it(atf, project)
+        assert result.code == 1
+        assert result.err.count("⟲ review") == 3
+        assert "did not converge" in result.err
+        assert result.out == ""
 
 
 class TestFileReview:
