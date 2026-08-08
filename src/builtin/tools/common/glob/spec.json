@@ -1,0 +1,62 @@
+{
+  "name": "glob",
+  "version": 1,
+  "description": "List files in the workspace whose name or path matches a shell pattern. Use to find out what exists before reading or searching it.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "pattern": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A shell pattern: * ? and [...]. Without a slash it matches the file name anywhere in the tree, so \"*.py\" finds every Python file. With a slash it matches the whole path, and * spans directories, so \"src/*_test.py\" finds them at any depth under src."
+      },
+      "path": {
+        "type": "string",
+        "default": ".",
+        "description": "Directory to search, relative to the workspace root. Must resolve inside it. Defaults to the whole workspace."
+      },
+      "type": {
+        "enum": ["file", "dir", "any"],
+        "default": "file",
+        "description": "What to list. Directories are usually not what you want; the default is files only."
+      },
+      "max_results": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200,
+        "description": "Stop after this many paths and say so. Raise it only when the truncated list was genuinely not enough."
+      }
+    },
+    "required": ["pattern"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One path per line, relative to the workspace root and sorted, so two runs over an unchanged tree agree byte for byte. A final \"[glob] output truncated: ...\" line is appended when max_results was reached. Matching nothing is a successful search: the output is a single \"[glob] no matches for ...\" line and the exit code is 0."
+  },
+
+  "exit_codes": {
+    "0": "success (the search ran; it matched something or it did not)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
+    "3": "not found (the search path does not exist)",
+    "4": "not permitted (the search path resolves outside the workspace root, or is not readable)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "find", "sed", "sort", "realpath"]
+}

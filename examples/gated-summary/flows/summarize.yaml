@@ -16,7 +16,7 @@
 # not a suggestion.
 #
 # `incident.md` ships with this project, so the example runs with nothing to prepare.
-# Any file inside the workspace works: read_file is sandboxed to it.
+# Any file inside the workspace works: common/read_file is sandboxed to it.
 #
 #   atf --workspace examples/gated-summary \
 #       run summarize --input path=incident.md
@@ -43,7 +43,7 @@ start: read_target
 
 steps:
   - id: read_target
-    tool: read_file
+    tool: common/read_file
     input:
       path: "{{ inputs.path }}"
       max_lines: 400

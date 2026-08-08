@@ -16,10 +16,10 @@
 # it.
 #
 # This example project holds only the flow and the four agents it needs. The
-# read_file tool and the claude_code adapter are inherited from the engine's own src/,
+# common/read_file tool and the claude_code adapter are inherited from the engine's own src/,
 # so nothing here duplicates them.
 #
-# Two ways to run it, and the difference is which files it can read. read_file is
+# Two ways to run it, and the difference is which files it can read. common/read_file is
 # sandboxed to the working directory, so that choice decides the reach of the review:
 #
 #   # reviewing this example project's own files
@@ -47,7 +47,7 @@ steps:
   # A tool step: deterministic, no model involved. Cheaper and more reliable than
   # asking an agent to go and read something.
   - id: read_target
-    tool: read_file
+    tool: common/read_file
     input:
       path: "{{ inputs.path }}"
       max_lines: 400

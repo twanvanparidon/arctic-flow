@@ -274,8 +274,10 @@ class TestTheShippedTools:
             str(project),
             "mcp-serve",
             "--tool",
-            "read_file",
-            stdin=frames(HANDSHAKE, call("read_file", path="/etc/passwd")),
+            "common/read_file",
+            # The flat spelling, because that is the name the server offers a shipped tool
+            # under now that the built-ins are namespaced.
+            stdin=frames(HANDSHAKE, call("common__read_file", path="/etc/passwd")),
         )
         answer = answered(parsed(result.out), 3)
         assert answer["result"]["isError"] is True

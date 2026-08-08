@@ -59,6 +59,12 @@ ARG VERSION=
 COPY packaging/stamp_version.py ./packaging/
 RUN if [ -n "$VERSION" ]; then python packaging/stamp_version.py "$VERSION"; fi
 
+# Build isolation stays on, so pip reads build-system.requires and provides the setuptools
+# pyproject.toml asks for. Turning it off works and needs no network here, but it makes the
+# wheel depend on whatever setuptools the image happens to carry: unpinned, since the lock
+# filters setuptools out, and unchecked, since verify_deps.py reads project.dependencies
+# only. That trades a declared requirement for an undeclared one and buys nothing, because
+# the apt layer above means this build was never going to run offline anyway.
 RUN pip install --no-cache-dir --no-deps .
 
 COPY packaging ./packaging
@@ -73,6 +79,10 @@ RUN pyinstaller --clean --noconfirm --distpath /out --workpath /tmp/pyi packagin
 # Fail the build rather than ship a binary that cannot see its own built-ins. That is the
 # exact failure that made this packaging work necessary.
 #
+# Each tool by its **qualified** name. A bare `read_file` matches both `read_file` and
+# `common/read_file`, so this check passed unchanged while the built-ins moved under a
+# namespace, and a bundle with the old layout looked healthy until the e2e suite ran.
+#
 # The version is checked here rather than trusted. Moving the stamp after `pip install`
 # leaves it writing a source tree nothing reads again: the build succeeds, every test below
 # passes, and the binary reports the placeholder. release.sh would catch it a job later,
@@ -80,10 +90,13 @@ RUN pyinstaller --clean --noconfirm --distpath /out --workpath /tmp/pyi packagin
 RUN /out/atf/atf --version \
  && { [ -z "$VERSION" ] || /out/atf/atf --version | grep -Fqx "atf ${VERSION#v}"; } \
  && /out/atf/atf list | tee /tmp/list.txt \
- && grep -q read_file   /tmp/list.txt \
- && grep -q write_file  /tmp/list.txt \
- && grep -q claude_code /tmp/list.txt \
- && grep -qw echo       /tmp/list.txt \
+ && grep -qF common/read_file  /tmp/list.txt \
+ && grep -qF common/write_file /tmp/list.txt \
+ && grep -qF common/glob       /tmp/list.txt \
+ && grep -qF common/grep       /tmp/list.txt \
+ && grep -qF common/fetch_url  /tmp/list.txt \
+ && grep -q  claude_code       /tmp/list.txt \
+ && grep -qw echo              /tmp/list.txt \
  && /out/atf/atf --workspace examples/sign-release lint sign_release \
  && /out/atf/atf completion bash | grep -q _atf_complete \
  && printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \

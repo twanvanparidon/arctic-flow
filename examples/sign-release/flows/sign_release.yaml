@@ -34,7 +34,7 @@ start: read_artifact
 steps:
   # read_file is inherited from the engine's built-ins; this project does not define it.
   - id: read_artifact
-    tool: read_file
+    tool: common/read_file
     input:
       path: "{{ inputs.path }}"
       max_lines: 500

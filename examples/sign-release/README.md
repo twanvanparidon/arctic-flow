@@ -99,5 +99,5 @@ secrets.vault               encrypted, committed, password "demo"
 release-notes.md            the artifact being signed
 ```
 
-`read_file` is not here. It is inherited from the engine's built-ins. This project
+`common/read_file` is not here. It is inherited from the engine's built-ins. This project
 defines only what is specific to it.

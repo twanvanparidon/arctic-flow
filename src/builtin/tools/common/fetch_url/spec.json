@@ -1,0 +1,62 @@
+{
+  "name": "fetch_url",
+  "version": 1,
+  "description": "Fetch an http or https URL and return the response body as text. Use to read documentation, an API response or a page whose contents the answer depends on.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 45
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "pattern": "^https?://",
+        "description": "The URL to fetch. Must be http or https; any other scheme is refused, so file://, ftp:// and gopher:// are not routes out of this tool."
+      },
+      "max_bytes": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200000,
+        "description": "Stop reading after this many bytes and say so. Guards against templating a whole binary into a prompt."
+      },
+      "timeout_seconds": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "default": 30,
+        "description": "How long the whole transfer may take. Kept under the tool's own timeout so a slow host is reported as a slow host rather than as the tool dying."
+      },
+      "accept": {
+        "type": "string",
+        "description": "Value for the Accept header, e.g. \"application/json\". Sent as given, so it is also the way to ask an API for a particular representation."
+      }
+    },
+    "required": ["url"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "The response body, verbatim and undecorated, so a JSON response is still parseable JSON. A body longer than max_bytes is cut at that point and a final \"[fetch_url] response truncated: ...\" line is appended, which does make the result no longer parse."
+  },
+
+  "exit_codes": {
+    "0": "success (the body is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
+    "5": "unreachable (DNS failure, connection refused, TLS failure, or the transfer timed out)",
+    "6": "http error (the server answered, with a 4xx or 5xx status)"
+  },
+
+  "permissions": {
+    "filesystem": "none",
+    "network": true
+  },
+
+  "requires": ["bash", "jq", "curl"]
+}
