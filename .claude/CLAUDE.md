@@ -184,14 +184,16 @@ load the bundle's OpenSSL and fail in frozen builds only.
 `paths/resolver.py` searches roots in precedence order and the first match wins:
 `$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `../src/builtin`. Under any root,
 components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and total: a
-project-level `read_file` replaces the built-in and inherits nothing. Where a component is
-*found* never changes where it *runs*: tools execute with cwd set to the workspace root.
+project-level `common/read_file` replaces the built-in and inherits nothing. Where a
+component is *found* never changes where it *runs*: tools execute with cwd set to the
+workspace root.
 
 A name may carry a namespace, at any depth and for all three kinds: `common/read_file` is
 `tools/common/read_file`, `release/sign` is `flows/release/sign.yaml`. A directory holding
 a `spec.json` is a component and any other directory is a namespace, so there is nothing to
-declare. The name is the whole path, so `common/read_file` and `read_file` neither override
-nor fall back to each other, and `spec.json` still carries only the leaf. `check_name`
+declare. Everything the engine ships is under `common/`, so overriding one means matching
+that whole name. `common/read_file` and a bare `read_file` neither override nor fall back
+to each other, and `spec.json` still carries only the leaf. `check_name`
 refuses a name whose segments would leave the root (`..`, an absolute path, an empty
 segment), which is why the check sits in the resolver and not in `lint`: one place covers
 `run`, a grant and `mcp-serve` alike. Granted tools reach a turn under `flat_name`, where
@@ -222,7 +224,7 @@ it also verifies `run.command` exists and is executable, that declared schemas a
 schemas, and that an agent's settings are ones its adapter accepts. That last check works
 by building the payload and validating it against the adapter's own `INPUT_SCHEMA`.
 
-Copy the nearest existing component rather than starting fresh: `../src/builtin/tools/read_file`,
+Copy the nearest existing component rather than starting fresh: `../src/builtin/tools/common/read_file`,
 `../src/adapters/claude_code.py`, `../examples/file-review/agents/summarizer`,
 `../examples/sign-release/flows/sign_release.yaml`.
 

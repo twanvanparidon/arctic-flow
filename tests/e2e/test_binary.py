@@ -22,7 +22,13 @@ from support.outcome import Runner
 
 from .conftest import VERSION_PREFIX, reported_version
 
-BUILT_IN_TOOLS = ("read_file", "write_file")
+BUILT_IN_TOOLS = (
+    "common/read_file",
+    "common/write_file",
+    "common/glob",
+    "common/grep",
+    "common/fetch_url",
+)
 SHIPPED_ADAPTERS = ("claude_code", "echo")
 
 # Every subcommand, so one that was added without reaching the bundle is caught here rather
@@ -100,7 +106,7 @@ class TestWhatTheBundleCarries:
         The workspace is elsewhere on purpose, so nothing shortens to `./x` by accident.
         """
         printed = atf("--workspace", str(tmp_path), "list").out
-        assert "$ATF_ROOT/tools/read_file" in printed, printed
+        assert "$ATF_ROOT/tools/common/read_file" in printed, printed
         assert "$ATF_ROOT/adapters/" in printed, printed
         assert str(binary.parent) not in printed
 

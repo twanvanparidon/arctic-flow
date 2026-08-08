@@ -14,7 +14,7 @@ reads forwards, in the order it happens.
 
 ```yaml
 - id: read
-  tool: read_file
+  tool: common/read_file
   input:
     path: "{{ inputs.path }}"
   push: [explain]        # <- where this result goes
@@ -71,8 +71,11 @@ through the lookup, from the `--workspace` on the line. bash for now.
 
 | For | You need |
 | --- | --- |
-| The built-in `read_file` tool | `bash`, `jq`, `awk`, `realpath` |
-| The built-in `write_file` tool | `bash`, `jq`, `realpath`, `wc` |
+| `common/read_file` | `bash`, `jq`, `awk`, `realpath` |
+| `common/write_file` | `bash`, `jq`, `realpath`, `wc` |
+| `common/grep` | `bash`, `jq`, `find`, `grep`, `sed` |
+| `common/glob` | `bash`, `jq`, `find`, `sed`, `sort` |
+| `common/fetch_url` | `bash`, `jq`, `curl`, and a network |
 | Any **agent** step | a supported adapter's provider, installed and authenticated |
 | Tool-only flows | nothing else: no key, no network |
 
@@ -85,6 +88,30 @@ for.
 atf list             # every name that resolves, and where each was found:
                      #   ./x, $HOME/.arctic/x, $ATF_ROOT/x
 ```
+
+### The tools that ship
+
+Five, all under the `common/` namespace, all contained to the workspace:
+
+| Tool | Does |
+| --- | --- |
+| `common/read_file` | Returns one file verbatim, or several with a header each. |
+| `common/write_file` | Writes a file. Refuses to clobber unless told to. |
+| `common/glob` | Lists the paths matching a shell pattern. |
+| `common/grep` | Finds a pattern across the tree, as `path:line:text`. |
+| `common/fetch_url` | Fetches an `http(s)` URL and returns the body undecorated. |
+
+`glob` finds files, `grep` finds text in them, `read_file` returns them: that is the
+usual order, and doing it in that order is much cheaper than reading a tree to find
+one thing.
+
+The first four cannot reach outside the workspace root: a path is canonicalised
+before it is used, so `..` and a symlink pointing out are both refused. `fetch_url`
+is the one that touches the network, and it touches nothing else: its
+`permissions.filesystem` is `none`.
+
+Each has a `tool.md` beside its `spec.json` saying when to use it and when not to. That
+file is what a model is given, so it is worth reading before granting one.
 
 One of them needs nothing. Point an agent at `"adapter": "echo"` and it answers from the
 request instead of from a model, so a flow's graph, its branches, its gates and every
@@ -104,9 +131,9 @@ Four projects that run as they are. Read them forwards, the way the engine does:
   picks one path, the other is skipped, and the report waits for neither. A few cents to run.
 - **[`examples/gated-summary`](examples/gated-summary)** is a gate. A tool has to accept the
   agent's answer before it goes anywhere, and says what was wrong with it when it does not.
-- **[`examples/agent-tools`](examples/agent-tools)** grants an agent `read_file` and
-  `write_file`, so it decides for itself when to read and when to write. One step where the
-  same job as three would also work, and the flow header says when to prefer which.
+- **[`examples/agent-tools`](examples/agent-tools)** grants an agent `common/read_file`
+  and `common/write_file`, so it decides for itself when to read and when to write. One step
+  where the same job as three would also work, and the flow header says when to prefer which.
 
 ```sh
 atf --workspace examples/file-review inspect flow review_file
@@ -128,7 +155,7 @@ anything: `list` says which definition of a name wins, `inspect` says what is in
 atf --workspace examples/file-review lint                       # every flow in the project
 atf --workspace examples/file-review inspect flow review_file -o md > review.md
 atf --workspace examples/file-review inspect agent summarizer   # its system prompt
-atf inspect tool read_file                                      # what it may touch
+atf inspect tool common/read_file                               # what it may touch
 ```
 
 `lint` with no flow checks every flow in scope and reports all of them before exiting
@@ -142,18 +169,19 @@ namespace.
 
 ```txt
 tools/
-   common/
+   common/             <- where the shipped tools live
       read_file/        ->  tool: common/read_file
-      write_file/
+      grep/
    git/
       commit/           ->  tool: git/commit
       worktree/add/     ->  tool: git/worktree/add
 ```
 
 `agents/` and `flows/` group the same way, so `atf run release/sign_release` runs
-`flows/release/sign_release.yaml`. The name is the whole path: `common/read_file` and
-`read_file` are two tools, and overriding one does not touch the other. `atf list` prints
-every name qualified.
+`flows/release/sign_release.yaml`. The name is the whole path, so `common/read_file` and a
+`read_file` of your own are two tools and overriding one does not touch the other. To
+replace a shipped tool, match its full name: `tools/common/read_file/` in your project.
+`atf list` prints every name qualified.
 
 ---
 

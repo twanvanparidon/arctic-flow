@@ -1,0 +1,71 @@
+{
+  "name": "grep",
+  "version": 1,
+  "description": "Search the workspace for lines matching a pattern, and report them as path:line:text. Use to find where a piece of text appears. To find files by name rather than by what is in them, use glob.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "pattern": {
+        "type": "string",
+        "minLength": 1,
+        "description": "What to look for. A POSIX extended regular expression by default (so \\\\d and \\\\b are not available; use [0-9] and a word boundary of your own). Set fixed: true to search for it as literal text instead, which is what you want for anything containing . * [ ] ( ) | + ? ^ $ or \\\\."
+      },
+      "path": {
+        "type": "string",
+        "default": ".",
+        "description": "Directory or single file to search, relative to the workspace root. Must resolve inside it. Defaults to the whole workspace."
+      },
+      "glob": {
+        "type": "string",
+        "description": "Only search files whose name matches this shell pattern, e.g. \"*.py\" or \"*.test.js\". It matches the file name, not the path, so \"src/*.py\" will match nothing."
+      },
+      "fixed": {
+        "type": "boolean",
+        "default": false,
+        "description": "Treat pattern as literal text rather than a regular expression."
+      },
+      "ignore_case": {
+        "type": "boolean",
+        "default": false,
+        "description": "Match without regard to case."
+      },
+      "max_matches": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200,
+        "description": "Stop after this many reported lines and say so. Raise it only when the truncated result was genuinely not enough."
+      }
+    },
+    "required": ["pattern"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One match per line as \"<path>:<line>:<text>\". Paths are relative to the workspace root, so a result can be handed straight to read_file. A final \"[grep] output truncated: ...\" line is appended when max_matches was reached. Finding nothing is a successful search: the output is a single \"[grep] no matches for ...\" line and the exit code is 0."
+  },
+
+  "exit_codes": {
+    "0": "success (the search ran; it found matches or it did not)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
+    "3": "not found (the search path does not exist)",
+    "4": "not permitted (the search path resolves outside the workspace root, or is not readable)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "find", "grep", "sed"]
+}

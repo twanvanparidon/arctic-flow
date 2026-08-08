@@ -19,7 +19,7 @@ import pytest
 
 from .conftest import Runner, requires
 
-WRITE = {"id": "put", "tool": "write_file", "input": {"path": "{{ inputs.path }}"}}
+WRITE = {"id": "put", "tool": "common/write_file", "input": {"path": "{{ inputs.path }}"}}
 
 
 @pytest.fixture(autouse=True)

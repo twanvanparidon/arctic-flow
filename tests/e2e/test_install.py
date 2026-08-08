@@ -133,7 +133,7 @@ class TestInstalledTheWayInstallShInstallsIt:
             text=True,
             timeout=60,
         )
-        assert "read_file" in result.stdout
+        assert "common/read_file" in result.stdout
         assert "echo" in result.stdout
 
     def test_it_runs_from_a_directory_that_has_nothing_to_do_with_it(

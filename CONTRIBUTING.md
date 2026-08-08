@@ -36,9 +36,9 @@ the same name. Adapters are not part of this: see above.
 
 **A name may carry a namespace.** `common/read_file` is `tools/common/read_file` under
 whichever root wins, at any depth, with nothing to declare: a directory holding a
-`spec.json` is a component and any other directory is a namespace. `common/read_file` and
-`read_file` are two names, so grouping a tool moves it rather than aliasing it, and neither
-name falls back to the other.
+`spec.json` is a component and any other directory is a namespace. The name is the whole
+path, so grouping a tool moves it rather than aliasing it and a bare `read_file` neither
+overrides nor falls back to it. Everything the engine ships sits under `common/`.
 
 **A branch that is not taken skips its subtree.** `switch` picks one case; the edges to the
 others are marked skipped, and skipping propagates. That is what lets a join downstream of
@@ -238,8 +238,11 @@ Copy the nearest existing one. That is the intended way in.
 
 | Adding | Copy | Needs |
 | ------ | ---- | ----- |
-| A tool | `src/builtin/tools/read_file` | `spec.json`, `tool.md`, executable `run.sh` |
-| A tool that writes | `src/builtin/tools/write_file` | the same, plus `permissions.filesystem: "write"` |
+| A tool | `src/builtin/tools/common/read_file` | `spec.json`, `tool.md`, executable `run.sh` |
+| A tool that writes | `src/builtin/tools/common/write_file` | the same, plus `permissions.filesystem: "write"` |
+| A tool that searches | `src/builtin/tools/common/grep` | the same, and only POSIX options, for the reason in its doc |
+| A tool that lists paths | `src/builtin/tools/common/glob` | the same, and a sorted result so truncation is stable |
+| A tool that reaches the network | `src/builtin/tools/common/fetch_url` | the same, plus `permissions.network: true` |
 | An adapter | `src/adapters/claude_code.py` | one Python module, plus an entry in `ADAPTERS` |
 | An agent | `examples/file-review/agents/summarizer` | `spec.json`, `agent.md` |
 | A flow | `examples/sign-release/flows/sign_release.yaml` | one YAML file |

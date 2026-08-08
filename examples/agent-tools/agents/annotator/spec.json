@@ -9,7 +9,7 @@
   "model": "sonnet",
   "effort": "medium",
 
-  "tools": ["read_file", "write_file"],
+  "tools": ["common/read_file", "common/write_file"],
   "unattended": true,
 
   "timeout_seconds": 900,
