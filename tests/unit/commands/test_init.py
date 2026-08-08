@@ -41,6 +41,10 @@ class TestInitialise:
         """A shipped file with a typo in it would otherwise break every command, for
         everyone who ran `init`, at the next command rather than at this one."""
         initialise(paths)
+        assert load(home / ".arctic").max_run_minutes == 240
+
+    def test_the_config_it_writes_names_no_sources(self, paths: Paths, home: Path) -> None:
+        initialise(paths)
         assert load(home / ".arctic").sources == ()
 
 
@@ -55,9 +59,9 @@ class TestRunningItAgain:
         """The one thing someone fears from re-running `init`. `create` refuses an
         existing name; this cannot, because being run again is what it is for."""
         initialise(paths)
-        (home / ".arctic" / CONFIG_FILE).write_text("sources:\n  - /shared\n")
+        (home / ".arctic" / CONFIG_FILE).write_text("run:\n  max_minutes: 60\n")
         initialise(paths)
-        assert load(home / ".arctic").sources == (Path("/shared"),)
+        assert load(home / ".arctic").max_run_minutes == 60
 
     def test_only_what_was_missing_is_created(self, paths: Paths, home: Path) -> None:
         initialise(paths)

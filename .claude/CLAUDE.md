@@ -176,6 +176,17 @@ edges `pending` rather than `skipped`: marking the exit branch skipped propagate
 everything after the loop, so the run ends with no output. Anything derived from an
 ordering (waves, guarantees, the cycle check) reads `without_back_edges` instead.
 
+`run.max_minutes` from the user's config is a ceiling on the whole of `execute`, and the
+one limit a flow cannot raise, because it is a safeguard rather than a setting. It is the
+timeout on the pool's `wait`, so nothing blocks past it, and firing sets a run-wide cancel
+event that reaches every tool subprocess: a step's, and a gate's. It cannot reach an agent
+turn, because `adapter.run` is a synchronous call with no way in, so a turn already
+started runs to its own `timeout_seconds` and the pool's shutdown waits for it. The
+ceiling is therefore a ceiling plus at most one turn. Closing that gap means putting
+cancellation into the adapter contract, which is why it is left open. `run_agent` checks
+the event before each turn, so the gap costs time and never a second paid turn. No
+ceiling means no event at all, so a run without a config takes the path it always did.
+
 Templates are `{{ dotted.path }}` over five namespaces: `inputs`, `steps`, `secrets`,
 `this` (the step's own result, in a switch or a gate) and `gate` (gate feedback only). An
 unresolvable path is an error, never an empty string. `validate()` rejects reading from a
@@ -215,8 +226,9 @@ the separator is `__`, because `mcp__atf__<tool>` cannot carry a slash.
 `sources` are extra roots named by `~/.arctic/config.yaml`, which `atf init` writes and
 `paths/config.py` reads. They sit below your own home layer and above the built-ins, so a
 shared library may replace a shipped tool but never one the project or `~/.arctic` defines.
-An unknown key in that file is refused rather than ignored, and `Paths` loads it eagerly,
-so a broken config stops every command rather than one.
+The same file carries `run.max_minutes`, a ceiling on a whole run that `execute` enforces
+and no flow may raise; an unknown key in it is refused rather than ignored. `Paths` loads
+it eagerly, so a broken config stops every command rather than one.
 
 `atf create <kind> <name>` writes one, out of `../src/builtin/scaffolds/<kind>/`, into
 `./.arctic` when the workspace has one and the workspace root otherwise: the top of that
@@ -304,12 +316,15 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
   kept by the future rather than raised. Replies arrive as calls finish, so anything
   reading them keys by request id.
 - **A cancelled call is stopped, not just unanswered.** `notifications/cancelled` sets
-  the call's event; `spawn` signals its process tree, TERM then KILL, and no reply is
-  sent. That is why a cancellable call gets `start_new_session` and a step deliberately
-  does not: a step's tool stays in the caller's process group so Ctrl-C on `atf run`
-  still reaches it, and the price is that a step's timeout can only signal the direct
-  child. The cancel is handled on the read loop, because pooled it would queue behind
-  the call it cancels.
+  the call's event; `spawn` signals it, TERM then KILL, and no reply is sent. The cancel
+  is handled on the read loop, because pooled it would queue behind the call it cancels.
+- **`cancel` and `grouped` are separate arguments to `spawn`, and conflating them is a
+  bug.** `cancel` is whether the work can be stopped; both callers pass one, an in-turn
+  call from its client and a step from the run ceiling. `grouped` is whether the call has
+  a terminal to answer to. An in-turn call has none, so it gets `start_new_session` and
+  the whole process tree is signalled. A step stays in the caller's process group, so
+  Ctrl-C on `atf run` still reaches its tool, and the price is that only the direct child
+  is signalled: a step's tool that backgrounded something can leave it behind.
 - **The `claude_code` adapter's flags are verified against CLI 2.1.224** and move between
   releases. Check `claude --help` before adding a parameter and move
   `VERIFIED_CLI_VERSION`. `model` is required, because the CLI's configured default is a

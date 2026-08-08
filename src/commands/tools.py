@@ -83,11 +83,15 @@ def call_tool(
 
     `cancel` is the caller withdrawing the request. Set it and the tool's process tree is
     stopped, and the answer says so rather than reading as a tool that broke.
+
+    `grouped=True` because an in-turn call has no terminal to answer to: it gets its own
+    session, so the whole tree is signalled at once. A step is the other case; see
+    `engine.executor.spawn`.
     """
     started = time.monotonic()
     try:
         base, spec = load_component(paths, "tool", name)
-        text = invoke(base, spec, arguments, paths, cancel=cancel)
+        text = invoke(base, spec, arguments, paths, cancel=cancel, grouped=True)
     except Cancelled as exc:
         # Before FlowError, which it subclasses. The other order reports a withdrawn call as
         # an ordinary failure, and a caller that stopped waiting gets an answer anyway.

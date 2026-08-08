@@ -125,6 +125,19 @@ def finishes_later(started: Path, finished: Path, seconds: float = 3.0) -> str:
     )
 
 
+def marks_later(finished: Path, seconds: float = 2.0) -> str:
+    """Leaves `finished` behind `seconds` later, written by the shell itself.
+
+    The same discriminator `finishes_later` provides, for the case where only one process
+    is signalled. That one backgrounds its writer on purpose, so the marker appears unless
+    a whole tree was stopped. A step's tool is deliberately not grouped (see
+    `engine.executor.spawn`), so its backgrounded child would survive and write the marker
+    even though the stop worked. Here the writer *is* the process being signalled, which
+    is what makes the marker mean "not stopped" rather than "not grouped".
+    """
+    return sh(f"cat >/dev/null\nsleep {seconds}\nprintf done > {shlex.quote(str(finished))}\n")
+
+
 def rendezvous(mine: Path, theirs: Path, timeout: float = 20.0) -> str:
     """Signals through `mine`, then waits for `theirs` to appear.
 

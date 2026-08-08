@@ -389,8 +389,9 @@ def build_parser() -> argparse.ArgumentParser:
         f"Writes {HOME_SYMBOL}/{DOT_DIR} with tools/, agents/, flows/ and {CONFIG_FILE}.\n"
         "That directory is a search layer under every project, so a tool you drop in it\n"
         "resolves everywhere, and a project still overrides it by defining the same name.\n\n"
-        f"{CONFIG_FILE} holds what neither a flow nor a spec should: `sources`, extra\n"
-        "directories to search for components. The file that is written documents it.\n\n"
+        f"{CONFIG_FILE} holds what neither a flow nor a spec should: `run.max_minutes`, a\n"
+        "ceiling on how long any one run may take, and `sources`, extra directories to\n"
+        "search for components. The file that is written documents both.\n\n"
         "Nothing existing is touched, so running it again after an upgrade adds whatever\n"
         "is missing and leaves the rest alone. --workspace does not apply.\n",
     )

@@ -67,10 +67,35 @@ class TestTheConfigItWrites:
     def test_every_command_refuses_while_it_is_broken(self, atf: Runner, home: Path) -> None:
         """It is read as the paths are built, so this is not one command's problem."""
         atf("init")
-        (home / ".arctic" / "config.yaml").write_text("source:\n  - /shared\n")
+        (home / ".arctic" / "config.yaml").write_text("run:\n  max_minute: 5\n")
         result = atf("list")
         assert result.code == 1
-        assert "source" in result.err
+        assert "max_minute" in result.err
+
+    def test_its_ceiling_stops_a_run(self, atf: Runner, home: Path, project: Path) -> None:
+        atf("init")
+        # A second, written as the fraction of a minute the file takes. A whole minute
+        # would be a whole minute of suite.
+        (home / ".arctic" / "config.yaml").write_text(f"run:\n  max_minutes: {1 / 60}\n")
+        make.write_tool(
+            project,
+            "slow",
+            script=make.sleeps(30),
+            run={"command": ["./run.sh"], "timeout_seconds": 30},
+        )
+        make.write_flow(
+            project,
+            "slow",
+            {
+                "flow": "slow",
+                "start": "wait",
+                "steps": [{"id": "wait", "tool": "slow", "input": {}}],
+            },
+        )
+
+        result = atf("--workspace", str(project), "run", "slow")
+        assert result.code == 1
+        assert "run.max_minutes" in result.err
 
     def test_a_source_it_names_becomes_a_search_layer(
         self, atf: Runner, home: Path, project: Path, tmp_path: Path

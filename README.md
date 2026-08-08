@@ -194,14 +194,21 @@ A tool you put in `~/.arctic/tools/` resolves from any directory, and a project 
 overrides it by defining the same name. Run `init` again after an upgrade and it adds
 whatever is missing, leaving what is there alone.
 
-`config.yaml` beside them holds what neither a flow nor a spec should:
+`config.yaml` beside them holds the two things neither a flow nor a spec should:
 
 ```yaml
+run:
+  max_minutes: 240          # a ceiling on any one run
+
 sources:                    # more directories to search, laid out the same way
   - ~/work/arctic-components
 ```
 
-They sit below `~/.arctic` and above the built-ins, so a shared library can replace a
+`max_minutes` is a safeguard rather than a tuning knob, so no flow can raise it. When it
+fires the run fails and its tools are stopped; an agent turn already in flight is bounded
+by its own `timeout_seconds` instead, so the real stop can be one turn later than this.
+
+`sources` sit below `~/.arctic` and above the built-ins, so a shared library can replace a
 shipped tool but never one you or the project defined. An unknown key in this file is
 refused rather than ignored.
 

@@ -5,8 +5,12 @@ the ambient knowledge of one run: which workspace, which environment, which home
 directory. A setting read out of the home directory is the same kind of fact, and the
 engine reads `paths.config` exactly as it reads `paths.workspace`.
 
-One setting so far, and they are meant to stay few:
+Two settings, and they are deliberately few:
 
+  run.max_minutes   a ceiling on a whole run. A safeguard, not a tuning knob, which is
+                    why no flow can raise it. `engine.executor.execute` enforces it.
+                    Minutes because the useful values are hours: 240 reads as four of
+                    them and 14400 reads as nothing.
   sources           extra roots to search, each laid out as `tools/`, `agents/`, `flows/`.
                     `Paths.roots` splices them in below `~/.arctic` and above the
                     built-ins, so a sourced library can replace what shipped with the
@@ -16,7 +20,7 @@ Anything a flow should decide belongs in the flow, and anything a component shou
 belongs in its spec. What is left is the per-machine policy neither of those can hold.
 
 **An unknown key is refused rather than ignored.** This file is written by hand and read
-by nothing else, so a mistyped `source` that silently does nothing is exactly the
+by nothing else, so a mistyped `max_second` that silently does nothing is exactly the
 failure it exists to prevent. Absent is not the same as unknown: no file at all is the
 ordinary case and loads as the defaults.
 """
@@ -38,6 +42,16 @@ CONFIG_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "run": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                # No floor beyond "positive". A fraction is a legitimate thing to write:
+                # it is how a test, or anyone checking the ceiling works, asks for one
+                # that fires in seconds.
+                "max_minutes": {"type": "number", "exclusiveMinimum": 0},
+            },
+        },
         "sources": {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
@@ -52,8 +66,18 @@ class ConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class Config:
-    """The settings, already parsed. The defaults are what no config file means."""
+    """The settings, already parsed. The defaults are what no config file means.
 
+    `max_run_minutes` is `None` for "no ceiling", rather than a very large number: the
+    engine skips the whole deadline path when there is nothing to enforce, so a run
+    without a config behaves exactly as it did before there was one.
+
+    Kept in the unit the file was written in rather than converted to seconds here, so
+    the failure the engine raises can name the number someone typed. `execute` does the
+    one multiplication.
+    """
+
+    max_run_minutes: float | None = None
     sources: tuple[Path, ...] = ()
 
 
@@ -75,7 +99,10 @@ def load(directory: Path) -> Config:
         raise ConfigError(f"{path} should hold a mapping of settings")
 
     _check(document, path)
-    return Config(sources=tuple(_source(entry, path) for entry in document.get("sources") or []))
+    return Config(
+        max_run_minutes=(document.get("run") or {}).get("max_minutes"),
+        sources=tuple(_source(entry, path) for entry in document.get("sources") or []),
+    )
 
 
 def _check(document: dict[str, Any], path: Path) -> None:

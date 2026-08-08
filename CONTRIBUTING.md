@@ -37,9 +37,9 @@ this: see above.
 
 **There is one config file, and it is small.** `~/.arctic/config.yaml`, written by
 `atf init` and read by `paths/config.py`. It holds what neither a flow nor a spec can:
-so far, extra roots to search. Anything a flow should decide belongs in the flow, so the
-bar for adding a key here is that no component and no flow could own it. An unknown key
-is refused rather than ignored.
+extra roots to search, and a ceiling on how long a run may take. Anything a flow should
+decide belongs in the flow, so the bar for adding a key here is that no component and no
+flow could own it. An unknown key is refused rather than ignored.
 
 **A name may carry a namespace.** `common/read_file` is `tools/common/read_file` under
 whichever root wins, at any depth, with nothing to declare: a directory holding a
