@@ -18,8 +18,18 @@ acknowledge the gap rather than silently omitting it.
 An agent step may also carry a `gate`: a tool that has to accept the result before it is
 pushed anywhere. A rejection is not a failure. The step runs again with what the gate said
 appended to its prompt, until the gate passes or the attempts run out. That loop is inside
-the step, not in the graph, because the graph has no cycles and every turn is a fresh
-session: the retry has to carry its own history.
+the step rather than in the graph, because every turn is a fresh session and the retry has
+to carry its own history.
+
+A `switch` case naming a step that is already upstream is a *loop*, and the only cycle a
+flow may have. Its steps go back to waiting and run again, bounded by `max_loops` on the
+step that sends the work back. Unlike a gate this is a real edge, so the reviewer is a step
+of its own and what it said is in `steps` for the next pass to read. A gate checks the
+shape of one answer; a loop sends the work back through however many steps produced it.
+
+A loop also makes its steps ancestors of each other, including of themselves, so a step in
+one may read its own previous result. That is what lets a pass edit the last answer rather
+than replace it.
 """
 
 from __future__ import annotations
@@ -372,7 +382,12 @@ def build_graph(steps: list[dict[str, Any]]) -> tuple[dict[str, list[str]], dict
 
 
 def ancestors_of(sid: str, inbound: dict[str, set[str]]) -> set[str]:
-    """Everything transitively upstream: what a step's templates may read."""
+    """Everything transitively upstream: what a step's templates may read.
+
+    The `seen` set is what makes this safe across a loop, where two steps are upstream of
+    each other. That is also the answer a loop wants: a writer may read the review that
+    sends work back to it.
+    """
     seen: set[str] = set()
     queue = list(inbound.get(sid, set()))
     while queue:
@@ -382,6 +397,81 @@ def ancestors_of(sid: str, inbound: dict[str, set[str]]) -> set[str]:
         seen.add(current)
         queue.extend(inbound.get(current, set()))
     return seen
+
+
+def descendants_of(sid: str, outbound: dict[str, list[str]]) -> set[str]:
+    """Everything transitively downstream. The mirror of ancestors_of."""
+    seen: set[str] = set()
+    queue = list(outbound.get(sid, []))
+    while queue:
+        current = queue.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        queue.extend(outbound.get(current, []))
+    return seen
+
+
+def back_edges(outbound: dict[str, list[str]], start: str) -> set[tuple[str, str]]:
+    """The edges that close a cycle, found by a depth-first walk from the start.
+
+    Which edge of a cycle counts as the one closing it depends on the order the walk
+    reaches them, so it follows declaration order. That has to be stable: `lint` and `run`
+    both ask this, and a flow accepted by one and refused by the other would be worse than
+    either answer.
+    """
+    found: set[tuple[str, str]] = set()
+    on_path: set[str] = set()
+    settled: set[str] = set()
+
+    def walk(sid: str) -> None:
+        on_path.add(sid)
+        for target in outbound.get(sid, []):
+            # On the current path, so this edge points back the way we came.
+            if target in on_path:
+                found.add((sid, target))
+            elif target not in settled:
+                walk(target)
+        on_path.discard(sid)
+        settled.add(sid)
+
+    walk(start)
+    return found
+
+
+def without_back_edges(
+    outbound: dict[str, list[str]], back: set[tuple[str, str]]
+) -> tuple[dict[str, list[str]], dict[str, set[str]]]:
+    """The same graph with its loops opened, which is a DAG again.
+
+    Anything that assumes an ordering is derived from this and not from the real graph:
+    the cycle check, a loop's own body, and the waves and guarantees `util/` reports. A
+    back-edge has no place in an ordering, being the edge that goes the other way.
+    """
+    forward: dict[str, list[str]] = {
+        sid: [target for target in targets if (sid, target) not in back]
+        for sid, targets in outbound.items()
+    }
+    reverse: dict[str, set[str]] = defaultdict(set)
+    for sid, targets in forward.items():
+        for target in targets:
+            reverse[target].add(sid)
+    return forward, reverse
+
+
+def loop_body(
+    source: str, head: str, forward: dict[str, list[str]], reverse: dict[str, set[str]]
+) -> set[str]:
+    """Every step that runs again when `source` sends its result back to `head`.
+
+    The steps between the two, both ends included. Bounded by what reaches `source` and
+    not merely by what `head` reaches, and that is what makes the reset safe: every member
+    is upstream of `source`, so all of them have finished by the time the back-edge fires
+    and none is running when its state goes back to waiting.
+    """
+    downstream = {head} | descendants_of(head, forward)
+    upstream = {source} | ancestors_of(source, reverse)
+    return downstream & upstream
 
 
 # --------------------------------------------------------------------------- #
@@ -429,6 +519,19 @@ def check_gate_shape(sid: str, step: dict[str, Any]) -> None:
         )
 
 
+def check_loop_shape(sid: str, step: dict[str, Any]) -> None:
+    """A step's `max_loops`, before the graph has said whether it loops at all."""
+    allowed = step["max_loops"]
+    # YAML 1.1 reads `yes` as True and a bool is an int, so `max_loops: yes` would pass as
+    # 1. Unlike a gate's max_attempts, 1 is a legal bound here, so the bool has to be
+    # refused in its own right rather than falling out of a minimum of 2.
+    if isinstance(allowed, bool) or not isinstance(allowed, int) or allowed < 1:
+        raise FlowError(
+            f"step '{sid}' max_loops must be an integer of 1 or more. It counts how many "
+            "times the step may send its result back upstream"
+        )
+
+
 def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
     for field in ("flow", "start", "steps"):
         if field not in flow:
@@ -462,6 +565,8 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
             )
         if "gate" in step:
             check_gate_shape(sid, step)
+        if "max_loops" in step:
+            check_loop_shape(sid, step)
         by_id[sid] = step
 
     if flow["start"] not in by_id:
@@ -510,8 +615,64 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 f"step '{sid}' is unreachable: nothing pushes to it, and it is not the start"
             )
 
-    # Kahn's algorithm over the forward edges: what cannot be settled is a cycle.
-    remaining = {sid: set(inbound.get(sid, set())) - {START} for sid in by_id}
+    # A case naming a step that is already upstream is a loop, and the only cycle a flow
+    # may have. Everything below decides whether it is one the flow meant.
+    back = back_edges(outbound, flow["start"])
+    forward, forward_in = without_back_edges(outbound, back)
+    looping = {source for source, _ in back}
+
+    for source, head in sorted(back):
+        if "switch" not in by_id[source]:
+            raise FlowError(
+                f"step '{source}' pushes back to '{head}', which is upstream of it. A loop "
+                "needs a 'switch' that can leave it: a step that always sends its result "
+                "back has no way to stop"
+            )
+        if "max_loops" not in by_id[source]:
+            raise FlowError(
+                f"step '{source}' sends its result back to '{head}', which is upstream of "
+                f"it. That is a loop, so it needs bounding: add 'max_loops' to '{source}', "
+                "or switch to a step that is not upstream"
+            )
+
+    for sid, step in by_id.items():
+        if "max_loops" in step and sid not in looping:
+            raise FlowError(
+                f"step '{sid}' has 'max_loops' but no case naming a step upstream of it, "
+                "so it never loops"
+            )
+
+    bodies = {pair: loop_body(pair[0], pair[1], forward, forward_in) for pair in sorted(back)}
+
+    for (source, head), body in bodies.items():
+        # A step the head reaches that does not lead back to the source would run on the
+        # first pass and then sit done while the rest went round again. Refusing it is also
+        # what keeps the reset safe: every body member is upstream of the source, so none
+        # is still running when the back-edge fires.
+        stranded = descendants_of(head, forward) - body - descendants_of(source, forward)
+        if stranded:
+            raise FlowError(
+                f"step '{sorted(stranded)[0]}' is reached from '{head}' inside its loop but "
+                f"does not lead back to '{source}', so it would run on the first pass and "
+                f"never again. Have it push to '{source}', or move it after the loop"
+            )
+
+    pairs = list(bodies)
+    for index, first in enumerate(pairs):
+        for second in pairs[index + 1 :]:
+            shared = bodies[first] & bodies[second]
+            if shared:
+                raise FlowError(
+                    f"the loop back from '{first[0]}' and the loop back from "
+                    f"'{second[0]}' both re-run '{sorted(shared)[0]}'. Nested and "
+                    "overlapping loops are not supported: which one's count a pass "
+                    "resets is undefined"
+                )
+
+    # Kahn's algorithm over the push direction, with the declared loops opened. What
+    # cannot be settled is a cycle the walk from `start` never entered, so no back-edge was
+    # found to open it: a ring of steps with nothing leading in.
+    remaining = {sid: set(forward_in.get(sid, set())) - {START} for sid in by_id}
     settled: set[str] = set()
     while True:
         ready = {sid for sid, sources in remaining.items() if sources <= settled}
@@ -521,7 +682,7 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
         for sid in ready:
             del remaining[sid]
     if remaining:
-        raise FlowError(f"steps form a cycle: {', '.join(sorted(remaining))}")
+        raise FlowError(f"steps form a cycle nothing enters: {', '.join(sorted(remaining))}")
 
     # A template may read inputs, or a step that is genuinely upstream of it. `this` is the
     # running step's own result, in a switch or a gate. `gate` is what the gate then said.
@@ -1049,15 +1210,48 @@ def execute(
     by_id = {step["id"]: step for step in steps}
     outbound, inbound = build_graph(steps)
 
+    back = back_edges(outbound, flow["start"])
+    forward, forward_in = without_back_edges(outbound, back)
+    bodies = {pair: loop_body(pair[0], pair[1], forward, forward_in) for pair in back}
+
     edge: dict[tuple[str, str], str] = {
         (source, target): "pending" for target, sources in inbound.items() for source in sources
     }
+    # Skipped rather than pending, or a loop head waits on a step downstream of itself and
+    # nothing in the flow ever becomes ready.
+    for pair in back:
+        edge[pair] = "skipped"
     edge[(START, flow["start"])] = "delivered"
     inbound[flow["start"]].add(START)
 
     state = {sid: "waiting" for sid in by_id}
     results: dict[str, Any] = {}
     trace: list[dict[str, Any]] = []
+    loops = {source: 0 for source, _ in back}
+    runs: dict[str, int] = defaultdict(int)
+
+    # A loop's steps are mutually upstream, so one may read another that has not run yet.
+    # The value a skipped step already resolves to is the honest answer on a first pass:
+    # this did not happen.
+    for body in bodies.values():
+        for sid in body:
+            results.setdefault(sid, dict(SKIPPED_RESULT))
+
+    def reenter(source: str, head: str) -> None:
+        """Put a loop's steps back to waiting, so the next pass runs them again.
+
+        `results` is deliberately left alone. The previous pass's values are what the next
+        one reads, and that is how a writer sees the review that sent the work back.
+        """
+        body = bodies[(source, head)]
+        for sid in body:
+            state[sid] = "waiting"
+        for a, b in list(edge):
+            # Only the edges inside the loop. One arriving from outside was delivered
+            # before the loop began, and the back-edge itself has just been delivered, so
+            # neither goes back to pending or the head would never become ready.
+            if a in body and b in body and (a, b) != (source, head):
+                edge[(a, b)] = "pending"
 
     def propagate_skips() -> None:
         """A step whose every inbound edge was skipped never runs, nor does its
@@ -1091,6 +1285,7 @@ def execute(
                 if not any(edge[(s, sid)] == "delivered" for s in sources):
                     continue
                 state[sid] = "running"
+                runs[sid] += 1
                 step = by_id[sid]
                 notify(
                     {
@@ -1124,6 +1319,16 @@ def execute(
                     # leaving it outside meant a step could start, never report a
                     # result either way, and vanish from the progress output.
                     targets = chosen_targets(by_id[sid], results[sid], inputs, results)
+                    looped_to = [target for target in targets if (sid, target) in back]
+                    if looped_to:
+                        loops[sid] += 1
+                        allowed = by_id[sid]["max_loops"]
+                        if loops[sid] > allowed:
+                            # execute() prefixes the step id onto step failures.
+                            raise FlowError(
+                                f"the loop back to '{looped_to[0]}' did not converge in "
+                                f"{allowed} pass{'' if allowed == 1 else 'es'}"
+                            )
                 except (FlowError, VaultError) as exc:
                     # Scrub before the message travels: a failing component may echo a
                     # secret it was given, and this text reaches logs and terminals.
@@ -1133,7 +1338,15 @@ def execute(
                     raise FlowError(f"step '{sid}': {message}") from exc
 
                 for target in outbound[sid]:
-                    edge[(sid, target)] = "delivered" if target in targets else "skipped"
+                    if target in targets:
+                        edge[(sid, target)] = "delivered"
+                    elif looped_to:
+                        # Pending, not skipped. Marking the exit branch skipped while the
+                        # loop is still going round propagates, so everything after the
+                        # loop is skipped too and the run ends with no output.
+                        edge[(sid, target)] = "pending"
+                    else:
+                        edge[(sid, target)] = "skipped"
                 entry = {
                     "step": sid,
                     "ms": elapsed,
@@ -1144,8 +1357,25 @@ def execute(
                 # Only where a gate ran: `null` on every step of every other flow is noise.
                 if results[sid].get("attempts"):
                     entry["attempts"] = results[sid]["attempts"]
+                # Same rule. A step outside a loop has run once and has nothing to add.
+                if runs[sid] > 1:
+                    entry["iteration"] = runs[sid]
                 trace.append(entry)
                 notify({"kind": "finished", "is_switch": "switch" in by_id[sid], **entry})
+
+                if looped_to:
+                    # One target, because validate() refuses overlapping loop bodies and
+                    # two back-edges from one step would share it.
+                    notify(
+                        {
+                            "kind": "looped",
+                            "step": sid,
+                            "to": looped_to[0],
+                            "count": loops[sid],
+                            "of": by_id[sid]["max_loops"],
+                        }
+                    )
+                    reenter(sid, looped_to[0])
 
     return results, trace
 

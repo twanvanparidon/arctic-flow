@@ -172,13 +172,14 @@ class TestEdges:
         with pytest.raises(FlowError, match="step 'orphan' is unreachable"):
             validate(flow(tool_step("a"), tool_step("orphan")), project)
 
-    def test_a_cycle_is_refused(self, project: Paths) -> None:
+    def test_a_cycle_of_pushes_is_refused(self, project: Paths) -> None:
+        """A push always fires, so a cycle of them can only run to its bound and fail."""
         definition = flow(
             tool_step("a", push=["b"]),
             tool_step("b", push=["c"]),
             tool_step("c", push=["b"]),
         )
-        with pytest.raises(FlowError, match="steps form a cycle: b, c"):
+        with pytest.raises(FlowError, match="step 'c' pushes back to 'b'"):
             validate(definition, project)
 
     def test_a_diamond_is_not_a_cycle(self, project: Paths) -> None:
@@ -375,6 +376,103 @@ class TestGateShape:
             "a", gate={"tool": "noop", "feedback": "again, shorter", "max_attempts": 2}
         )
         assert validate(flow(step), project)
+
+
+def loop_flow(**check: Any) -> dict[str, Any]:
+    """`write` pushes to `check`, which either reports or sends the work back."""
+    return flow(
+        tool_step("write", push=["check"]),
+        tool_step(
+            "check",
+            switch="{{ this.text }}",
+            cases={"done": ["report"]},
+            default=["write"],
+            **check,
+        ),
+        tool_step("report"),
+    )
+
+
+class TestLoops:
+    def test_a_bounded_loop_is_accepted(self, project: Paths) -> None:
+        validate(loop_flow(max_loops=5), project)
+
+    @pytest.mark.parametrize("value", [0, -1, "3", 3.0])
+    def test_max_loops_must_be_a_positive_integer(self, project: Paths, value: Any) -> None:
+        with pytest.raises(FlowError, match="max_loops"):
+            validate(loop_flow(max_loops=value), project)
+
+    def test_max_loops_is_not_a_yaml_boolean(self, project: Paths) -> None:
+        """YAML 1.1 reads `yes` as True and a bool is an int, so without its own check
+        `max_loops: yes` would pass as a bound of one."""
+        with pytest.raises(FlowError, match="max_loops"):
+            validate(loop_flow(max_loops=True), project)
+
+    def test_a_loop_with_no_bound_is_refused(self, project: Paths) -> None:
+        with pytest.raises(FlowError, match="add 'max_loops' to 'check'"):
+            validate(loop_flow(), project)
+
+    def test_a_bound_with_no_loop_is_refused(self, project: Paths) -> None:
+        definition = flow(tool_step("a", push=["b"], max_loops=2), tool_step("b"))
+        with pytest.raises(FlowError, match="no case naming a step upstream"):
+            validate(definition, project)
+
+    def test_a_step_inside_the_loop_that_never_leads_back_is_refused(self, project: Paths) -> None:
+        """It would run on the first pass and then sit finished while the rest went round
+        again, which is never what the flow meant."""
+        definition = loop_flow(max_loops=5)
+        definition["steps"][0]["push"] = ["check", "aside"]
+        definition["steps"].append(tool_step("aside"))
+        with pytest.raises(FlowError, match="step 'aside' is reached from 'write'"):
+            validate(definition, project)
+
+    def test_the_same_step_is_accepted_once_it_leads_back(self, project: Paths) -> None:
+        definition = loop_flow(max_loops=5)
+        definition["steps"][0]["push"] = ["check", "aside"]
+        definition["steps"].append(tool_step("aside", push=["check"]))
+        validate(definition, project)
+
+    def test_two_loops_sharing_a_step_are_refused(self, project: Paths) -> None:
+        definition = flow(
+            tool_step("a", push=["b"]),
+            tool_step("b", switch="x", max_loops=2, cases={"back": ["a"], "on": ["c"]}),
+            tool_step("c", switch="x", max_loops=2, cases={"back": ["a"], "on": ["d"]}),
+            tool_step("d"),
+        )
+        with pytest.raises(FlowError, match="Nested and overlapping loops"):
+            validate(definition, project)
+
+    def test_a_step_in_a_loop_may_read_itself(self, project: Paths) -> None:
+        """A loop makes a step its own ancestor, which is what lets a pass edit the last
+        answer instead of replacing it."""
+        definition = loop_flow(max_loops=5)
+        definition["steps"][0]["input"] = {"seen": "{{ steps.write.text }}"}
+        validate(definition, project)
+
+    def test_a_step_outside_a_loop_may_not(self, project: Paths) -> None:
+        """The permission comes from the loop and goes away with it. Without one a step is
+        not upstream of itself, so this is the ordinary not-upstream refusal."""
+        definition = flow(
+            tool_step("a", push=["b"], input={"seen": "{{ steps.a.text }}"}),
+            tool_step("b"),
+        )
+        with pytest.raises(FlowError, match="reads from 'a', which is not upstream"):
+            validate(definition, project)
+
+    def test_a_step_may_read_another_step_of_its_own_loop(self, project: Paths) -> None:
+        """A loop's steps are upstream of each other, and that is the permission a writer
+        needs to read the review that sent its work back."""
+        definition = loop_flow(max_loops=5)
+        definition["steps"][0]["input"] = {"seen": "{{ steps.check.text }}"}
+        validate(definition, project)
+
+    def test_a_cycle_nothing_enters_is_refused(self, project: Paths) -> None:
+        """Its steps point at each other, so the unreachable check passes them, and the
+        walk from `start` never reaches them, so no back-edge opens it. This is the one
+        case the cycle check itself is still left to catch."""
+        definition = flow(tool_step("a"), tool_step("x", push=["y"]), tool_step("y", push=["x"]))
+        with pytest.raises(FlowError, match="cycle nothing enters"):
+            validate(definition, project)
 
 
 class TestTheComponentsAFlowNames:
