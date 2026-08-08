@@ -21,7 +21,7 @@ python3 src/main.py paths                    # search roots in precedence order
 python3 src/main.py --workspace examples/sign-release lint sign_release
 ATF_VAULT_PASSWORD=demo python3 src/main.py --workspace examples/sign-release \
     run sign_release --input path=release-notes.md      # tool-only, deterministic, free
-python3 src/main.py --workspace examples/file-review graph review_file
+python3 src/main.py --workspace examples/file-review inspect flow review_file
 ```
 
 `../examples/file-review` and `../examples/gated-summary` call models: they need the

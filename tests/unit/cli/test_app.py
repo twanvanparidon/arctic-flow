@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from cli import branding, colour
+from cli import branding, colour, dispatch
 from cli.app import (
     build_parser,
     colourise_help,
@@ -28,10 +28,18 @@ PAINT = colour.Painter(on=True)
 
 
 class TestTheCommandsThatExist:
-    @pytest.mark.parametrize("command", ["run", "lint", "graph", "diagram", "list", "paths"])
+    @pytest.mark.parametrize("command", ["run", "lint", "list", "paths"])
     def test_each_top_level_command_parses(self, command: str) -> None:
-        argv = [command, "demo"] if command in ("run", "lint", "graph", "diagram") else [command]
+        argv = [command, "demo"] if command in ("run", "lint") else [command]
         assert build_parser().parse_args(argv).handler is not None
+
+    def test_the_inspect_kinds_parse(self) -> None:
+        assert build_parser().parse_args(["inspect", "flow", "demo"]).handler is not None
+
+    def test_an_inspect_kind_is_required(self) -> None:
+        """Named rather than guessed, so a second kind is one more word and not a command."""
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["inspect"])
 
     @pytest.mark.parametrize("action", ["create", "set", "list", "view"])
     def test_each_vault_action_parses(self, action: str) -> None:
@@ -78,9 +86,21 @@ class TestRunFlags:
     def test_the_workspace_defaults_to_the_current_directory(self) -> None:
         assert build_parser().parse_args(["list"]).workspace == Path.cwd()
 
-    def test_diagram_takes_an_output_file(self, tmp_path: Path) -> None:
-        args = build_parser().parse_args(["diagram", "demo", "-o", str(tmp_path / "d.md")])
-        assert args.out == tmp_path / "d.md"
+
+class TestInspectFlags:
+    def test_the_edges_are_text_unless_another_format_is_asked_for(self) -> None:
+        args = build_parser().parse_args(["inspect", "flow", "demo"])
+        assert args.output == dispatch.GRAPH_TEXT
+
+    def test_mermaid_is_asked_for_by_name(self) -> None:
+        args = build_parser().parse_args(["inspect", "flow", "demo", "-o", dispatch.GRAPH_MERMAID])
+        assert args.output == dispatch.GRAPH_MERMAID
+
+    def test_an_unknown_format_is_refused(self) -> None:
+        """Rather than falling back to the default, which would print the wrong document."""
+        with pytest.raises(SystemExit) as caught:
+            build_parser().parse_args(["inspect", "flow", "demo", "-o", "pdf"])
+        assert caught.value.code == 2
 
 
 class TestExitCodes:
@@ -194,4 +214,4 @@ class TestHelpOutput:
     def test_every_command_is_listed(self, capsys: pytest.CaptureFixture[str]) -> None:
         main([])
         out = capsys.readouterr().out
-        assert all(command in out for command in ("run", "lint", "graph", "diagram", "vault"))
+        assert all(command in out for command in ("run", "lint", "inspect", "vault"))

@@ -37,9 +37,9 @@ deliver.
 **Why it is built this way.** Workflows are code. They live in files you can diff, review
 and override, not in a UI. A flow names a graph and nothing else. Which model, which
 effort and which prompt belong to the agent, in its own directory, so changing a prompt is
-not a change to the workflow. A flow can also be read without running it. `atf diagram`
-draws the graph, `atf lint` checks every reference and every component spec, and neither
-calls a model.
+not a change to the workflow. A flow can also be read without running it.
+`atf inspect flow` draws the graph, `atf lint` checks every reference and every component
+spec, and neither calls a model.
 
 ---
 
@@ -108,7 +108,7 @@ Four projects that run as they are. Read them forwards, the way the engine does:
   same job as three would also work, and the flow header says when to prefer which.
 
 ```sh
-atf --workspace examples/file-review graph review_file
+atf --workspace examples/file-review inspect flow review_file
 
 ATF_VAULT_PASSWORD=demo atf --workspace examples/sign-release \
     run sign_release --input path=release-notes.md
@@ -120,8 +120,12 @@ atf --workspace examples/agent-tools run annotate \
 ```
 
 A project is a directory with `flows/` in it. There is nothing to initialise. `atf --help`
-lists the rest, and only `run` calls a model: `lint`, `graph` and `diagram` read a flow
-without executing it.
+lists the rest, and only `run` calls a model: `lint` and `inspect` read a flow without
+executing it.
+
+```sh
+atf --workspace examples/file-review inspect flow review_file -o md > review.md
+```
 
 ### Grouping components
 

@@ -36,6 +36,12 @@ from engine.executor import FlowError
 from paths.resolver import Paths
 from vault.vault import VaultError, resolve_password
 
+# What `inspect -o` takes: the flow's graph as text, or as the Mermaid document. Declared
+# here rather than in `app.py` because the handler below is what reads the value, and
+# `app.py` already imports this module. The reverse import would close the circle.
+GRAPH_TEXT, GRAPH_MERMAID = "raw", "md"
+GRAPH_FORMATS = (GRAPH_TEXT, GRAPH_MERMAID)
+
 
 def parse_input_pairs(pairs: list[str]) -> dict[str, str]:
     """`--input KEY=VALUE`, repeated, as a mapping. A repeated key takes its last value.
@@ -118,19 +124,13 @@ def lint(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
-def graph(args: argparse.Namespace, paths: Paths) -> int:
-    print(commands.graph(args.flow, paths).text)
-    return 0
-
-
-def diagram(args: argparse.Namespace, paths: Paths) -> int:
-    result = commands.diagram(args.flow, paths, args.out)
-    if result.written_to:
-        print(f"wrote {result.written_to}")
-    else:
+def inspect_flow(args: argparse.Namespace, paths: Paths) -> int:
+    if args.output == GRAPH_MERMAID:
         # end="" because the markdown carries its own final newline, and a document is not
-        # a message: what is printed here should be byte-for-byte what --out would write.
-        print(result.markdown, end="")
+        # a message: `> flow.md` has to hold what a file of it would.
+        print(commands.diagram(args.flow, paths).markdown, end="")
+    else:
+        print(commands.graph(args.flow, paths).text)
     return 0
 
 

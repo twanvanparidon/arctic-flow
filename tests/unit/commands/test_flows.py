@@ -248,15 +248,11 @@ class TestDiagram:
     def test_returns_the_markdown(self, project: Path, paths: Paths) -> None:
         assert commands.diagram("demo", paths).markdown.startswith("# demo_flow")
 
-    def test_writing_is_the_same_operation_from_any_front_end(
-        self, project: Path, paths: Paths, tmp_path: Path
-    ) -> None:
-        out = tmp_path / "demo.md"
-        result = commands.diagram("demo", paths, out)
-        assert out.read_text() == result.markdown
-        assert result.written_to == out
-
-    def test_nothing_is_written_unless_a_destination_is_given(
+    def test_it_validates_first_so_the_diagram_is_of_a_real_graph(
         self, project: Path, paths: Paths
     ) -> None:
-        assert commands.diagram("demo", paths).written_to is None
+        make.write_flow(
+            project, "bad", {"flow": "bad", "start": "a", "steps": [{"id": "a", "tool": "ghost"}]}
+        )
+        with pytest.raises(FlowError, match="unknown tool 'ghost'"):
+            commands.diagram("bad", paths)

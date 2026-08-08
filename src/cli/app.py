@@ -170,8 +170,17 @@ def build_parser() -> argparse.ArgumentParser:
             f"${PASSWORD_FILE_ENV}, or a prompt",
         )
 
-    def add(name: str, handler, help_text: str, epilog: str | None = None):
-        command = sub.add_parser(
+    def add(
+        name: str,
+        handler,
+        help_text: str,
+        epilog: str | None = None,
+        group: argparse._SubParsersAction | None = None,
+    ):
+        # `group` is the subparsers to hang the command off, defaulting to the top level.
+        # `inspect` and `vault` pass their own, so a command in a bucket is declared the
+        # same way and gets its description capitalised out of its help the same way.
+        command = (group or sub).add_parser(
             name,
             help=help_text,
             description=help_text[0].upper() + help_text[1:] + ".",
@@ -230,19 +239,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lint.add_argument("flow", help=FLOW_HELP)
 
-    graph = add("graph", dispatch.graph, "print a flow's push edges as text")
-    graph.add_argument("flow", help=FLOW_HELP)
-
-    diagram = add(
-        "diagram",
-        dispatch.diagram,
-        "render a flow as Mermaid markdown (static, no model)",
-        "Also reports how the flow resolves: which steps run concurrently, which may\n"
-        "be skipped by a branch, and where the joins are.\n",
+    inspect = sub.add_parser(
+        "inspect",
+        help="show a flow without running it",
+        description="Show a flow without running it, by kind and name.",
+        epilog="The kind is named rather than guessed, so that a second kind of thing to\n"
+        "inspect is one more word here and not a new command.\n\n"
+        "`list` says which definition of a name wins. This says what is in it.\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    diagram.add_argument("flow", help=FLOW_HELP)
-    diagram.add_argument(
-        "-o", "--out", type=Path, metavar="FILE", help="write to a file instead of stdout"
+    inspect_sub = inspect.add_subparsers(dest="inspect_kind", metavar="<kind>", required=True)
+
+    inspect_flow = add(
+        "flow",
+        dispatch.inspect_flow,
+        "a flow's graph, as text or as Mermaid",
+        "-o raw is the push edges as text. -o md is a Mermaid diagram, plus a report of\n"
+        "how the flow resolves: which steps run concurrently, which may be skipped by a\n"
+        "branch, and where the joins are.\n\n"
+        "Both renderings go to stdout, so redirect to save one:\n"
+        "`atf inspect flow f -o md > f.md`.\n",
+        group=inspect_sub,
+    )
+    inspect_flow.add_argument("flow", help=FLOW_HELP)
+    inspect_flow.add_argument(
+        "-o",
+        "--output",
+        choices=dispatch.GRAPH_FORMATS,
+        default=dispatch.GRAPH_TEXT,
+        help=f"how to render it (default: {dispatch.GRAPH_TEXT})",
     )
 
     mcp_serve = add(
@@ -315,15 +340,8 @@ def build_parser() -> argparse.ArgumentParser:
     vault_sub = vault.add_subparsers(dest="vault_command", metavar="<action>", required=True)
 
     def add_vault(name: str, handler, help_text: str, epilog: str | None = None):
-        command = vault_sub.add_parser(
-            name,
-            help=help_text,
-            description=help_text[0].upper() + help_text[1:] + ".",
-            epilog=epilog,
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-        )
+        command = add(name, handler, help_text, epilog, group=vault_sub)
         command.add_argument("file", type=Path, help="the vault file")
-        command.set_defaults(handler=handler)
         add_password_flag(command)
         return command
 

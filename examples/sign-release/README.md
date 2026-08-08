@@ -39,7 +39,7 @@ else. `read_artifact`, one step earlier, cannot read it.
 That is a claim you can check without running anything:
 
 ```sh
-atf --workspace examples/sign-release diagram sign_release
+atf --workspace examples/sign-release inspect flow sign_release -o md
 ```
 
 | step | secrets |

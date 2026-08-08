@@ -29,7 +29,17 @@ SHIPPED_ADAPTERS = ("claude_code", "echo")
 # than by whoever runs it first. `mcp-serve` is the one that matters: it is spawned by a
 # runtime rather than typed, so a build that could not run it would look like a tool that
 # does not work.
-COMMANDS = ("run", "lint", "graph", "diagram", "list", "paths", "completion", "vault", "mcp-serve")
+COMMANDS = (
+    ("run",),
+    ("lint",),
+    ("list",),
+    ("paths",),
+    ("inspect",),
+    ("inspect", "flow"),
+    ("completion",),
+    ("vault",),
+    ("mcp-serve",),
+)
 
 
 class TestIdentity:
@@ -65,10 +75,10 @@ class TestWhatTheBundleCarries:
         assert tool in result.out
 
     @pytest.mark.parametrize("command", COMMANDS)
-    def test_each_command_is_reachable(self, atf: Runner, command: str) -> None:
+    def test_each_command_is_reachable(self, atf: Runner, command: tuple[str, ...]) -> None:
         """`--help` on each, which parses the subcommand without doing anything. A command
         whose module is only reached lazily would be missing from the bundle."""
-        assert atf(command, "--help").code == 0
+        assert atf(*command, "--help").code == 0
 
     @pytest.mark.parametrize("name", SHIPPED_ADAPTERS)
     def test_each_adapter_is_in_the_frozen_registry(self, atf: Runner, name: str) -> None:

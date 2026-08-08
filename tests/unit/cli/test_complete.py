@@ -34,7 +34,7 @@ def write_flow(root: Path, name: str) -> None:
 class TestCommands:
     def test_the_first_word_offers_every_command(self, workspace: Path) -> None:
         offered = candidates([""], workspace)
-        assert all(command in offered for command in ("run", "lint", "graph", "vault"))
+        assert all(command in offered for command in ("run", "lint", "inspect", "vault"))
 
     def test_a_prefix_narrows_it(self, workspace: Path) -> None:
         assert candidates(["li"], workspace) == ["lint", "list"]
@@ -87,10 +87,14 @@ class TestFlowNames:
         write_flow(workspace, "review")
         assert candidates(["run", ""], workspace) == ["release", "review"]
 
-    @pytest.mark.parametrize("command", ["run", "lint", "graph", "diagram"])
-    def test_every_command_taking_a_flow_offers_them(self, command: str, workspace: Path) -> None:
+    @pytest.mark.parametrize("command", [["run"], ["lint"], ["inspect", "flow"]])
+    def test_every_command_taking_a_flow_offers_them(
+        self, command: list[str], workspace: Path
+    ) -> None:
+        """One missing from FLOW_COMMANDS offers filenames instead, which looks like the
+        shell working rather than like completion being wrong."""
         write_flow(workspace, "release")
-        assert candidates([command, ""], workspace) == ["release"]
+        assert candidates([*command, ""], workspace) == ["release"]
 
     def test_a_command_taking_no_flow_offers_none(self, workspace: Path) -> None:
         write_flow(workspace, "release")

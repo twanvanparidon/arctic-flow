@@ -108,7 +108,7 @@ split.
 
 ### commands/, and why there is a layer between them
 
-`commands/` is one function per command (`run`, `lint`, `diagram`, `vault set`), and it
+`commands/` is one function per command (`run`, `lint`, `graph`, `vault set`), and it
 knows nothing about a terminal. Each takes ordinary arguments, returns a dataclass from
 `commands/results.py`, and raises on failure. Nothing there prints, reads stdin, prompts,
 or touches `argparse`.
@@ -146,10 +146,11 @@ listing and the Mermaid diagram live there, they are imported lazily by the comm
 need them, and `run` never touches the package at all. The engine works with the whole
 directory deleted.
 
-Validation deliberately does **not** live there, even though `atf lint` looks like a sibling
-of `atf graph`. Its checks are the ones `run` performs before executing anything, so they sit
-in `engine/specs.py` next to the code that depends on them. The test for whether something
-belongs in `util/`: could the core import it? If yes, it is not a util.
+Validation deliberately does **not** live there, even though `atf lint` looks like a
+sibling of `atf inspect flow`. Its checks are the ones `run` performs before executing
+anything, so they sit in `engine/specs.py` next to the code that depends on them. The
+test for whether something belongs in `util/`: could the core import it? If yes, it is
+not a util.
 
 **Stdout carries the flow's output and nothing else.** Progress, the frame around
 the output, warnings and traces all go to stderr, so `run … > file` produces the result
@@ -320,7 +321,7 @@ carries its own history or it has none. When the attempts run out the step fails
 the gate last said, and nothing downstream ever sees a result the gate refused.
 
 The loop is inside the step. There is no edge back to the agent, so a flow still has no
-cycles, and `graph` and `diagram` report the gate rather than drawing one.
+cycles, and `inspect flow` reports the gate rather than drawing one.
 
 Four rules, all enforced by `lint`:
 

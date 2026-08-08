@@ -7,7 +7,7 @@ questions, `candidates` answers them.
 Everything offered is read off the parser and the component lookup, never from a list kept
 here, so a new command, a new flag or a new flow completes without this file changing.
 
-Flag *values* are answered with nothing, deliberately. A vault file, an `--out` and an
+Flag *values* are answered with nothing, deliberately. A vault file and an
 `--input KEY=VALUE` are better served by the shell's own filename completion than by a
 half-guess from here, and the snippet asks for that fallback.
 """
@@ -19,9 +19,11 @@ from pathlib import Path
 
 from paths.resolver import Paths
 
-# The commands taking a flow first. A flow is named rather than pathed, so the candidates
-# are names out of the lookup; a path to a .yaml file is left to the shell.
-FLOW_COMMANDS = ("run", "lint", "graph", "diagram")
+# The commands taking a flow first, by their own name, which for one in a bucket is the
+# leaf: the walk below descends before it asks what the command takes, so `inspect flow`
+# arrives here as `flow`. A flow is named rather than pathed, so the candidates are names
+# out of the lookup; a path to a .yaml file is left to the shell.
+FLOW_COMMANDS = ("run", "lint", "flow")
 
 # One name per snippet in completions/. A second shell is a second file and a second entry.
 SHELLS = ("bash",)

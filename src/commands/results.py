@@ -88,17 +88,12 @@ class GraphResult:
 
 @dataclass(frozen=True)
 class DiagramResult:
-    """Mermaid markdown, and where it was written if it was written anywhere.
-
-    `written_to` is the path as the caller gave it, not a shortened one: it is echoed back
-    for a person to act on, and a `./` prefix would be in the way.
-    """
+    """Mermaid markdown, already rendered by `util.mermaid`."""
 
     flow: str
     path: Path
     display: str
     markdown: str
-    written_to: Path | None = None
 
 
 @dataclass(frozen=True)

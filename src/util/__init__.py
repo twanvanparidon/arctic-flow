@@ -7,8 +7,10 @@ before it does it. These modules read a validated flow and render it. They decid
   graph     the push edges as text, the shape people actually check
   mermaid   a diagram, plus a static report of how the flow resolves
 
-Validation is deliberately *not* here, even though `atf lint` looks like a sibling of
-`atf graph`. Its checks are what `run` performs before executing anything, so they live in
+Both are `atf inspect flow`, which picks between them on `-o`.
+
+Validation is deliberately *not* here, even though `atf lint` looks like a sibling of it.
+Its checks are what `run` performs before executing anything, so they live in
 `engine/specs.py` beside the code that depends on them. A util the core imported would not
 be a util.
 """

@@ -129,23 +129,20 @@ def graph(flow_ref: str, paths: Paths) -> GraphResult:
     )
 
 
-def diagram(flow_ref: str, paths: Paths, out: Path | None = None) -> DiagramResult:
+def diagram(flow_ref: str, paths: Paths) -> DiagramResult:
     """Mermaid markdown plus the static resolution report. No model, nothing run.
 
-    Writes to `out` when one is given, since saving it is the same operation from any
-    front end, and returns the markdown either way so a caller can show what it wrote.
+    The markdown is returned rather than written anywhere. Saving it is a redirect, which
+    every front end already has, and a file to write is one more thing to get wrong.
     """
     from util.mermaid import render  # noqa: PLC0415 (keeps `run` free of it)
 
     path = resolve_flow(flow_ref, paths)
     definition = load_flow(path)
     markdown = render(definition, validate(definition, paths), paths)
-    if out:
-        out.write_text(markdown)
     return DiagramResult(
         flow=str(definition["flow"]),
         path=path,
         display=paths.display(path),
         markdown=markdown,
-        written_to=out,
     )

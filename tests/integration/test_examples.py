@@ -44,24 +44,20 @@ class TestEveryShippedFlow:
     def test_its_graph_can_be_printed(
         self, examples: Path, atf: Runner, directory: str, name: str
     ) -> None:
-        result = atf("--workspace", str(examples / directory), "graph", name)
+        result = atf("--workspace", str(examples / directory), "inspect", "flow", name)
         assert result.code == 0
         assert result.out.startswith(name)
 
     def test_its_diagram_can_be_rendered(
         self, examples: Path, atf: Runner, directory: str, name: str
     ) -> None:
-        result = atf("--workspace", str(examples / directory), "diagram", name)
+        """A document rather than a message, so `> flow.md` holds what a file of it would:
+        it starts at the heading and carries exactly one final newline."""
+        result = atf("--workspace", str(examples / directory), "inspect", "flow", name, "-o", "md")
         assert result.code == 0
+        assert result.out.startswith("# ")
         assert "```mermaid" in result.out
-
-    def test_the_diagram_can_be_written_to_a_file(
-        self, examples: Path, atf: Runner, tmp_path: Path, directory: str, name: str
-    ) -> None:
-        out = tmp_path / f"{name}.md"
-        result = atf("--workspace", str(examples / directory), "diagram", name, "-o", str(out))
-        assert result.code == 0
-        assert out.read_text().startswith("# ")
+        assert result.out.endswith("\n") and not result.out.endswith("\n\n")
 
 
 class TestSignRelease:
