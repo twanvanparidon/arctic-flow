@@ -20,7 +20,13 @@ import pytest
 
 from support.outcome import Runner
 
-BUILT_IN_TOOLS = ("common/read_file", "common/write_file")
+BUILT_IN_TOOLS = (
+    "common/read_file",
+    "common/write_file",
+    "common/glob",
+    "common/grep",
+    "common/fetch_url",
+)
 SHIPPED_ADAPTERS = ("claude_code", "echo")
 
 # Every subcommand, so one that was added without reaching the bundle is caught here rather
