@@ -93,6 +93,9 @@ class Progress:
             if not event.get("ok"):
                 with self._lock:
                     self._line("⟲", step, self._gate_detail(event), dim=True)
+        elif kind == "looped":
+            with self._lock:
+                self._line("⟲", step, self._loop_detail(event), dim=True)
         elif kind == "tool_call":
             # A call the model made inside a turn, not a step. Indented under the step it
             # belongs to, because the step's own line is still to come.
@@ -150,6 +153,10 @@ class Progress:
         parts = []
         if event.get("ms") is not None:
             parts.append(self._duration(event["ms"] / 1000))
+        # Only where the step has run before, so a flow without a loop says nothing.
+        # Without it the same step id appears repeatedly with no hint why.
+        if event.get("iteration"):
+            parts.append(f"pass {event['iteration']}")
         # Only worth saying where a choice was actually made; on a linear step the
         # next step is already obvious from the flow.
         if event.get("is_switch") and event.get("pushed_to"):
@@ -165,6 +172,16 @@ class Progress:
         return (
             f"{event.get('tool')} rejected attempt {attempt}/{allowed}"
             f"{', no attempts left' if last else ', trying again'}"
+        )
+
+    @staticmethod
+    def _loop_detail(event: dict[str, Any]) -> str:
+        """A step that sent its result back upstream. The count is the part worth watching:
+        it says whether the loop is converging or about to run out of passes."""
+        count, allowed = event.get("count"), event.get("of")
+        return (
+            f"back to {event.get('to')}, loop {count}/{allowed}"
+            f"{', the last one' if count == allowed else ''}"
         )
 
     @staticmethod

@@ -81,6 +81,36 @@ class TestRender:
         }
         assert "    gate word_limit  (up to 5 attempts)" in render(*flow(step))
 
+    LOOP = (
+        {"id": "write", "tool": "t", "push": ["check"]},
+        {
+            "id": "check",
+            "tool": "t",
+            "switch": "{{ this.text }}",
+            "max_loops": 4,
+            "cases": {"done": ["report"], "again": ["write"]},
+        },
+        {"id": "report", "tool": "t"},
+    )
+
+    def test_a_case_going_back_upstream_is_marked_as_a_loop(self) -> None:
+        """Which case loops cannot be read off the YAML: it depends on where the target
+        already sits. Unmarked, a loop reads as an ordinary edge."""
+        lines = render(*flow(*self.LOOP)).splitlines()
+        again = next(line for line in lines if "again" in line)
+        assert "write" in again
+        assert "loops back, max 4" in again
+
+    def test_a_case_going_forward_is_not(self) -> None:
+        lines = render(*flow(*self.LOOP)).splitlines()
+        assert "loops back" not in next(line for line in lines if "done" in line)
+
+    def test_a_default_that_goes_back_is_marked_too(self) -> None:
+        steps = list(self.LOOP)
+        steps[1] = {**steps[1], "cases": {"done": ["report"]}, "default": ["write"]}
+        lines = render(*flow(*steps)).splitlines()
+        assert "loops back, max 4" in next(line for line in lines if "default" in line)
+
     def test_each_step_is_separated_by_a_blank_line(self) -> None:
         text = render(*flow({"id": "a", "tool": "t", "push": ["b"]}, {"id": "b", "tool": "t"}))
         assert "\n\n  b  (tool:t)" in text
