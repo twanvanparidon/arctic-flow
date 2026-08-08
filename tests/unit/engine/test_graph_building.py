@@ -15,9 +15,13 @@ from engine.executor import (
     START,
     FlowError,
     ancestors_of,
+    back_edges,
     build_graph,
+    descendants_of,
     load_flow,
+    loop_body,
     outbound_targets,
+    without_back_edges,
 )
 
 
@@ -118,6 +122,135 @@ class TestAncestorsOf:
         """validate() rejects cycles, but this walk must not be what discovers that."""
         _, inbound = build_graph([{"id": "a", "push": ["b"]}, {"id": "b", "push": ["a"]}])
         assert ancestors_of("a", inbound) == {"a", "b"}
+
+
+class TestDescendantsOf:
+    def test_downstream_is_transitive(self) -> None:
+        outbound, _ = build_graph(
+            [{"id": "a", "push": ["b"]}, {"id": "b", "push": ["c"]}, {"id": "c", "tool": "t"}]
+        )
+        assert descendants_of("a", outbound) == {"b", "c"}
+
+    def test_a_terminal_step_has_no_descendants(self) -> None:
+        outbound, _ = build_graph([{"id": "a", "push": ["b"]}, {"id": "b", "tool": "t"}])
+        assert descendants_of("b", outbound) == set()
+
+    def test_a_cycle_terminates(self) -> None:
+        outbound, _ = build_graph([{"id": "a", "push": ["b"]}, {"id": "b", "push": ["a"]}])
+        assert descendants_of("a", outbound) == {"a", "b"}
+
+
+class TestBackEdges:
+    def test_a_flow_that_only_goes_forward_has_none(self) -> None:
+        outbound, _ = build_graph([{"id": "a", "push": ["b"]}, {"id": "b", "tool": "t"}])
+        assert back_edges(outbound, "a") == set()
+
+    def test_a_diamond_is_not_a_cycle(self) -> None:
+        outbound, _ = build_graph(
+            [
+                {"id": "a", "push": ["left", "right"]},
+                {"id": "left", "push": ["join"]},
+                {"id": "right", "push": ["join"]},
+                {"id": "join", "tool": "t"},
+            ]
+        )
+        assert back_edges(outbound, "a") == set()
+
+    def test_the_edge_that_closes_a_cycle_is_the_one_found(self) -> None:
+        outbound, _ = build_graph(
+            [{"id": "a", "push": ["b"]}, {"id": "b", "push": ["c"]}, {"id": "c", "push": ["a"]}]
+        )
+        assert back_edges(outbound, "a") == {("c", "a")}
+
+    def test_two_separate_loops_are_both_found(self) -> None:
+        outbound, _ = build_graph(
+            [
+                {"id": "a", "push": ["b"]},
+                {"id": "b", "switch": "x", "cases": {"again": ["a"], "on": ["c"]}},
+                {"id": "c", "push": ["d"]},
+                {"id": "d", "switch": "x", "cases": {"again": ["c"], "done": []}},
+            ]
+        )
+        assert back_edges(outbound, "a") == {("b", "a"), ("d", "c")}
+
+    def test_a_cycle_the_start_never_reaches_is_not_found(self) -> None:
+        """Nothing enters it, so the walk never gets there. validate()'s own cycle check is
+        what is left to catch it, which is the one case that check still fires on."""
+        outbound, _ = build_graph(
+            [{"id": "a", "tool": "t"}, {"id": "x", "push": ["y"]}, {"id": "y", "push": ["x"]}]
+        )
+        assert back_edges(outbound, "a") == set()
+
+    def test_declaration_order_decides_which_edge_closes_a_cycle(self) -> None:
+        """Reaching `d` through `b` makes the edge out of `d` the one going back; reaching
+        it through `c` first makes the edge out of `b` the one. Both open the same cycle, so
+        either is a correct answer, and the walk follows declaration order so that the
+        answer is the same one every time it is asked."""
+
+        def cycle(first: str, second: str) -> set[tuple[str, str]]:
+            outbound, _ = build_graph(
+                [
+                    {"id": "a", "push": [first, second]},
+                    {"id": "b", "push": ["d"]},
+                    {"id": "c", "push": ["d"]},
+                    {"id": "d", "push": ["b"]},
+                ]
+            )
+            return back_edges(outbound, "a")
+
+        assert cycle("b", "c") == {("d", "b")}
+        assert cycle("c", "b") == {("b", "d")}
+
+
+class TestWithoutBackEdges:
+    STEPS = [
+        {"id": "a", "push": ["b"]},
+        {"id": "b", "switch": "x", "cases": {"again": ["a"], "on": ["c"]}},
+        {"id": "c", "tool": "t"},
+    ]
+
+    def test_the_loop_is_gone_from_both_directions(self) -> None:
+        outbound, _ = build_graph(self.STEPS)
+        forward, reverse = without_back_edges(outbound, back_edges(outbound, "a"))
+        assert forward == {"a": ["b"], "b": ["c"], "c": []}
+        assert reverse.get("a") is None
+        assert reverse["c"] == {"b"}
+
+    def test_a_graph_with_no_loop_is_unchanged(self) -> None:
+        outbound, inbound = build_graph([{"id": "a", "push": ["b"]}, {"id": "b", "tool": "t"}])
+        forward, reverse = without_back_edges(outbound, set())
+        assert forward == outbound
+        assert reverse == inbound
+
+
+class TestLoopBody:
+    @staticmethod
+    def body(steps: list[dict[str, str | list[str]]], source: str, head: str) -> set[str]:
+        outbound, _ = build_graph(steps)  # type: ignore[arg-type]
+        forward, reverse = without_back_edges(outbound, back_edges(outbound, "a"))
+        return loop_body(source, head, forward, reverse)
+
+    STEPS = [
+        {"id": "a", "push": ["b"]},
+        {"id": "b", "switch": "x", "cases": {"again": ["a"], "on": ["c"]}},
+        {"id": "c", "tool": "t"},
+    ]
+
+    def test_it_is_the_steps_between_the_two_ends(self) -> None:
+        assert self.body(self.STEPS, "b", "a") == {"a", "b"}
+
+    def test_what_comes_after_the_loop_is_not_in_it(self) -> None:
+        assert "c" not in self.body(self.STEPS, "b", "a")
+
+    def test_a_join_inside_the_loop_is_in_it(self) -> None:
+        steps = [
+            {"id": "a", "push": ["left", "right"]},
+            {"id": "left", "push": ["b"]},
+            {"id": "right", "push": ["b"]},
+            {"id": "b", "switch": "x", "cases": {"again": ["a"], "on": ["c"]}},
+            {"id": "c", "tool": "t"},
+        ]
+        assert self.body(steps, "b", "a") == {"a", "left", "right", "b"}
 
 
 class TestLoadFlow:

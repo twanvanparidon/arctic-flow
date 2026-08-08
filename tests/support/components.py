@@ -58,6 +58,24 @@ def fails(code: int, message: str = "", stdout: str = "") -> str:
     )
 
 
+def echoes_input(key: str) -> str:
+    """Prints one value from the payload, so a step's result is a value the test chose."""
+    return python(f"sys.stdout.write(str(payload[{key!r}]))\n")
+
+
+def grows(step: str, empty: str) -> str:
+    """Appends `step` to the payload's `previous`, counting `empty` as nothing yet.
+
+    A loop needs a step whose result differs each pass, or the switch that leaves the loop
+    never sees a value it has not already seen. `empty` is what the first pass reads: a
+    loop's steps are mutually upstream, so one of them resolves before it has run.
+    """
+    return python(
+        f"previous = payload['previous']\n"
+        f"sys.stdout.write(('' if previous == {empty!r} else previous) + {step!r})\n"
+    )
+
+
 def echoes_env(name: str) -> str:
     """Prints one environment variable, or nothing when it is unset.
 

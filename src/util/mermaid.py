@@ -14,13 +14,28 @@ Three things it derives that the flow does not write down:
               most often gets wrong, and what a first cut of this file got wrong too.
 
   joins       Steps with more than one inbound edge, which is what skip propagation is for.
+
+  loops       Which case goes back upstream. Not written in the flow either: whether a
+              case loops depends on where its target sits in the rest of the graph.
+
+Everything above except the loops themselves is derived from the graph with its loops
+opened, because none of it means anything on a cycle. A back-edge has no wave, and a case
+that only goes back upstream is not a way out of the flow.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from engine.executor import DEFAULT_GATE_ATTEMPTS, build_graph, load_agent, outbound_targets
+from engine.executor import (
+    DEFAULT_GATE_ATTEMPTS,
+    back_edges,
+    build_graph,
+    load_agent,
+    loop_body,
+    outbound_targets,
+    without_back_edges,
+)
 from paths.resolver import Paths
 
 
@@ -35,12 +50,12 @@ def node_ids(step_ids: list[str]) -> dict[str, str]:
 
 
 def topological_order(ids: list[str], inbound: dict[str, set[str]]) -> list[str]:
-    """Assumes the flow already passed validation, so there are no cycles."""
+    """Wants the graph with its loops opened, which is a DAG. See without_back_edges."""
     remaining = {sid: set(inbound.get(sid, set())) for sid in ids}
     order: list[str] = []
     while remaining:
         ready = sorted(sid for sid, preds in remaining.items() if not preds - set(order))
-        if not ready:  # pragma: no cover (validate() rejects cycles first)
+        if not ready:  # pragma: no cover (a loop arrives opened, validate() refuses the rest)
             order.extend(sorted(remaining))
             break
         order.extend(ready)
@@ -58,7 +73,10 @@ def waves(ids: list[str], inbound: dict[str, set[str]]) -> dict[str, int]:
 
 
 def always_reaches(
-    target: str, by_id: dict[str, dict[str, Any]], order: list[str]
+    target: str,
+    by_id: dict[str, dict[str, Any]],
+    order: list[str],
+    back: set[tuple[str, str]],
 ) -> dict[str, bool]:
     """For each step, whether every execution from there eventually reaches `target`.
 
@@ -68,6 +86,11 @@ def always_reaches(
     The two step kinds combine differently. A `push` runs all of its targets, so the
     target is reached if *any* of them always reaches it. A `switch` runs exactly one
     case, so *every* case must reach it.
+
+    A case that only goes back upstream is dropped rather than counted as a case that
+    fails to reach the target. It is not a way out of the flow: a loop either leaves
+    through another case or runs out of passes and fails. Counting it would report
+    everything after a loop as skippable, which is the opposite of what happens.
     """
     reaches: dict[str, bool] = {}
     for sid in reversed(order):
@@ -76,11 +99,18 @@ def always_reaches(
             continue
         step = by_id[sid]
         if "push" in step:
-            reaches[sid] = any(reaches.get(t, False) for t in step["push"] or [])
+            reaches[sid] = any(reaches.get(t, False) for t in _forward(sid, step["push"], back))
         elif "switch" in step:
-            branches = [list(b or []) for b in (step.get("cases") or {}).values()]
+            raw = [list(b or []) for b in (step.get("cases") or {}).values()]
             if "default" in step:
-                branches.append(list(step["default"] or []))
+                raw.append(list(step["default"] or []))
+            branches: list[list[str]] = []
+            for branch in raw:
+                kept = _forward(sid, branch, back)
+                # A case that named nothing is an ending, and still has to be reckoned
+                # with. One that named only back-edges is a loop, and does not.
+                if kept or not branch:
+                    branches.append(kept)
             reaches[sid] = bool(branches) and all(
                 any(reaches.get(t, False) for t in branch) for branch in branches
             )
@@ -89,12 +119,22 @@ def always_reaches(
     return reaches
 
 
+def _forward(sid: str, targets: list[str] | None, back: set[tuple[str, str]]) -> list[str]:
+    """A step's targets with any that go back upstream dropped."""
+    return [target for target in targets or [] if (sid, target) not in back]
+
+
 def guaranteed_steps(
-    flow: dict[str, Any], by_id: dict[str, dict[str, Any]], inbound: dict[str, set[str]]
+    flow: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+    inbound: dict[str, set[str]],
+    back: set[tuple[str, str]],
 ) -> set[str]:
     """Which steps run no matter which branches are taken."""
     order = topological_order(list(by_id), inbound)
-    return {sid for sid in by_id if always_reaches(sid, by_id, order).get(flow["start"], False)}
+    return {
+        sid for sid in by_id if always_reaches(sid, by_id, order, back).get(flow["start"], False)
+    }
 
 
 def reachable_from(seeds: list[str], outbound: dict[str, list[str]]) -> set[str]:
@@ -123,11 +163,15 @@ def describe_step(step: dict[str, Any], paths: Paths) -> tuple[str, str]:
 
 def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> str:
     by_id = {step["id"]: step for step in steps}
-    outbound, inbound = build_graph(steps)
+    outbound, _ = build_graph(steps)
+    back = back_edges(outbound, flow["start"])
+    # Waves, guarantees and joins all read the opened graph. The real inbound edges are not
+    # used again: on a cycle, "which wave" and "what does this wait on" have no answer.
+    forward, forward_in = without_back_edges(outbound, back)
     ids = list(by_id)
-    depth = waves(ids, inbound)
-    guaranteed = guaranteed_steps(flow, by_id, inbound)
-    joins = {sid for sid in ids if len(inbound.get(sid, set())) > 1}
+    depth = waves(ids, forward_in)
+    guaranteed = guaranteed_steps(flow, by_id, forward_in, back)
+    joins = {sid for sid in ids if len(forward_in.get(sid, set())) > 1}
     nid = node_ids(sorted(ids, key=lambda s: (depth[s], s)))
 
     lines: list[str] = [
@@ -163,7 +207,8 @@ def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> s
         for value, targets in branches:
             for target in targets or []:
                 # Dotted, because whether this edge is taken is decided at run time.
-                lines.append(f'  {nid[sid]} -.->|"{value}"| {nid[target]}')
+                label = f"{value} (loop)" if (sid, target) in back else value
+                lines.append(f'  {nid[sid]} -.->|"{label}"| {nid[target]}')
 
     lines += [
         "  classDef tool stroke-width:1px;",
@@ -197,7 +242,7 @@ def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> s
     for sid in sorted(ids, key=lambda s: (depth[s], s)):
         step = by_id[sid]
         kind = f"tool `{step['tool']}`" if "tool" in step else f"agent `{step['agent']}`"
-        waits = sorted(inbound.get(sid, set())) or ["start"]
+        waits = sorted(forward_in.get(sid, set())) or ["start"]
         targets = outbound_targets(step)
         row = [
             f"`{sid}`",
@@ -220,11 +265,16 @@ def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> s
             if "default" in step:
                 branches.append(("default", step["default"]))
             for value, targets in branches:
+                arrow = ", ".join(f"`{t}`" for t in (targets or [])) or "_ends here_"
+                if any((step["id"], target) in back for target in targets or []):
+                    # No "skipped otherwise" here. Nothing is reachable only through a
+                    # loop, and the case decides another pass rather than what runs.
+                    lines.append(f"- `{value}` → {arrow} (goes back, see Loops)")
+                    continue
                 only = sorted(reachable_from(list(targets or []), outbound) - guaranteed)
                 suffix = (
                     f" (skipped otherwise: {', '.join(f'`{o}`' for o in only)})" if only else ""
                 )
-                arrow = ", ".join(f"`{t}`" for t in (targets or [])) or "_ends here_"
                 lines.append(f"- `{value}` → {arrow}{suffix}")
             if "default" not in step:
                 lines.append(
@@ -233,8 +283,25 @@ def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> s
                 )
             lines.append("")
 
-    # Deliberately not an edge in the diagram. The retry is inside the step, and drawing
-    # it as a loop would put a cycle in a graph whose whole point is that it has none.
+    if back:
+        # The section above is the branch list when there is one and the step table when
+        # there is not, and only the first of those leaves a blank line behind it.
+        if lines[-1]:
+            lines.append("")
+        lines += ["## Loops", ""]
+        for source, head in sorted(back):
+            allowed = by_id[source].get("max_loops")
+            body = sorted(loop_body(source, head, forward, forward_in))
+            lines.append(
+                f"- `{source}` may send its result back to `{head}` {allowed} time"
+                f"{'' if allowed == 1 else 's'}. Each pass runs "
+                f"{', '.join(f'`{member}`' for member in body)} again"
+            )
+        lines.append("")
+
+    # Deliberately not an edge, and that is what separates a gate from a loop. A loop is a
+    # real edge back to an earlier step and is drawn as one. A gate's retry happens inside
+    # the step, so there is no edge to draw and nothing downstream can see it happen.
     gated = [by_id[sid] for sid in ids if "gate" in by_id[sid]]
     if gated:
         # The section above is the branch list when there is one and the step table when
@@ -254,7 +321,7 @@ def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> s
     if joins:
         lines += ["## Joins", ""]
         for sid in sorted(joins):
-            sources = sorted(inbound[sid])
+            sources = sorted(forward_in[sid])
             optional = [s for s in sources if s not in guaranteed]
             note = (
                 f" (`{'`, `'.join(optional)}` may be skipped, which unblocks rather than "

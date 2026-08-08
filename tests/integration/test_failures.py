@@ -107,7 +107,7 @@ class TestBeforeAnythingRuns:
                 {"id": "b", "tool": "echo_input", "push": ["a"]},
             ],
         )
-        assert "cycle" in failure(atf, project, "run", "broken")
+        assert "pushes back to 'a'" in failure(atf, project, "run", "broken")
 
     def test_a_secret_templated_into_an_agent_prompt(self, project: Path, atf: Runner) -> None:
         flow_with(

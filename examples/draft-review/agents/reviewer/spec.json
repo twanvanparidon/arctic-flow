@@ -1,0 +1,23 @@
+{
+  "name": "reviewer",
+  "kind": "agent",
+  "version": 1,
+  "description": "Judges a draft against its brief, and says what to fix when it sends one back.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "low",
+
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": { "enum": ["approved", "rejected"] },
+      "notes": { "type": "string" }
+    },
+    "required": ["verdict", "notes"],
+    "additionalProperties": false
+  },
+
+  "tools": []
+}

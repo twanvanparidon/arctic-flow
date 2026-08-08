@@ -1,0 +1,13 @@
+{
+  "name": "writer",
+  "kind": "agent",
+  "version": 1,
+  "description": "Writes a section from a brief, and rewrites it when a review comes back.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "low",
+
+  "tools": []
+}

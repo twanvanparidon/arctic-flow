@@ -92,6 +92,25 @@ class TestStepDetail:
         # Something beyond the number differs, which is the part being tested.
         assert last != earlier.replace("2/3", "3/3")
 
+    def test_a_repeated_step_says_which_pass_it_was(self) -> None:
+        """The same step id appears once per pass, and nothing else says why."""
+        detail = Progress(io.StringIO())._finished_detail(finished(iteration=3))
+        assert "120ms" in detail
+        assert "pass 3" in detail
+
+    def test_a_trip_back_says_where_it_went_and_how_many_are_left(self) -> None:
+        detail = Progress._loop_detail({"to": "write", "count": 1, "of": 5})
+        assert "write" in detail
+        assert "1/5" in detail
+
+    def test_the_last_allowed_loop_says_it_was_the_last(self) -> None:
+        """Whether the loop is converging or about to run out of passes."""
+        last = Progress._loop_detail({"to": "write", "count": 5, "of": 5})
+        earlier = Progress._loop_detail({"to": "write", "count": 4, "of": 5})
+        assert "5/5" in last
+        # Something beyond the number differs, which is the part being tested.
+        assert last != earlier.replace("4/5", "5/5")
+
 
 class TestEventLines:
     def test_a_starting_step_names_what_it_runs(self) -> None:
@@ -124,6 +143,13 @@ class TestEventLines:
         stream = io.StringIO()
         Progress(stream)({"kind": "gated", "step": "draft", "tool": "wc", "attempt": 1, "of": 3})
         assert "⟲ draft" in stream.getvalue()
+
+    def test_a_step_sending_its_result_back_earns_a_line(self) -> None:
+        stream = io.StringIO()
+        event = {"kind": "looped", "step": "review", "to": "write", "count": 1, "of": 5}
+        Progress(stream)(event)
+        assert "⟲ review" in stream.getvalue()
+        assert "write" in stream.getvalue()
 
     def test_a_gate_that_passed_does_not(self) -> None:
         """It is followed straight away by the step's own tick."""

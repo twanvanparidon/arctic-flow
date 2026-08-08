@@ -9,8 +9,9 @@
 # place that history can live.
 #
 # The retry is inside the step, not in the graph. There is no edge from `draft` back to
-# itself, nothing downstream can see a draft the gate rejected, and a flow still has no
-# cycles in it.
+# itself, and nothing downstream can see a draft the gate rejected. That is what separates
+# a gate from a loop: see examples/draft-review, where the reviewer is a step of its own
+# and the edge back to the writer is real.
 #
 # When the attempts run out the step fails, carrying what the gate last said. A gate is
 # not a suggestion.

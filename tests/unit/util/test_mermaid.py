@@ -1,9 +1,14 @@
-"""The diagram, and the three things it works out that the flow does not write down.
+"""The diagram, and the things it works out that the flow does not write down.
 
 `guaranteed` is the one to test hardest. A switch guarantees a step when every case
 *eventually* reaches it, however far downstream, and that transitivity is what a reader
 tracing a branchy flow by eye most often gets wrong. A first cut of the module got it
 wrong too, so each shape it has to handle gets its own test.
+
+A loop is the second reading of it, and it goes the other way: a case that only sends work
+back upstream is not a case that fails to reach the target, because it is not a way out of
+the flow at all. Read as an ordinary case it would report everything after a loop as
+skippable, so both answers are asserted against the same steps.
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from engine.executor import build_graph
+from engine.executor import build_graph, without_back_edges
 from paths.resolver import Paths
 from support import components as make
 from util.mermaid import (
@@ -70,7 +75,8 @@ class TestTopologicalOrder:
         assert topological_order(["z", "b", "a"], inbound) == ["a", "b", "z"]
 
     def test_a_cycle_does_not_hang(self) -> None:
-        """validate() rejects cycles first, so this only has to terminate."""
+        """It is handed the graph with its loops already opened, so a cycle reaching here is
+        one validate() refuses. This only has to terminate."""
         _, inbound = build_graph([{"id": "a", "push": ["b"]}, {"id": "b", "push": ["a"]}])
         assert sorted(topological_order(["a", "b"], inbound)) == ["a", "b"]
 
@@ -99,10 +105,14 @@ class TestWaves:
 
 class TestAlwaysReaches:
     @staticmethod
-    def reaches(steps: list[dict[str, Any]], target: str) -> dict[str, bool]:
-        _, inbound = build_graph(steps)
-        order = topological_order(list(by_id(steps)), inbound)
-        return always_reaches(target, by_id(steps), order)
+    def reaches(
+        steps: list[dict[str, Any]], target: str, back: set[tuple[str, str]] | None = None
+    ) -> dict[str, bool]:
+        back = back or set()
+        outbound, _ = build_graph(steps)
+        _, forward_in = without_back_edges(outbound, back)
+        order = topological_order(list(by_id(steps)), forward_in)
+        return always_reaches(target, by_id(steps), order, back)
 
     def test_a_step_reaches_itself(self) -> None:
         assert self.reaches([{"id": "a"}], "a")["a"] is True
@@ -141,17 +151,43 @@ class TestAlwaysReaches:
         assert self.reaches(steps, "a")["b"] is False
 
 
+class TestAlwaysReachesAcrossALoop:
+    LOOP = [
+        {"id": "write", "tool": "t", "push": ["check"]},
+        {
+            "id": "check",
+            "tool": "t",
+            "switch": "{{ this.text }}",
+            "max_loops": 4,
+            "cases": {"done": ["report"], "again": ["write"]},
+        },
+        {"id": "report", "tool": "t"},
+    ]
+
+    def test_a_step_after_a_loop_still_always_runs(self) -> None:
+        """A case that only goes back upstream is not a way out of the flow: a loop either
+        leaves through another case or runs out of passes and fails. Counted as a case that
+        misses the target, it would report everything after a loop as skippable."""
+        reaches = TestAlwaysReaches.reaches(self.LOOP, "report", back={("check", "write")})
+        assert reaches["check"] is True
+        assert reaches["write"] is True
+
+    def test_without_that_the_answer_would_be_the_opposite(self) -> None:
+        """The same flow read as if the back-edge were an ordinary case."""
+        assert TestAlwaysReaches.reaches(self.LOOP, "report")["check"] is False
+
+
 class TestGuaranteedSteps:
     def test_every_step_of_a_linear_flow_runs(self) -> None:
         steps = [{"id": "a", "push": ["b"]}, {"id": "b"}]
         _, inbound = build_graph(steps)
         flow = {"flow": "d", "start": "a"}
-        assert guaranteed_steps(flow, by_id(steps), inbound) == {"a", "b"}
+        assert guaranteed_steps(flow, by_id(steps), inbound, set()) == {"a", "b"}
 
     def test_a_branch_target_is_not_guaranteed_but_the_join_is(self) -> None:
         _, inbound = build_graph(BRANCHY)
         flow = {"flow": "d", "start": "triage"}
-        assert guaranteed_steps(flow, by_id(BRANCHY), inbound) == {"triage", "report"}
+        assert guaranteed_steps(flow, by_id(BRANCHY), inbound, set()) == {"triage", "report"}
 
 
 class TestReachableFrom:
@@ -303,8 +339,10 @@ class TestRender:
         assert "`report` waits on `scan`, `triage`" in markdown
         assert "may be skipped, which unblocks rather than stalls this step" in markdown
 
-    def test_a_gate_is_described_rather_than_drawn_as_a_loop(self, project: Paths) -> None:
-        """Drawing it would put a cycle in a graph whose whole point is that it has none."""
+    def test_a_gate_is_described_rather_than_drawn_as_an_edge(self, project: Paths) -> None:
+        """Which is what separates a gate from a loop. A loop is a real edge back to an
+        earlier step and is drawn as one. A gate's retry happens inside the step, so there
+        is no edge to draw and nothing downstream can see it happen."""
         steps = [
             {
                 "id": "draft",
@@ -323,3 +361,47 @@ class TestRender:
         """It is written to a file as-is, so a document, not a message."""
         assert markdown.endswith("\n")
         assert not markdown.endswith("\n\n")
+
+
+class TestRenderALoop:
+    """Unlike a gate, a loop is a real edge and is drawn. Everything the report derives is
+    read off the graph with the loop opened, because none of it means anything on a cycle."""
+
+    LOOP = [
+        {"id": "write", "tool": "classify", "push": ["check"]},
+        {
+            "id": "check",
+            "tool": "classify",
+            "switch": "{{ this.text }}",
+            "max_loops": 4,
+            "cases": {"done": ["report"], "again": ["write"]},
+        },
+        {"id": "report", "tool": "classify"},
+    ]
+
+    @pytest.fixture
+    def markdown(self, workspace: Path) -> str:
+        make.write_tool(workspace, "classify")
+        paths = Paths(workspace, env={}, home=workspace / "home")
+        return render({"flow": "draft", "start": "write"}, self.LOOP, paths)
+
+    def test_the_edge_back_is_drawn_and_says_it_is_a_loop(self, markdown: str) -> None:
+        assert '-.->|"again (loop)"|' in markdown
+        assert '-.->|"done"|' in markdown
+
+    def test_the_loops_section_gives_the_bound_and_what_runs_again(self, markdown: str) -> None:
+        assert "## Loops" in markdown
+        assert "`check` may send its result back to `write` 4 times" in markdown
+        assert "`check`, `write` again" in markdown
+
+    def test_the_branch_list_sends_the_reader_there(self, markdown: str) -> None:
+        assert "`again` → `write` (goes back, see Loops)" in markdown
+
+    def test_the_waves_are_counted_with_the_loop_opened(self, markdown: str) -> None:
+        """Counted, `write` would wait on a step downstream of it and nothing would settle."""
+        assert "| 1 | `write` |" in markdown
+        assert "| 3 | `report` |" in markdown
+
+    def test_nothing_around_a_loop_is_marked_skippable(self, markdown: str) -> None:
+        """The flow either leaves the loop or runs out of passes and fails."""
+        assert " skippable;" not in markdown

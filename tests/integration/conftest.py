@@ -25,6 +25,7 @@ import pytest
 
 import support
 from cli.app import main
+from engine.executor import SKIPPED_RESULT
 from support import components
 from support.outcome import Outcome, Runner
 
@@ -146,6 +147,10 @@ def project(tmp_path: Path) -> Path:
         "reveal",
         script=components.python("sys.stdout.write(os.environ.get(payload['name'], ''))\n"),
     )
+    # The two verbs a loop needs: something whose result differs each pass, and something
+    # that hands it on so the switch has a value to leave on.
+    components.write_tool(root, "grow", script=components.grows("a", SKIPPED_RESULT["text"]))
+    components.write_tool(root, "say", script=components.echoes_input("text"))
 
     components.write_agent(root, "writer", adapter="claude_code", model="sonnet")
     components.write_agent(
