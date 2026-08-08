@@ -33,11 +33,12 @@ class TestTheCommandsThatExist:
         argv = [command, "demo"] if command in ("run", "lint") else [command]
         assert build_parser().parse_args(argv).handler is not None
 
-    def test_the_inspect_kinds_parse(self) -> None:
-        assert build_parser().parse_args(["inspect", "flow", "demo"]).handler is not None
+    @pytest.mark.parametrize("kind", ["flow", "agent", "tool", "adapter"])
+    def test_each_inspect_kind_parses(self, kind: str) -> None:
+        assert build_parser().parse_args(["inspect", kind, "demo"]).handler is not None
 
     def test_an_inspect_kind_is_required(self) -> None:
-        """Named rather than guessed, so a second kind is one more word and not a command."""
+        """Named rather than guessed: a flow, an agent and a tool may share one name."""
         with pytest.raises(SystemExit):
             build_parser().parse_args(["inspect"])
 

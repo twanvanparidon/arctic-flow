@@ -16,6 +16,8 @@ import yaml
 
 from cli import render
 from commands.results import (
+    AdapterDetail,
+    AgentDetail,
     ComponentEntry,
     Inventory,
     KindListing,
@@ -25,12 +27,19 @@ from commands.results import (
     RunResult,
     SecretListing,
     SecretSet,
+    ToolDetail,
     VaultContents,
     VaultCreated,
 )
 
 INVENTORY = Inventory(
-    adapters={"claude_code": "Run one LLM turn."},
+    adapters=(
+        ComponentEntry(
+            name="claude_code",
+            path=Path("a"),
+            display="./src/adapters/claude_code.py",
+        ),
+    ),
     kinds=(
         KindListing(
             kind="flow",
@@ -83,8 +92,11 @@ class TestTrace:
 
 
 class TestInventory:
-    def test_adapters_come_first(self) -> None:
-        assert render.inventory(INVENTORY).startswith("adapters:\n  claude_code")
+    def test_adapters_are_listed_apart_from_the_kinds_and_ahead_of_them(self) -> None:
+        """They are registered in code, so no root found them and nothing can shadow one."""
+        text = render.inventory(INVENTORY)
+        assert "adapters:\n  claude_code" in text
+        assert text.index("adapters:") < text.index("flows:")
 
     def test_a_kind_with_nothing_installed_says_so_on_one_line(self) -> None:
         """Rather than a heading over nothing."""
@@ -112,6 +124,116 @@ class TestInventory:
         )
         text = render.inventory(listing)
         assert "(shadows ~/.arctic/tools/read_file, /opt/atf/tools/read_file)" in text
+
+
+AGENT = AgentDetail(
+    name="summarizer",
+    path=Path("a"),
+    display="./agents/summarizer",
+    spec={
+        "name": "summarizer",
+        "description": "Explains what a file does.",
+        "adapter": "claude_code",
+        "model": "sonnet",
+        "tools": [],
+        "output_schema": {"type": "object"},
+    },
+    prompt="You summarise source files.",
+)
+
+TOOL = ToolDetail(
+    name="common/read_file",
+    path=Path("t"),
+    display="./tools/common/read_file",
+    spec={
+        "name": "read_file",
+        "description": "Read a file.",
+        "run": {"command": ["./run.sh"], "timeout_seconds": 10},
+        "input_schema": {"type": "object"},
+        "permissions": {"filesystem": "read", "network": False},
+        "secrets": ["token"],
+        "exit_codes": {"0": "success", "3": "not found"},
+    },
+    doc="# read_file",
+)
+
+
+ADAPTER = AdapterDetail(
+    name="echo",
+    path=Path("e"),
+    display="$ATF_ROOT/adapters/echo.py",
+    description="Answer from the request rather than a model.",
+    input_schema={"type": "object", "properties": {"prompt": {"type": "string"}}},
+)
+
+
+class TestAdapterDetail:
+    def test_it_names_the_module_it_is(self) -> None:
+        assert render.adapter_detail(ADAPTER).startswith("echo  $ATF_ROOT/adapters/echo.py")
+
+    def test_the_settings_schema_is_the_body(self) -> None:
+        """It is the answer to "what may an agent spec naming this ask for", and the same
+        schema `engine.specs` checks that spec against."""
+        text = render.adapter_detail(ADAPTER)
+        assert "settings:" in text
+        assert '"prompt"' in text
+
+
+class TestAgentDetail:
+    def test_it_names_the_definition_that_won(self) -> None:
+        assert render.agent_detail(AGENT).startswith("summarizer  ./agents/summarizer")
+
+    def test_it_shows_the_settings_a_flow_author_cannot_see_from_the_flow(self) -> None:
+        text = render.agent_detail(AGENT)
+        assert "adapter" in text and "claude_code" in text
+        assert "model" in text and "sonnet" in text
+
+    def test_the_prompt_is_reproduced_rather_than_summarised(self) -> None:
+        """It *is* the agent, so a view that abbreviated it would answer a different
+        question from the one being asked."""
+        assert render.agent_detail(AGENT).endswith("You summarise source files.")
+
+    def test_a_field_the_spec_leaves_out_is_not_printed_empty(self) -> None:
+        """A spec with no `effort` is not an agent with no effort. Its adapter decides."""
+        assert "effort" not in render.agent_detail(AGENT)
+
+    def test_an_empty_list_is_named_rather_than_left_blank(self) -> None:
+        assert "(none)" in render.agent_detail(AGENT)
+
+    def test_a_declared_output_schema_is_shown(self) -> None:
+        assert "output schema:" in render.agent_detail(AGENT)
+
+
+class TestToolDetail:
+    def test_it_names_the_tool_as_it_was_looked_up(self) -> None:
+        """Not `spec["name"]`, which for a namespaced tool carries only the leaf."""
+        assert render.tool_detail(TOOL).startswith("common/read_file  ./tools/common/")
+
+    def test_the_two_fields_that_decide_a_grant_are_shown(self) -> None:
+        """`filesystem` gates whether granting it needs `unattended`, and a tool declaring
+        `secrets` cannot be granted at all."""
+        text = render.tool_detail(TOOL)
+        assert "filesystem" in text and "read" in text
+        assert "secrets" in text and "token" in text
+
+    def test_the_nested_run_object_is_lifted_out(self) -> None:
+        text = render.tool_detail(TOOL)
+        assert "command" in text and "./run.sh" in text
+
+    def test_the_exit_codes_are_listed_with_what_they_mean(self) -> None:
+        text = render.tool_detail(TOOL)
+        assert "3" in text and "not found" in text
+
+    def test_the_schemas_are_shown_as_json(self) -> None:
+        assert '"type": "object"' in render.tool_detail(TOOL)
+
+    def test_the_doc_comes_last(self) -> None:
+        assert render.tool_detail(TOOL).endswith("# read_file")
+
+    def test_a_tool_with_no_doc_ends_cleanly(self) -> None:
+        """The caller prints, so a trailing blank line here shows up as a stray one."""
+        text = render.tool_detail(ToolDetail(**{**vars(TOOL), "doc": ""}))
+        assert not text.endswith("\n")
 
 
 class TestSearchPaths:
@@ -182,6 +304,9 @@ class TestTheHouseRules:
         "text",
         [
             render.lint(LintResult(flow="d", path=Path("f"), display="./f", steps=[])),
+            render.adapter_detail(ADAPTER),
+            render.agent_detail(AGENT),
+            render.tool_detail(TOOL),
             render.search_paths(TestSearchPaths.REPORT),
             render.vault_created(VaultCreated(path=Path("v"), display="./v", count=2)),
             render.secret_names(SecretListing(path=Path("v"), display="./v", names=("a",))),

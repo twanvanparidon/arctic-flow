@@ -38,8 +38,12 @@ class TestLookup:
             adapters.get("gpt")
         assert caught.value.__cause__ is None
 
-    def test_describe_pairs_each_name_with_its_one_line_description(self) -> None:
-        assert adapters.describe()["claude_code"] == ADAPTERS["claude_code"].DESCRIPTION
+    def test_locate_finds_the_module_an_adapter_is(self) -> None:
+        """`atf list` reports where every component came from, and an adapter comes
+        from a module rather than from a search root."""
+        found = adapters.locate(ADAPTERS["claude_code"])
+        assert found.name == "claude_code.py"
+        assert found.is_file()
 
 
 class TestTheContractEveryAdapterKeeps:

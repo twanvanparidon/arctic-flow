@@ -132,6 +132,46 @@ class TestListing:
         assert "read_file" in atf("--workspace", str(empty), "list").out
 
 
+class TestInspectingWhatWon:
+    """`list` says which definition of a name wins. `inspect` says what is in it, and the
+    two have to agree, or the second is a view of a component nothing would run."""
+
+    def test_an_agents_prompt_is_the_one_the_winning_definition_carries(
+        self, project: Path, home: Path, atf: Runner
+    ) -> None:
+        """The case the command exists for: a flow naming an agent it did not define, and
+        a second definition at home that a reader would otherwise have to guess between."""
+        make.write_agent(home / ".arctic", "writer", prompt="from home")
+        make.write_agent(project, "writer", prompt="from the project")
+        result = atf("--workspace", str(project), "inspect", "agent", "writer")
+        assert result.code == 0
+        assert "from the project" in result.out
+        assert "from home" not in result.out
+
+    def test_a_tool_reports_what_it_may_touch(self, project: Path, atf: Runner) -> None:
+        """`filesystem` and `secrets` are what a flow author checks before granting one."""
+        make.write_tool(project, "greet", secrets=["token"], permissions={"filesystem": "read"})
+        out = atf("--workspace", str(project), "inspect", "tool", "greet").out
+        assert "filesystem" in out and "read" in out
+        assert "token" in out
+
+    def test_an_adapter_comes_from_the_registry_rather_than_a_root(
+        self, project: Path, atf: Runner
+    ) -> None:
+        """There is no `~/.arctic/adapters/`, so this is the one kind the lookup never sees."""
+        result = atf("--workspace", str(project), "inspect", "adapter", "echo")
+        assert result.code == 0
+        assert "settings:" in result.out
+
+    def test_a_name_that_resolves_to_nothing_is_one_line_on_stderr(
+        self, project: Path, atf: Runner
+    ) -> None:
+        result = atf("--workspace", str(project), "inspect", "agent", "absent")
+        assert result.code == 1
+        assert result.out == ""
+        assert "unknown agent 'absent'" in result.err
+
+
 class TestPaths:
     def test_the_roots_are_numbered_in_the_order_they_are_searched(
         self, project: Path, atf: Runner

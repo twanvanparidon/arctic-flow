@@ -17,13 +17,22 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import adapters
 from paths.resolver import Paths
 
-# The commands taking a flow first, by their own name, which for one in a bucket is the
-# leaf: the walk below descends before it asks what the command takes, so `inspect flow`
-# arrives here as `flow`. A flow is named rather than pathed, so the candidates are names
-# out of the lookup; a path to a .yaml file is left to the shell.
-FLOW_COMMANDS = ("run", "lint", "flow")
+# Commands whose first argument is a component name, and the kind to answer it from.
+# Components are named rather than pathed, so the candidates come out of the lookup; a path
+# to a .yaml file is left to the shell. Keyed by the command's own name, which for anything
+# in a bucket is the leaf: the walk below descends before it asks what the command takes.
+# So `inspect agent` arrives here as `agent`.
+NAME_COMMANDS = {
+    "run": "flow",
+    "lint": "flow",
+    "flow": "flow",
+    "agent": "agent",
+    "tool": "tool",
+    "adapter": "adapter",
+}
 
 # One name per snippet in completions/. A second shell is a second file and a second entry.
 SHELLS = ("bash",)
@@ -69,8 +78,8 @@ def candidates(words: list[str], workspace: Path) -> list[str]:
         # vault <TAB>`. Filtered here rather than in `_subcommands`, which the walk above
         # uses: `atf completion <TAB>` still has to reach the parser it names.
         pool = [name for name in subcommands if name not in UNOFFERED]
-    elif command in FLOW_COMMANDS and not arguments:
-        pool = _flow_names(_workspace(typed, workspace))
+    elif (kind := NAME_COMMANDS.get(command)) and not arguments:
+        pool = _component_names(kind, _workspace(typed, workspace))
     else:
         # A value: a file, an input, a secret's name. Nothing, so the shell offers files.
         pool = []
@@ -136,9 +145,16 @@ def _subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.Argument
     return {}
 
 
-def _flow_names(workspace: Path) -> list[str]:
-    """The flows in scope, by name: the same lookup and precedence `run` resolves with."""
-    return list(Paths(workspace).list("flow"))
+def _component_names(kind: str, workspace: Path) -> list[str]:
+    """The components of one kind in scope, by name: the lookup `run` resolves with.
+
+    Adapters are the exception the rest of the engine makes for them too. They are a
+    registry of static imports rather than names under a root, so there is no lookup to
+    ask and the answer is the same from any workspace.
+    """
+    if kind == "adapter":
+        return adapters.names()
+    return list(Paths(workspace).list(kind))
 
 
 def _workspace(typed: list[str], fallback: Path) -> Path:

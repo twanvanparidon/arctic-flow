@@ -241,10 +241,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = sub.add_parser(
         "inspect",
-        help="show a flow without running it",
-        description="Show a flow without running it, by kind and name.",
-        epilog="The kind is named rather than guessed, so that a second kind of thing to\n"
-        "inspect is one more word here and not a new command.\n\n"
+        help="show one component: a flow's graph, an agent's prompt, a tool's contract",
+        description="Show one component, by kind and name.",
+        epilog="The kind is named rather than guessed. Nothing stops a flow, an agent and\n"
+        "a tool sharing a name, since each kind is looked up in its own directory, so a\n"
+        "bare name is a question with more than one answer.\n\n"
         "`list` says which definition of a name wins. This says what is in it.\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -269,6 +270,39 @@ def build_parser() -> argparse.ArgumentParser:
         default=dispatch.GRAPH_TEXT,
         help=f"how to render it (default: {dispatch.GRAPH_TEXT})",
     )
+
+    inspect_agent = add(
+        "agent",
+        dispatch.inspect_agent,
+        "an agent's settings, and its system prompt verbatim",
+        "The prompt is the whole of what the agent is, and a flow naming one inherited\n"
+        "from a higher search root shows nothing of it. This is where to read it before\n"
+        "writing a step against it.\n",
+        group=inspect_sub,
+    )
+    inspect_agent.add_argument("name", help="agent name (resolved through the lookup)")
+
+    inspect_adapter = add(
+        "adapter",
+        dispatch.inspect_adapter,
+        "an adapter's settings schema: what an agent spec naming it may ask for",
+        "Adapters are registered in code rather than found by name, so this is the whole\n"
+        "of what one is: what it runs, and the settings `lint` checks an agent's spec\n"
+        "against before a turn is ever started.\n",
+        group=inspect_sub,
+    )
+    inspect_adapter.add_argument("name", help="adapter name, as an agent's spec.json names it")
+
+    inspect_tool = add(
+        "tool",
+        dispatch.inspect_tool,
+        "a tool's contract: what it takes, what it may touch, how it fails",
+        "`filesystem` and `secrets` are the two to read before granting one to an agent.\n"
+        "A tool that writes needs `unattended: true` on the agent's spec, because nothing\n"
+        "approves a call the agent makes for itself.\n",
+        group=inspect_sub,
+    )
+    inspect_tool.add_argument("name", help="tool name (resolved through the lookup)")
 
     mcp_serve = add(
         "mcp-serve",

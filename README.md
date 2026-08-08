@@ -125,6 +125,8 @@ executing it.
 
 ```sh
 atf --workspace examples/file-review inspect flow review_file -o md > review.md
+atf --workspace examples/file-review inspect agent summarizer   # its system prompt
+atf inspect tool read_file                                      # what it may touch
 ```
 
 ### Grouping components

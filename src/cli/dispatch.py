@@ -124,6 +124,21 @@ def lint(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def inspect_adapter(args: argparse.Namespace, paths: Paths) -> int:
+    print(render.adapter_detail(commands.adapter_detail(args.name, paths)))
+    return 0
+
+
+def inspect_agent(args: argparse.Namespace, paths: Paths) -> int:
+    print(render.agent_detail(commands.agent_detail(args.name, paths)))
+    return 0
+
+
+def inspect_tool(args: argparse.Namespace, paths: Paths) -> int:
+    print(render.tool_detail(commands.tool_detail(args.name, paths)))
+    return 0
+
+
 def inspect_flow(args: argparse.Namespace, paths: Paths) -> int:
     if args.output == GRAPH_MERMAID:
         # end="" because the markdown carries its own final newline, and a document is not

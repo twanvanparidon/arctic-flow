@@ -30,8 +30,16 @@ from commands.flows import (
     resolve_flow,
     run,
 )
-from commands.inventory import inventory, search_paths
+from commands.inventory import (
+    adapter_detail,
+    agent_detail,
+    inventory,
+    search_paths,
+    tool_detail,
+)
 from commands.results import (
+    AdapterDetail,
+    AgentDetail,
     ComponentEntry,
     DiagramResult,
     FlowPlan,
@@ -46,6 +54,7 @@ from commands.results import (
     SecretSet,
     ToolCall,
     ToolDescription,
+    ToolDetail,
     VaultContents,
     VaultCreated,
 )
@@ -88,6 +97,9 @@ __all__ = [
     # the installation
     "inventory",
     "search_paths",
+    "adapter_detail",
+    "agent_detail",
+    "tool_detail",
     # vault
     "open_vault",
     "create_vault",
@@ -105,6 +117,8 @@ __all__ = [
     "LookupError_",
     "VaultError",
     # results
+    "AdapterDetail",
+    "AgentDetail",
     "ComponentEntry",
     "DiagramResult",
     "FlowPlan",
@@ -119,6 +133,7 @@ __all__ = [
     "SecretSet",
     "ToolCall",
     "ToolDescription",
+    "ToolDetail",
     "VaultContents",
     "VaultCreated",
 ]

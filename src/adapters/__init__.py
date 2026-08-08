@@ -15,6 +15,7 @@ The registry is static imports, because a frozen build misses anything resolved 
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import ModuleType
 
 from adapters import claude_code, echo
@@ -44,9 +45,13 @@ def names() -> list[str]:
     return sorted(ADAPTERS)
 
 
-def describe() -> dict[str, str]:
-    """Name to one-line description, for `atf list`."""
-    return {name: getattr(module, "DESCRIPTION", "") for name, module in sorted(ADAPTERS.items())}
+def locate(module: ModuleType) -> Path:
+    """The module a registered adapter is. `__file__` is always set for one of these.
+
+    They are static imports, so there is no namespace package among them, which is the
+    case that would have `None` here.
+    """
+    return Path(str(module.__file__))
 
 
 __all__ = [
@@ -55,7 +60,7 @@ __all__ = [
     "AdapterProtocolError",
     "AdapterRunFailed",
     "AdapterUnavailable",
-    "describe",
     "get",
+    "locate",
     "names",
 ]
