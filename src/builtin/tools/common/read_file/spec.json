@@ -1,7 +1,7 @@
 {
   "name": "read_file",
-  "version": 1,
-  "description": "Read the contents of a text file from the workspace. Use when you need to see what is actually in a file before answering about it or editing it.",
+  "version": 2,
+  "description": "Read the contents of one or more text files from the workspace. Use when you need to see what is actually in a file before answering about it or editing it. Pass several paths at once rather than calling this repeatedly.",
   "doc": "tool.md",
 
   "run": {
@@ -16,14 +16,17 @@
     "type": "object",
     "properties": {
       "path": {
-        "type": "string",
-        "description": "Path to the file to read, relative to the workspace root (e.g. \"src/app.py\"). Absolute paths are accepted but must still resolve inside the workspace root."
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+        ],
+        "description": "One path, or an array of them, relative to the workspace root (e.g. \"src/app.py\"). Absolute paths are accepted but must still resolve inside the workspace root. Every path is checked before anything is returned, so one bad path fails the whole call rather than returning part of the answer."
       },
       "max_lines": {
         "type": "integer",
         "minimum": 1,
         "default": 500,
-        "description": "Maximum number of lines to return. Output is truncated at this many lines and a truncation notice is appended. Raise it only when the first read was cut off and the rest is actually needed."
+        "description": "Maximum number of lines to return per file. A file longer than this is truncated and says so. Raise it only when a read was cut off and the rest is actually needed."
       }
     },
     "required": ["path"],
@@ -32,14 +35,14 @@
 
   "output_schema": {
     "type": "string",
-    "description": "The file's contents verbatim. If the file was longer than max_lines, a final line of the form \"[read_file] output truncated: showing N of M lines...\" is appended after the content."
+    "description": "The number of files asked for decides the shape, not whether an array was used. One file: its contents verbatim, and nothing else. Several: each preceded by a \"==> <path> <==\" line and separated by a blank line. A file longer than max_lines is followed by a \"[read_file] ... truncated: showing N of M lines...\" notice."
   },
 
   "exit_codes": {
-    "0": "success (file contents are on stdout)",
+    "0": "success (the contents are on stdout)",
     "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
-    "3": "not found (the path does not exist)",
-    "4": "not permitted (the path resolves outside the workspace root, is not a regular file, or is not readable)"
+    "3": "not found (one of the paths does not exist)",
+    "4": "not permitted (a path resolves outside the workspace root, is not a regular file, or is not readable)"
   },
 
   "permissions": {

@@ -1,6 +1,6 @@
 # read_file
 
-Return the contents of a text file from the workspace.
+Return the contents of one or more text files from the workspace.
 
 ## Purpose
 
@@ -13,11 +13,14 @@ you claim a file says something.
 - You are about to edit a file and need its current contents.
 - A question is about specific code, config, or data on disk.
 - Something in the conversation contradicts what you'd expect the file to hold.
+- You need several files. Pass them in one call rather than calling this once
+  per file: it is one round trip instead of several, and the files arrive
+  together.
 
 ## When not to use it
 
 - You already read the file this turn and nothing has changed it since.
-- You don't know the path yet. Locate it first (`glob`/`grep`), then read.
+- You don't know the path yet. Locate it first with `grep`, then read.
 - The target is a directory, a binary, or a file you only need to check the
   existence of.
 
@@ -25,10 +28,10 @@ you claim a file says something.
 
 `spec.json` → `input_schema` is the authoritative contract.
 
-| Parameter   | Type    | Required | Default | Notes                                                    |
-| ----------- | ------- | -------- | ------- | -------------------------------------------------------- |
-| `path`      | string  | yes      | none    | Relative to the workspace root. Must resolve inside it.  |
-| `max_lines` | integer | no       | `500`   | Truncates at this many lines and says so in the output.  |
+| Parameter   | Type             | Required | Default | Notes                                                   |
+| ----------- | ---------------- | -------- | ------- | ------------------------------------------------------- |
+| `path`      | string or array  | yes      | none    | Relative to the workspace root. Must resolve inside it. |
+| `max_lines` | integer          | no       | `500`   | Per file. Truncates at this many lines and says so.     |
 
 ## Example
 
@@ -41,7 +44,7 @@ Input (one JSON object on stdin):
 Run it directly, the same way the engine does:
 
 ```sh
-echo '{"path":"src/app.py","max_lines":50}' | src/builtin/tools/read_file/run.sh
+echo '{"path":"src/app.py","max_lines":50}' | src/builtin/tools/common/read_file/run.sh
 ```
 
 Output on stdout, the file verbatim:
@@ -63,6 +66,32 @@ If the file was longer than `max_lines`, a notice follows the content:
 [read_file] output truncated: showing 50 of 812 lines. Raise max_lines to read the rest.
 ```
 
+## Reading several files
+
+Pass an array. Each file gets a header saying which it is, and a blank line
+separates them:
+
+```sh
+echo '{"path":["src/app.py","src/db.py"]}' | src/builtin/tools/common/read_file/run.sh
+```
+
+```
+==> src/app.py <==
+<contents of src/app.py>
+
+==> src/db.py <==
+<contents of src/db.py>
+```
+
+**The number of files decides the shape, not whether you passed an array.** One
+file comes back verbatim with no header, so `{"path": "a.py"}` and
+`{"path": ["a.py"]}` produce the same bytes. That keeps a single read safe to
+template straight into a prompt or a file.
+
+Every path is resolved and checked before anything is written, so a call naming
+one bad path fails whole. You never receive some of the files with an error about
+the rest, which would be easy to mistake for the complete answer.
+
 ## Errors
 
 Failures write one line to stderr and set an exit code from `spec.json`'s
@@ -70,7 +99,7 @@ Failures write one line to stderr and set an exit code from `spec.json`'s
 the workspace root, not a regular file, or unreadable).
 
 ```
-$ echo '{"path":"/etc/passwd"}' | src/builtin/tools/read_file/run.sh
+$ echo '{"path":"/etc/passwd"}' | src/builtin/tools/common/read_file/run.sh
 read_file: path resolves outside the workspace root: /etc/passwd
 $ echo $?
 4
@@ -85,8 +114,8 @@ inventing file contents.
 
 ## Adding another tool
 
-Copy this directory. Each tool is a directory under `tools/` holding exactly
-three files:
+Copy this directory. Each tool is a directory under `tools/`, optionally inside a
+namespace as this one is, holding exactly three files:
 
 - `spec.json` is the machine-readable contract: parameter schema, how to invoke
   the script, exit codes, permissions. `input_schema` is a plain JSON Schema, so
