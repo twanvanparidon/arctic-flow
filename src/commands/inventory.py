@@ -1,8 +1,7 @@
-"""Commands that report on the installation rather than on a flow.
+"""What is installed, reported rather than run.
 
-Neither runs anything or touches a flow file. `inventory` and `search_paths` answer the two
-questions that come up when a name does not resolve to what you expected: what is
-available, and where the engine looked for it.
+`inventory` answers it for the whole lookup: every name that resolves, and which of the
+definitions behind it won.
 
 The rest answer it for one component. A name resolving through a layered lookup means a
 flow can name an agent whose prompt was written by someone else, on another machine, and
@@ -18,8 +17,6 @@ from commands.results import (
     ComponentEntry,
     Inventory,
     KindListing,
-    PathsReport,
-    RootReport,
     ToolDetail,
 )
 from engine.executor import load_agent, load_component
@@ -125,30 +122,3 @@ def tool_detail(name: str, paths: Paths) -> ToolDetail:
         spec=spec,
         doc=doc.read_text().strip() if doc is not None and doc.is_file() else "",
     )
-
-
-def search_paths(paths: Paths) -> PathsReport:
-    """Where the engine looks, in the order it looks. First match wins.
-
-    `subdirs` is what each root actually contains, not what it could. A root listed with
-    nothing in it is the answer to "why is my tool not found".
-    """
-    roots = tuple(
-        RootReport(
-            path=root,
-            display=paths.display(root),
-            subdirs=tuple(
-                sorted(
-                    {
-                        subdir
-                        for kind in COMPONENT_DIRS
-                        for subdir in COMPONENT_DIRS[kind]
-                        if (root / subdir).is_dir()
-                    }
-                )
-            ),
-        )
-        # One pass over the property: `roots` re-derives the list on every access.
-        for root in paths.roots
-    )
-    return PathsReport(roots=roots, workspace=paths.workspace)

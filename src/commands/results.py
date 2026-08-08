@@ -281,20 +281,3 @@ class VaultContents:
     path: Path
     display: str
     values: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class RootReport:
-    """One search root, and which component directories it actually has."""
-
-    path: Path
-    display: str
-    subdirs: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class PathsReport:
-    """Where the engine looks, in the order it looks. `roots` is that order."""
-
-    roots: tuple[RootReport, ...] = ()
-    workspace: Path = Path()

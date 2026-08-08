@@ -28,9 +28,9 @@ PAINT = colour.Painter(on=True)
 
 
 class TestTheCommandsThatExist:
-    @pytest.mark.parametrize("command", ["run", "lint", "list", "paths"])
+    @pytest.mark.parametrize("command", ["run", "lint", "list"])
     def test_each_top_level_command_parses(self, command: str) -> None:
-        argv = [command, "demo"] if command in ("run", "lint") else [command]
+        argv = [command] if command == "list" else [command, "demo"]
         assert build_parser().parse_args(argv).handler is not None
 
     @pytest.mark.parametrize("kind", ["flow", "agent", "tool", "adapter"])
@@ -215,4 +215,4 @@ class TestHelpOutput:
     def test_every_command_is_listed(self, capsys: pytest.CaptureFixture[str]) -> None:
         main([])
         out = capsys.readouterr().out
-        assert all(command in out for command in ("run", "lint", "inspect", "vault"))
+        assert all(command in out for command in ("run", "lint", "list", "inspect", "vault"))

@@ -82,7 +82,7 @@ adapters this build carries and what each one runs, so install what the agents y
 for.
 
 ```sh
-atf list             # adapters, and every component name the engine can see
+atf list             # every name the engine can resolve, and where each was found
 ```
 
 One of them needs nothing. Point an agent at `"adapter": "echo"` and it answers from the

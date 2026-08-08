@@ -22,8 +22,6 @@ from commands.results import (
     Inventory,
     KindListing,
     LintResult,
-    PathsReport,
-    RootReport,
     RunResult,
     SecretListing,
     SecretSet,
@@ -236,28 +234,6 @@ class TestToolDetail:
         assert not text.endswith("\n")
 
 
-class TestSearchPaths:
-    REPORT = PathsReport(
-        roots=(
-            RootReport(path=Path("/p"), display=".", subdirs=("flows", "tools")),
-            RootReport(path=Path("/h"), display="~/.arctic", subdirs=()),
-        ),
-        workspace=Path("/p"),
-    )
-
-    def test_the_roots_are_numbered_in_precedence_order(self) -> None:
-        text = render.search_paths(self.REPORT)
-        assert "  1. ." in text
-        assert "  2. ~/.arctic" in text
-
-    def test_a_root_with_nothing_in_it_reads_as_answered(self) -> None:
-        """Rather than left blank, which reads as "I did not look"."""
-        assert "     (nothing)" in render.search_paths(self.REPORT)
-
-    def test_it_says_where_components_will_run(self) -> None:
-        assert "working directory: /p" in render.search_paths(self.REPORT)
-
-
 class TestVaultWording:
     def test_a_created_vault_counts_its_secrets(self) -> None:
         result = VaultCreated(path=Path("v"), display="./v", count=1)
@@ -307,7 +283,6 @@ class TestTheHouseRules:
             render.adapter_detail(ADAPTER),
             render.agent_detail(AGENT),
             render.tool_detail(TOOL),
-            render.search_paths(TestSearchPaths.REPORT),
             render.vault_created(VaultCreated(path=Path("v"), display="./v", count=2)),
             render.secret_names(SecretListing(path=Path("v"), display="./v", names=("a",))),
             render.vault_contents(TestVaultContents.RESULT),
@@ -328,7 +303,6 @@ class TestTheHouseRules:
         "text",
         [
             render.inventory(INVENTORY),
-            render.search_paths(TestSearchPaths.REPORT),
         ],
     )
     def test_nothing_is_coloured(self, text: str) -> None:

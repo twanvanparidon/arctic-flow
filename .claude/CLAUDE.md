@@ -14,8 +14,7 @@ hands over to `cli/`, so every `atf …` in the docs works as `python3 src/main.
 
 ```sh
 python3 src/main.py --help
-python3 src/main.py list                     # what the lookup can see, and what shadows what
-python3 src/main.py paths                    # search roots in precedence order
+python3 src/main.py list                     # every name that resolves, and what shadows what
 
 # the examples are the test corpus until tests/ is filled in
 python3 src/main.py --workspace examples/sign-release lint sign_release

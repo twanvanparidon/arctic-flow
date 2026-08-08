@@ -26,7 +26,6 @@ from commands.results import (
     Inventory,
     LintReport,
     LintResult,
-    PathsReport,
     RunResult,
     SecretListing,
     SecretSet,
@@ -227,21 +226,6 @@ def _schema(label: str, schema: dict[str, Any] | None) -> list[str]:
         return []
     body = json.dumps(schema, indent=2).splitlines()
     return [f"{label}:"] + [f"  {line}" for line in body] + [""]
-
-
-def search_paths(result: PathsReport) -> str:
-    """The roots in precedence order, each with what it actually contains."""
-    lines = ["search roots, highest precedence first:", ""]
-    for index, root in enumerate(result.roots, start=1):
-        lines.append(f"  {index}. {root.display}")
-        # Named rather than left blank, so a root with nothing in it reads as answered.
-        lines.append(f"     {', '.join(root.subdirs) or '(nothing)'}")
-    lines += [
-        "",
-        f"working directory: {result.workspace}",
-        "components run with the working directory set here, wherever they were found",
-    ]
-    return "\n".join(lines)
 
 
 def vault_created(result: VaultCreated) -> str:

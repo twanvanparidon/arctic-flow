@@ -33,7 +33,6 @@ COMMANDS = (
     ("run",),
     ("lint",),
     ("list",),
-    ("paths",),
     ("inspect",),
     ("inspect", "flow"),
     ("inspect", "agent"),
@@ -99,7 +98,7 @@ class TestWhatTheBundleCarries:
         The workspace is elsewhere on purpose. `display()` shortens a path inside it to
         `./x`, and a relative root cannot be checked against the binary's own location.
         """
-        printed = atf("--workspace", str(tmp_path), "paths").out
+        printed = atf("--workspace", str(tmp_path), "list").out
         roots = [line for line in printed.splitlines() if "builtin" in line]
         assert roots, printed
         assert any(str(binary.parent) in root for root in roots)

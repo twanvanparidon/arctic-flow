@@ -168,11 +168,6 @@ def list_components(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
-def show_paths(args: argparse.Namespace, paths: Paths) -> int:
-    print(render.search_paths(commands.search_paths(paths)))
-    return 0
-
-
 # --------------------------------------------------------------------------- #
 # vault
 # --------------------------------------------------------------------------- #

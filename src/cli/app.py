@@ -33,9 +33,9 @@ Run agentic workflows. A flow is a graph of tool and agent steps: each step decl
 where it pushes its result next, so the engine reads forwards.
 
 Flows, tools, agents and adapters are named, not pathed. Names resolve
-working-directory-first, so a project overrides what it inherits. `paths` shows the
-order, `list` shows what wins. A name may carry a namespace: `common/read_file` is
-the directory `tools/common/read_file`.
+working-directory-first, so a project overrides what it inherits. `list` shows every
+name that resolves and which definition won. A name may carry a namespace:
+`common/read_file` is the directory `tools/common/read_file`.
 """
 
 PROG = branding.COMMAND
@@ -332,14 +332,13 @@ def build_parser() -> argparse.ArgumentParser:
     add(
         "list",
         dispatch.list_components,
-        "show installed flows, tools, agents and adapters",
-        "Marks anything a higher-precedence root is shadowing.\n",
-    )
-    add(
-        "paths",
-        dispatch.show_paths,
-        "show the search roots and their precedence",
-        "Set ATF_PATH to prepend roots, for tests and one-off overrides.\n",
+        "show every name the engine can resolve, and where each was found",
+        "The flows, tools, agents and adapters available, each beside the definition that\n"
+        "won. Anything a higher-precedence root is shadowing is marked, since a second\n"
+        "definition is why an edit can appear to do nothing.\n\n"
+        "Set ATF_PATH to prepend roots, for tests and one-off overrides. A name that does\n"
+        "not resolve reports every path it was looked for, so the order is answered there\n"
+        "rather than here.\n",
     )
 
     completion = add(

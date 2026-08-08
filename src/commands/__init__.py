@@ -30,13 +30,7 @@ from commands.flows import (
     resolve_flow,
     run,
 )
-from commands.inventory import (
-    adapter_detail,
-    agent_detail,
-    inventory,
-    search_paths,
-    tool_detail,
-)
+from commands.inventory import adapter_detail, agent_detail, inventory, tool_detail
 from commands.results import (
     AdapterDetail,
     AgentDetail,
@@ -47,8 +41,6 @@ from commands.results import (
     Inventory,
     KindListing,
     LintResult,
-    PathsReport,
-    RootReport,
     RunResult,
     SecretListing,
     SecretSet,
@@ -96,7 +88,6 @@ __all__ = [
     "call_tool",
     # the installation
     "inventory",
-    "search_paths",
     "adapter_detail",
     "agent_detail",
     "tool_detail",
@@ -126,8 +117,6 @@ __all__ = [
     "Inventory",
     "KindListing",
     "LintResult",
-    "PathsReport",
-    "RootReport",
     "RunResult",
     "SecretListing",
     "SecretSet",

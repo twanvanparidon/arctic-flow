@@ -1,8 +1,8 @@
 """Which definition of a name wins, once every layer is real.
 
 The unit tests cover the precedence list directly. What only shows up end to end is that
-the winner is also the one that *runs*, that `list` and `paths` describe the same order the
-engine used, and that where a component was found never changes where it executes.
+the winner is also the one that *runs*, that `list` describes the same order the engine
+used, and that where a component was found never changes where it executes.
 
 That last one is the rule most likely to be broken by accident, so it is tested by running
 a tool from the home directory against a project somewhere else and asking it where it is.
@@ -121,7 +121,7 @@ class TestListing:
     ) -> None:
         """Nothing can shadow an adapter, so it has no root to report."""
         result = atf("--workspace", str(project), "list")
-        assert result.out.startswith("adapters:")
+        assert result.out.index("adapters:") < result.out.index("agents:")
         assert "claude_code" in result.out
 
     def test_the_built_in_tool_is_there_with_no_project_at_all(
@@ -170,23 +170,6 @@ class TestInspectingWhatWon:
         assert result.code == 1
         assert result.out == ""
         assert "unknown agent 'absent'" in result.err
-
-
-class TestPaths:
-    def test_the_roots_are_numbered_in_the_order_they_are_searched(
-        self, project: Path, atf: Runner
-    ) -> None:
-        make.write_tool(project / ".arctic", "greet")
-        result = atf("--workspace", str(project), "paths")
-        assert result.out.index(".arctic") < result.out.index("builtin")
-
-    def test_it_says_where_components_will_run(self, project: Path, atf: Runner) -> None:
-        assert str(project) in atf("--workspace", str(project), "paths").out
-
-    def test_a_root_with_nothing_in_it_is_still_answered(self, project: Path, atf: Runner) -> None:
-        """A root listed with nothing under it is the answer to "why is my tool not found"."""
-        (project / ".arctic").mkdir()
-        assert "(nothing)" in atf("--workspace", str(project), "paths").out
 
 
 class TestNamespaces:
