@@ -16,21 +16,30 @@ import yaml
 
 from cli import render
 from commands.results import (
+    AdapterDetail,
+    AgentDetail,
     ComponentEntry,
+    FlowIssue,
     Inventory,
     KindListing,
+    LintReport,
     LintResult,
-    PathsReport,
-    RootReport,
     RunResult,
     SecretListing,
     SecretSet,
+    ToolDetail,
     VaultContents,
     VaultCreated,
 )
 
 INVENTORY = Inventory(
-    adapters={"claude_code": "Run one LLM turn."},
+    adapters=(
+        ComponentEntry(
+            name="claude_code",
+            path=Path("a"),
+            display="$ATF_ROOT/adapters/claude_code.py",
+        ),
+    ),
     kinds=(
         KindListing(
             kind="flow",
@@ -58,6 +67,39 @@ class TestLint:
         assert "1 step" in rendered
 
 
+class TestLintReport:
+    PASSED = LintResult(flow="demo", path=Path("f"), display="./flows/demo.yaml", steps=[{}])
+    BROKEN = FlowIssue(
+        flow="bad", path=Path("b"), display="./flows/bad.yaml", error="unknown tool 'ghost'"
+    )
+
+    def test_a_clean_sweep_says_what_it_checked(self) -> None:
+        text = render.lint_report(LintReport(checked=(self.PASSED,)))
+        assert "./flows/demo.yaml" in text
+        assert text.endswith("1 flow checked, no issues found")
+
+    def test_a_failure_names_the_flow_and_what_stopped_it(self) -> None:
+        text = render.lint_report(LintReport(checked=(self.PASSED,), issues=(self.BROKEN,)))
+        assert "./flows/bad.yaml" in text
+        assert "unknown tool 'ghost'" in text
+
+    def test_failures_come_last(self) -> None:
+        """Read in a pipeline log, where the end of the output is what is on screen."""
+        text = render.lint_report(LintReport(checked=(self.PASSED,), issues=(self.BROKEN,)))
+        assert text.index("demo.yaml") < text.index("bad.yaml")
+
+    def test_the_count_covers_the_ones_that_failed_too(self) -> None:
+        text = render.lint_report(LintReport(checked=(self.PASSED,), issues=(self.BROKEN,)))
+        assert text.endswith("2 flows checked, 1 failed")
+
+    def test_a_pass_reads_the_same_as_that_flow_checked_on_its_own(self) -> None:
+        """One flow linted alone and the same flow inside a sweep say the same sentence."""
+        assert render.lint(self.PASSED) in render.lint_report(LintReport(checked=(self.PASSED,)))
+
+    def test_nothing_to_check_says_so_rather_than_counting_to_zero(self) -> None:
+        assert render.lint_report(LintReport()) == "no flows found"
+
+
 class TestTrace:
     def test_it_is_json_for_something_else_to_read(self) -> None:
         result = RunResult(
@@ -83,14 +125,18 @@ class TestTrace:
 
 
 class TestInventory:
-    def test_adapters_come_first(self) -> None:
-        assert render.inventory(INVENTORY).startswith("adapters:\n  claude_code")
+    def test_adapters_are_listed_apart_from_the_kinds_and_ahead_of_them(self) -> None:
+        """They are registered in code, so no root found them and nothing can shadow one."""
+        text = render.inventory(INVENTORY)
+        assert "adapters:\n  claude_code" in text
+        assert text.index("adapters:") < text.index("flows:")
 
     def test_a_kind_with_nothing_installed_says_so_on_one_line(self) -> None:
         """Rather than a heading over nothing."""
         assert "agents: none" in render.inventory(INVENTORY)
 
     def test_an_entry_shows_where_its_definition_is(self) -> None:
+        """The layer a name came out of answers most of what a listing is read for."""
         line = next(line for line in render.inventory(INVENTORY).splitlines() if "demo" in line)
         assert "./flows/demo.yaml" in line
 
@@ -104,36 +150,127 @@ class TestInventory:
                             name="read_file",
                             path=Path("t"),
                             display="./tools/read_file",
-                            shadows=("~/.arctic/tools/read_file", "/opt/atf/tools/read_file"),
+                            shadows=("$HOME/.arctic/tools/read_file", "/opt/atf/tools/read_file"),
                         ),
                     ),
                 ),
             )
         )
         text = render.inventory(listing)
-        assert "(shadows ~/.arctic/tools/read_file, /opt/atf/tools/read_file)" in text
+        assert "(shadows $HOME/.arctic/tools/read_file, /opt/atf/tools/read_file)" in text
+
+    def test_something_shadowing_nothing_carries_no_note(self) -> None:
+        assert "shadows" not in render.inventory(INVENTORY)
 
 
-class TestSearchPaths:
-    REPORT = PathsReport(
-        roots=(
-            RootReport(path=Path("/p"), display=".", subdirs=("flows", "tools")),
-            RootReport(path=Path("/h"), display="~/.arctic", subdirs=()),
-        ),
-        workspace=Path("/p"),
-    )
+AGENT = AgentDetail(
+    name="summarizer",
+    path=Path("a"),
+    display="./agents/summarizer",
+    spec={
+        "name": "summarizer",
+        "description": "Explains what a file does.",
+        "adapter": "claude_code",
+        "model": "sonnet",
+        "tools": [],
+        "output_schema": {"type": "object"},
+    },
+    prompt="You summarise source files.",
+)
 
-    def test_the_roots_are_numbered_in_precedence_order(self) -> None:
-        text = render.search_paths(self.REPORT)
-        assert "  1. ." in text
-        assert "  2. ~/.arctic" in text
+TOOL = ToolDetail(
+    name="common/read_file",
+    path=Path("t"),
+    display="./tools/common/read_file",
+    spec={
+        "name": "read_file",
+        "description": "Read a file.",
+        "run": {"command": ["./run.sh"], "timeout_seconds": 10},
+        "input_schema": {"type": "object"},
+        "permissions": {"filesystem": "read", "network": False},
+        "secrets": ["token"],
+        "exit_codes": {"0": "success", "3": "not found"},
+    },
+    doc="# read_file",
+)
 
-    def test_a_root_with_nothing_in_it_reads_as_answered(self) -> None:
-        """Rather than left blank, which reads as "I did not look"."""
-        assert "     (nothing)" in render.search_paths(self.REPORT)
 
-    def test_it_says_where_components_will_run(self) -> None:
-        assert "working directory: /p" in render.search_paths(self.REPORT)
+ADAPTER = AdapterDetail(
+    name="echo",
+    path=Path("e"),
+    display="$ATF_ROOT/adapters/echo.py",
+    description="Answer from the request rather than a model.",
+    input_schema={"type": "object", "properties": {"prompt": {"type": "string"}}},
+)
+
+
+class TestAdapterDetail:
+    def test_it_names_the_module_it_is(self) -> None:
+        assert render.adapter_detail(ADAPTER).startswith("echo  $ATF_ROOT/adapters/echo.py")
+
+    def test_the_settings_schema_is_the_body(self) -> None:
+        """It is the answer to "what may an agent spec naming this ask for", and the same
+        schema `engine.specs` checks that spec against."""
+        text = render.adapter_detail(ADAPTER)
+        assert "settings:" in text
+        assert '"prompt"' in text
+
+
+class TestAgentDetail:
+    def test_it_names_the_definition_that_won(self) -> None:
+        assert render.agent_detail(AGENT).startswith("summarizer  ./agents/summarizer")
+
+    def test_it_shows_the_settings_a_flow_author_cannot_see_from_the_flow(self) -> None:
+        text = render.agent_detail(AGENT)
+        assert "adapter" in text and "claude_code" in text
+        assert "model" in text and "sonnet" in text
+
+    def test_the_prompt_is_reproduced_rather_than_summarised(self) -> None:
+        """It *is* the agent, so a view that abbreviated it would answer a different
+        question from the one being asked."""
+        assert render.agent_detail(AGENT).endswith("You summarise source files.")
+
+    def test_a_field_the_spec_leaves_out_is_not_printed_empty(self) -> None:
+        """A spec with no `effort` is not an agent with no effort. Its adapter decides."""
+        assert "effort" not in render.agent_detail(AGENT)
+
+    def test_an_empty_list_is_named_rather_than_left_blank(self) -> None:
+        assert "(none)" in render.agent_detail(AGENT)
+
+    def test_a_declared_output_schema_is_shown(self) -> None:
+        assert "output schema:" in render.agent_detail(AGENT)
+
+
+class TestToolDetail:
+    def test_it_names_the_tool_as_it_was_looked_up(self) -> None:
+        """Not `spec["name"]`, which for a namespaced tool carries only the leaf."""
+        assert render.tool_detail(TOOL).startswith("common/read_file  ./tools/common/")
+
+    def test_the_two_fields_that_decide_a_grant_are_shown(self) -> None:
+        """`filesystem` gates whether granting it needs `unattended`, and a tool declaring
+        `secrets` cannot be granted at all."""
+        text = render.tool_detail(TOOL)
+        assert "filesystem" in text and "read" in text
+        assert "secrets" in text and "token" in text
+
+    def test_the_nested_run_object_is_lifted_out(self) -> None:
+        text = render.tool_detail(TOOL)
+        assert "command" in text and "./run.sh" in text
+
+    def test_the_exit_codes_are_listed_with_what_they_mean(self) -> None:
+        text = render.tool_detail(TOOL)
+        assert "3" in text and "not found" in text
+
+    def test_the_schemas_are_shown_as_json(self) -> None:
+        assert '"type": "object"' in render.tool_detail(TOOL)
+
+    def test_the_doc_comes_last(self) -> None:
+        assert render.tool_detail(TOOL).endswith("# read_file")
+
+    def test_a_tool_with_no_doc_ends_cleanly(self) -> None:
+        """The caller prints, so a trailing blank line here shows up as a stray one."""
+        text = render.tool_detail(ToolDetail(**{**vars(TOOL), "doc": ""}))
+        assert not text.endswith("\n")
 
 
 class TestVaultWording:
@@ -182,7 +319,9 @@ class TestTheHouseRules:
         "text",
         [
             render.lint(LintResult(flow="d", path=Path("f"), display="./f", steps=[])),
-            render.search_paths(TestSearchPaths.REPORT),
+            render.adapter_detail(ADAPTER),
+            render.agent_detail(AGENT),
+            render.tool_detail(TOOL),
             render.vault_created(VaultCreated(path=Path("v"), display="./v", count=2)),
             render.secret_names(SecretListing(path=Path("v"), display="./v", names=("a",))),
             render.vault_contents(TestVaultContents.RESULT),
@@ -203,7 +342,9 @@ class TestTheHouseRules:
         "text",
         [
             render.inventory(INVENTORY),
-            render.search_paths(TestSearchPaths.REPORT),
+            render.adapter_detail(ADAPTER),
+            render.agent_detail(AGENT),
+            render.tool_detail(TOOL),
         ],
     )
     def test_nothing_is_coloured(self, text: str) -> None:

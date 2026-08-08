@@ -38,7 +38,11 @@ fail() { printf 'release.sh: %s\n' "$1" >&2; exit 1; }
 [[ -x $DIST/atf ]] \
   || fail "no built binary at $DIST/atf, run the build first"
 
-VERSION=$("$DIST/atf" --version | awk '{ print $2 }')
+# `atf --version` prints `Arctic Flow v0.2.0`, one line, terminal or pipe alike. The number
+# is what everything below names the artefacts after, so it is read back out, without the
+# `v`: the tag carries one and the artefact names do not.
+VERSION=$("$DIST/atf" --version | awk '{ print $NF }')
+VERSION=${VERSION#v}
 [[ -n $VERSION ]] || fail "could not read a version out of $DIST/atf --version"
 
 # The tag is stamped into the binary during the build, so these agreeing is the proof that

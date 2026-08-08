@@ -1,4 +1,4 @@
-"""`atf graph`: the push edges as text.
+"""`atf inspect flow`: the push edges as text.
 
 It renders what `validate()` already accepted, so there is nothing to check here and every
 test is about what the text says. The one worth keeping is `(terminal)`: "this step ends

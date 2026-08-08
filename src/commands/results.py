@@ -88,17 +88,12 @@ class GraphResult:
 
 @dataclass(frozen=True)
 class DiagramResult:
-    """Mermaid markdown, and where it was written if it was written anywhere.
-
-    `written_to` is the path as the caller gave it, not a shortened one: it is echoed back
-    for a person to act on, and a `./` prefix would be in the way.
-    """
+    """Mermaid markdown, already rendered by `util.mermaid`."""
 
     flow: str
     path: Path
     display: str
     markdown: str
-    written_to: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +136,82 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class FlowIssue:
+    """One flow that did not validate, and the first thing that stopped it.
+
+    `error` is the message the exception carried, kept as text: a sweep reports on flows
+    it did not stop for, so there is nothing left to raise by the time this is built.
+    """
+
+    flow: str
+    path: Path
+    display: str
+    error: str
+
+
+@dataclass(frozen=True)
+class LintReport:
+    """Every flow in scope, checked. `issues` empty is the success case.
+
+    Two tuples rather than one list of outcomes, so "did anything fail" is a field rather
+    than a scan, and a caller that only wants the failures does not filter for them.
+    """
+
+    checked: tuple[LintResult, ...] = ()
+    issues: tuple[FlowIssue, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return not self.issues
+
+
+@dataclass(frozen=True)
+class AgentDetail:
+    """One agent as it would be run: its spec, and the prompt a turn would be given.
+
+    `spec` stays the parsed document rather than being exploded into fields here.
+    `AGENT_SPEC_SCHEMA` is the contract for what may be in it, and a dataclass mirroring
+    that schema is a second copy of it that goes stale the first time a field is added.
+    """
+
+    name: str
+    path: Path
+    display: str
+    spec: dict[str, Any]
+    prompt: str
+
+
+@dataclass(frozen=True)
+class ToolDetail:
+    """One tool as it would be run: its spec, and its doc file when it has one.
+
+    `doc` is empty rather than absent when there is none, because `TOOL_SPEC_SCHEMA` does
+    not require one and a tool the engine will happily run is not a failure to report.
+    """
+
+    name: str
+    path: Path
+    display: str
+    spec: dict[str, Any]
+    doc: str = ""
+
+
+@dataclass(frozen=True)
+class AdapterDetail:
+    """One adapter: what it runs, and the settings an agent spec may ask it for.
+
+    `input_schema` is the contract `engine.specs` validates an agent's settings against,
+    so this is the answer to "what may I put in a spec that names this adapter".
+    """
+
+    name: str
+    path: Path
+    display: str
+    description: str
+    input_schema: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class ComponentEntry:
     """One available name, and the definitions a higher-precedence root is hiding.
 
@@ -164,28 +235,14 @@ class KindListing:
 
 @dataclass(frozen=True)
 class Inventory:
-    """What is installed: adapters, which are registered in code, and the rest, which
-    are found on disk. The two are separate because nothing can shadow an adapter."""
+    """Every name the lookup can resolve, by kind, each with where it was found.
 
-    adapters: dict[str, str] = field(default_factory=dict)
+    Adapters are separate from the rest because they are registered in code: they have no
+    roots to be found under, and nothing can shadow one.
+    """
+
+    adapters: tuple[ComponentEntry, ...] = ()
     kinds: tuple[KindListing, ...] = ()
-
-
-@dataclass(frozen=True)
-class RootReport:
-    """One search root, and which component directories it actually has."""
-
-    path: Path
-    display: str
-    subdirs: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class PathsReport:
-    """Where the engine looks, in the order it looks. `roots` is that order."""
-
-    roots: tuple[RootReport, ...] = ()
-    workspace: Path = Path()
 
 
 @dataclass(frozen=True)

@@ -6,8 +6,9 @@ Two things shape the banner, both about it not breaking somewhere:
   presentation render it double-width, skewing everything aligned after it, and a
   non-UTF-8 stdout turns a decoration into a UnicodeEncodeError.
 
-  Suppressed when stdout is not a terminal. `atf --version` gets parsed by scripts and
-  read by CI logs, and ASCII art belongs in neither.
+  Suppressed when stdout is not a terminal, so `atf --help | cat` stays plain. It is the
+  only thing the banner is for: `--version` is one line either way, since it gets parsed
+  by scripts and read in CI logs.
 """
 
 from __future__ import annotations
@@ -61,8 +62,9 @@ def banner(version: str, stream: TextIO | None = None) -> str:
     return "\n".join(lines).rstrip() + "\n\n"
 
 
-def version_line(version: str, stream: TextIO | None = None) -> str:
-    """`atf 0.1.0` on a pipe; the banner when someone is watching."""
-    stream = stream or sys.stdout
-    art = banner(version, stream)
-    return art if art else f"{COMMAND} {version}\n"
+def version_line(version: str) -> str:
+    """`Arctic Flow v0.1.0`, on a terminal and on a pipe alike.
+
+    The `v` is the tag's, so what is printed is greppable against what was released.
+    """
+    return f"{NAME} v{version}\n"

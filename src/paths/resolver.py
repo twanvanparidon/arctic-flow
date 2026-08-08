@@ -12,6 +12,10 @@ first match wins, so a project overrides what it inherits without a config file:
   4. ~/.arctic     you, across every project
   5. builtin/      what ships with the engine
 
+`display()` names a path by the layer it came out of, which is what `atf list` prints
+beside every name: `./x` for the project, `$HOME/.arctic/x` for yours, `$ATF_ROOT/x` for
+the engine's own.
+
 A name may carry a namespace: `common/read_file` is `tools/common/read_file` under
 whichever root wins. There is no depth limit and no declaration anywhere. A directory
 holding a `spec.json` is a component, and any other directory is a namespace, so grouping
@@ -45,6 +49,22 @@ FLOW_SUFFIXES = (".yaml", ".yml")
 
 DOT_DIR = ".arctic"
 PATH_ENV = "ATF_PATH"
+
+# How a shortened path names the layer it came from. `$HOME` is the real variable, so what
+# is printed can be pasted into a shell and resolve.
+#
+# `$ATF_ROOT` is not a variable anything reads, and is deliberately not one: where the
+# engine's own files live is decided by where it was installed, and `$ATF_PATH` already
+# exists for putting a root in front of them. It is a label for "this came with the
+# engine", which is the useful fact. The absolute path is inside a PyInstaller bundle in a
+# release build, and is nothing anyone would open.
+#
+# Not `$ATF_BIN`, which names something else that exists: `install.sh` links the executable
+# into `<prefix>/bin` and unpacks this directory under `<prefix>/lib`. `ROOT` is the
+# `GOROOT` sense, "where the tool is installed", and does not read as `$HOME` on the line
+# above it.
+HOME_SYMBOL = "$HOME"
+ENGINE_SYMBOL = "$ATF_ROOT"
 
 # What separates a namespace from the name inside it, and how that is spelled where a
 # slash is not allowed. The one place it is not allowed is a protocol name: an MCP tool
@@ -107,7 +127,18 @@ def builtin_root() -> Path:
     An earlier version walked up to src/ and needed a separate frozen branch reading
     sys._MEIPASS. Making the bundle mirror the package removed the need for both.
     """
-    return Path(__file__).resolve().parents[1] / "builtin"
+    return engine_root() / "builtin"
+
+
+def engine_root() -> Path:
+    """Everything that shipped with the engine: the built-in components and the adapters.
+
+    One directory above the built-ins, which is the package directory from source and
+    installed, and the bundle in a frozen build. It is what `$ATF_ROOT` stands for, so an
+    adapter and a built-in tool are both reported as the engine's own rather than as two
+    unrelated absolute paths.
+    """
+    return Path(__file__).resolve().parents[1]
 
 
 @dataclass
@@ -232,8 +263,24 @@ class Paths:
                 self._collect(kind, entry, f"{prefix}{entry.name}{SEPARATOR}", available)
 
     def _display(self, path: Path) -> str:
-        """Shorten a path for messages: ./x inside the project, ~/x inside home."""
-        for base, prefix in ((self.workspace, "."), (self.home, "~")):
+        """Shorten a path for messages, by which layer it came out of.
+
+        The built-in root is tried first because it sits inside one of the other two in
+        every install: under the workspace from a checkout, under home from `install.sh`.
+        Matched later it would read as an ordinary project file, which is the one thing it
+        is not: nothing under it is yours and nothing under it is edited.
+        """
+        # The built-in root before the engine root it sits inside, so a shipped tool reads
+        # `$ATF_ROOT/tools/read_file` rather than gaining a `builtin/` segment that means
+        # nothing to a reader. `$ATF_ROOT` is a label for "this came with the engine", not
+        # a directory, so what hangs off it is the vocabulary a person already has: its
+        # tools, its agents, its adapters.
+        for base, prefix in (
+            (builtin_root(), ENGINE_SYMBOL),
+            (engine_root(), ENGINE_SYMBOL),
+            (self.workspace, "."),
+            (self.home, HOME_SYMBOL),
+        ):
             if path == base:
                 return prefix
             try:

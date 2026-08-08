@@ -33,9 +33,9 @@ Run agentic workflows. A flow is a graph of tool and agent steps: each step decl
 where it pushes its result next, so the engine reads forwards.
 
 Flows, tools, agents and adapters are named, not pathed. Names resolve
-working-directory-first, so a project overrides what it inherits. `paths` shows the
-order, `list` shows what wins. A name may carry a namespace: `common/read_file` is
-the directory `tools/common/read_file`.
+working-directory-first, so a project overrides what it inherits. `list` shows every
+name that resolves and which definition won. A name may carry a namespace:
+`common/read_file` is the directory `tools/common/read_file`.
 """
 
 PROG = branding.COMMAND
@@ -170,8 +170,17 @@ def build_parser() -> argparse.ArgumentParser:
             f"${PASSWORD_FILE_ENV}, or a prompt",
         )
 
-    def add(name: str, handler, help_text: str, epilog: str | None = None):
-        command = sub.add_parser(
+    def add(
+        name: str,
+        handler,
+        help_text: str,
+        epilog: str | None = None,
+        group: argparse._SubParsersAction | None = None,
+    ):
+        # `group` is the subparsers to hang the command off, defaulting to the top level.
+        # `inspect` and `vault` pass their own, so a command in a bucket is declared the
+        # same way and gets its description capitalised out of its help the same way.
+        command = (group or sub).add_parser(
             name,
             help=help_text,
             description=help_text[0].upper() + help_text[1:] + ".",
@@ -226,24 +235,77 @@ def build_parser() -> argparse.ArgumentParser:
         "declared schemas are valid schemas, that an agent's settings are ones its adapter\n"
         "accepts, and that the inputs a step passes match what the tool declares.\n\n"
         "These are the same checks `run` performs before its first step, so a clean lint\n"
-        "means a flow will not fail on its own definitions.\n",
+        "means a flow will not fail on its own definitions.\n\n"
+        "Named with no flow, or with `.`, it checks every flow in scope and reports all of\n"
+        "them before exiting non-zero, which is the shape a pipeline wants: one run, every\n"
+        "answer. Naming one flow stops at its first problem instead.\n",
     )
-    lint.add_argument("flow", help=FLOW_HELP)
+    lint.add_argument("flow", nargs="?", help=f"{FLOW_HELP}; omitted, every flow in scope")
 
-    graph = add("graph", dispatch.graph, "print a flow's push edges as text")
-    graph.add_argument("flow", help=FLOW_HELP)
+    inspect = sub.add_parser(
+        "inspect",
+        help="show one component: a flow's graph, an agent's prompt, a tool's contract",
+        description="Show one component, by kind and name.",
+        epilog="The kind is named rather than guessed. Nothing stops a flow, an agent and\n"
+        "a tool sharing a name, since each kind is looked up in its own directory, so a\n"
+        "bare name is a question with more than one answer.\n\n"
+        "`list` says which definition of a name wins. This says what is in it.\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    inspect_sub = inspect.add_subparsers(dest="inspect_kind", metavar="<kind>", required=True)
 
-    diagram = add(
-        "diagram",
-        dispatch.diagram,
-        "render a flow as Mermaid markdown (static, no model)",
-        "Also reports how the flow resolves: which steps run concurrently, which may\n"
-        "be skipped by a branch, and where the joins are.\n",
+    inspect_flow = add(
+        "flow",
+        dispatch.inspect_flow,
+        "a flow's graph, as text or as Mermaid",
+        "-o raw is the push edges as text. -o md is a Mermaid diagram, plus a report of\n"
+        "how the flow resolves: which steps run concurrently, which may be skipped by a\n"
+        "branch, and where the joins are.\n\n"
+        "Both renderings go to stdout, so redirect to save one:\n"
+        "`atf inspect flow f -o md > f.md`.\n",
+        group=inspect_sub,
     )
-    diagram.add_argument("flow", help=FLOW_HELP)
-    diagram.add_argument(
-        "-o", "--out", type=Path, metavar="FILE", help="write to a file instead of stdout"
+    inspect_flow.add_argument("flow", help=FLOW_HELP)
+    inspect_flow.add_argument(
+        "-o",
+        "--output",
+        choices=dispatch.GRAPH_FORMATS,
+        default=dispatch.GRAPH_TEXT,
+        help=f"how to render it (default: {dispatch.GRAPH_TEXT})",
     )
+
+    inspect_agent = add(
+        "agent",
+        dispatch.inspect_agent,
+        "an agent's settings, and its system prompt verbatim",
+        "The prompt is the whole of what the agent is, and a flow naming one inherited\n"
+        "from a higher search root shows nothing of it. This is where to read it before\n"
+        "writing a step against it.\n",
+        group=inspect_sub,
+    )
+    inspect_agent.add_argument("name", help="agent name (resolved through the lookup)")
+
+    inspect_adapter = add(
+        "adapter",
+        dispatch.inspect_adapter,
+        "an adapter's settings schema: what an agent spec naming it may ask for",
+        "Adapters are registered in code rather than found by name, so this is the whole\n"
+        "of what one is: what it runs, and the settings `lint` checks an agent's spec\n"
+        "against before a turn is ever started.\n",
+        group=inspect_sub,
+    )
+    inspect_adapter.add_argument("name", help="adapter name, as an agent's spec.json names it")
+
+    inspect_tool = add(
+        "tool",
+        dispatch.inspect_tool,
+        "a tool's contract: what it takes, what it may touch, how it fails",
+        "`filesystem` and `secrets` are the two to read before granting one to an agent.\n"
+        "A tool that writes needs `unattended: true` on the agent's spec, because nothing\n"
+        "approves a call the agent makes for itself.\n",
+        group=inspect_sub,
+    )
+    inspect_tool.add_argument("name", help="tool name (resolved through the lookup)")
 
     mcp_serve = add(
         "mcp-serve",
@@ -273,14 +335,15 @@ def build_parser() -> argparse.ArgumentParser:
     add(
         "list",
         dispatch.list_components,
-        "show installed flows, tools, agents and adapters",
-        "Marks anything a higher-precedence root is shadowing.\n",
-    )
-    add(
-        "paths",
-        dispatch.show_paths,
-        "show the search roots and their precedence",
-        "Set ATF_PATH to prepend roots, for tests and one-off overrides.\n",
+        "show every name the engine can resolve, and where each was found",
+        "The flows, tools, agents and adapters available, each beside the definition that\n"
+        "won. Anything a higher-precedence root is shadowing is marked, since a second\n"
+        "definition is why an edit can appear to do nothing.\n\n"
+        "A path reads as the layer it came from: ./x is this project, $HOME/.arctic/x is\n"
+        "yours across projects, $ATF_ROOT/x shipped with the engine.\n\n"
+        "Set ATF_PATH to prepend roots, for tests and one-off overrides. A name that does\n"
+        "not resolve reports every path it was looked for, so the order is answered there\n"
+        "rather than here.\n",
     )
 
     completion = add(
@@ -315,15 +378,8 @@ def build_parser() -> argparse.ArgumentParser:
     vault_sub = vault.add_subparsers(dest="vault_command", metavar="<action>", required=True)
 
     def add_vault(name: str, handler, help_text: str, epilog: str | None = None):
-        command = vault_sub.add_parser(
-            name,
-            help=help_text,
-            description=help_text[0].upper() + help_text[1:] + ".",
-            epilog=epilog,
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-        )
+        command = add(name, handler, help_text, epilog, group=vault_sub)
         command.add_argument("file", type=Path, help="the vault file")
-        command.set_defaults(handler=handler)
         add_password_flag(command)
         return command
 

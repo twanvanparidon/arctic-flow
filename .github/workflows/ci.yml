@@ -46,12 +46,13 @@ jobs:
       - run: shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 
       # Cycles, unreachable steps, template references, secrets templated into an agent
-      # prompt. Each flow is linted with its own project as workspace.
+      # prompt. One project per loop, not one flow: a bare `lint` checks every flow in
+      # that workspace and reports all of them before exiting non-zero, so a project with
+      # two broken flows takes one push to fix rather than two.
       - name: Lint every example flow
         run: |
-          for flow in examples/*/flows/*.yaml; do
-            project=$(dirname "$(dirname "$flow")")
-            atf --workspace "$project" lint "$(basename "$flow" .yaml)"
+          for project in examples/*/; do
+            atf --workspace "$project" lint
           done
 
   test:

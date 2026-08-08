@@ -26,7 +26,7 @@ _atf_complete() {
 }
 
 # -o default falls back to filename completion when there are no candidates, which is what
-# makes a path to a flow file, a vault and `--out` completable without naming them here.
+# makes a path to a flow file and a vault completable without naming them here.
 #
 # Another name, or a build somewhere else, is one more line of the same:
 #

@@ -34,7 +34,7 @@ def write_flow(root: Path, name: str) -> None:
 class TestCommands:
     def test_the_first_word_offers_every_command(self, workspace: Path) -> None:
         offered = candidates([""], workspace)
-        assert all(command in offered for command in ("run", "lint", "graph", "vault"))
+        assert all(command in offered for command in ("run", "lint", "inspect", "vault"))
 
     def test_a_prefix_narrows_it(self, workspace: Path) -> None:
         assert candidates(["li"], workspace) == ["lint", "list"]
@@ -81,16 +81,35 @@ class TestFlags:
         assert "--trace" not in candidates(["-"], workspace)
 
 
-class TestFlowNames:
+class TestComponentNames:
     def test_a_flow_command_offers_the_flows_in_scope(self, workspace: Path) -> None:
         write_flow(workspace, "release")
         write_flow(workspace, "review")
         assert candidates(["run", ""], workspace) == ["release", "review"]
 
-    @pytest.mark.parametrize("command", ["run", "lint", "graph", "diagram"])
-    def test_every_command_taking_a_flow_offers_them(self, command: str, workspace: Path) -> None:
+    @pytest.mark.parametrize("command", [["run"], ["lint"], ["inspect", "flow"]])
+    def test_every_command_taking_a_flow_offers_them(
+        self, command: list[str], workspace: Path
+    ) -> None:
+        """One missing from NAME_COMMANDS offers filenames instead, which looks like the
+        shell working rather than like completion being wrong."""
         write_flow(workspace, "release")
-        assert candidates([command, ""], workspace) == ["release"]
+        assert candidates([*command, ""], workspace) == ["release"]
+
+    def test_inspect_offers_its_kinds(self, workspace: Path) -> None:
+        assert candidates(["inspect", ""], workspace) == ["adapter", "agent", "flow", "tool"]
+
+    def test_a_kind_is_answered_with_that_kind_and_not_with_flows(self, workspace: Path) -> None:
+        """`inspect agent <TAB>` asks about agents. Answering it out of the flow lookup is
+        the mistake one shared list of "commands taking a name" would make."""
+        write_flow(workspace, "release")
+        make.write_agent(workspace, "writer")
+        make.write_tool(workspace, "greet")
+        assert candidates(["inspect", "agent", ""], workspace) == ["writer"]
+        # The built-in tools are in scope from anywhere, so this half is containment.
+        offered = candidates(["inspect", "tool", ""], workspace)
+        assert "greet" in offered
+        assert "release" not in offered and "writer" not in offered
 
     def test_a_command_taking_no_flow_offers_none(self, workspace: Path) -> None:
         write_flow(workspace, "release")

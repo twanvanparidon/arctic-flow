@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import REPOSITORY, requires
+from .conftest import REPOSITORY, VERSION_PREFIX, reported_version, requires
 
 RELEASE_SCRIPT = REPOSITORY / "packaging" / "release.sh"
 PLATFORM = "linux-x86_64"
@@ -37,7 +37,8 @@ def version(binary: Path) -> str:
     printed = subprocess.run(
         [str(binary), "--version"], capture_output=True, text=True, check=True
     ).stdout
-    return printed.split()[1]
+    # The number alone: `release.sh` names the artefacts after it, without the tag's `v`.
+    return reported_version(printed)
 
 
 @pytest.fixture
@@ -121,7 +122,7 @@ class TestInstalledTheWayInstallShInstallsIt:
             [str(installed), "--version"], capture_output=True, text=True, timeout=60
         )
         assert result.returncode == 0, result.stderr
-        assert result.stdout == f"atf {version}\n"
+        assert result.stdout == f"{VERSION_PREFIX}{version}\n"
 
     def test_it_still_finds_its_built_ins_through_the_link(
         self, installed: Path, tmp_path: Path

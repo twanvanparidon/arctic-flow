@@ -30,6 +30,8 @@ from support import components as make
 from support.mcp import HANDSHAKE, LIST, answered, call, frames, parsed
 from support.outcome import Runner
 
+from .conftest import reported_version
+
 SERVED = "served from a frozen build"
 
 
@@ -173,7 +175,7 @@ class TestServingFromTheFrozenBinary:
         """It reports its own version in the handshake, so a stale binary answering would
         not be mistaken for the one under test."""
         [greeting] = parsed(serve(server_argv, HANDSHAKE).stdout)
-        assert greeting["result"]["serverInfo"]["version"] == atf("--version").out.split()[1]
+        assert greeting["result"]["serverInfo"]["version"] == reported_version(atf("--version").out)
 
     def test_a_call_is_reported_back_to_the_engine(
         self, server_argv: list[str], tmp_path: Path

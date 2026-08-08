@@ -36,6 +36,17 @@ from engine.executor import FlowError
 from paths.resolver import Paths
 from vault.vault import VaultError, resolve_password
 
+# What `inspect -o` takes: the flow's graph as text, or as the Mermaid document. Declared
+# here rather than in `app.py` because the handler below is what reads the value, and
+# `app.py` already imports this module. The reverse import would close the circle.
+GRAPH_TEXT, GRAPH_MERMAID = "raw", "md"
+GRAPH_FORMATS = (GRAPH_TEXT, GRAPH_MERMAID)
+
+# `lint .` means every flow, the same as naming none. Spelled the way other linters spell
+# it, and unambiguous here because flows are named rather than pathed: `.` is not a flow
+# name the lookup could ever return, and `resolve_flow` would only ever refuse it.
+EVERYTHING = "."
+
 
 def parse_input_pairs(pairs: list[str]) -> dict[str, str]:
     """`--input KEY=VALUE`, repeated, as a mapping. A repeated key takes its last value.
@@ -114,23 +125,44 @@ def run(args: argparse.Namespace, paths: Paths) -> int:
 
 
 def lint(args: argparse.Namespace, paths: Paths) -> int:
+    """One flow, or every flow in scope when none is named.
+
+    The sweep returns its own exit code rather than raising, because it has already
+    checked the flows after the one that failed and the report is the point. A single
+    flow still raises, so `lint one_flow` reports its problem the way every other
+    command reports one.
+    """
+    if args.flow in (None, EVERYTHING):
+        report = commands.lint_all(paths)
+        print(render.lint_report(report))
+        return 0 if report.ok else 1
+
     print(render.lint(commands.lint(args.flow, paths)))
     return 0
 
 
-def graph(args: argparse.Namespace, paths: Paths) -> int:
-    print(commands.graph(args.flow, paths).text)
+def inspect_adapter(args: argparse.Namespace, paths: Paths) -> int:
+    print(render.adapter_detail(commands.adapter_detail(args.name, paths)))
     return 0
 
 
-def diagram(args: argparse.Namespace, paths: Paths) -> int:
-    result = commands.diagram(args.flow, paths, args.out)
-    if result.written_to:
-        print(f"wrote {result.written_to}")
-    else:
+def inspect_agent(args: argparse.Namespace, paths: Paths) -> int:
+    print(render.agent_detail(commands.agent_detail(args.name, paths)))
+    return 0
+
+
+def inspect_tool(args: argparse.Namespace, paths: Paths) -> int:
+    print(render.tool_detail(commands.tool_detail(args.name, paths)))
+    return 0
+
+
+def inspect_flow(args: argparse.Namespace, paths: Paths) -> int:
+    if args.output == GRAPH_MERMAID:
         # end="" because the markdown carries its own final newline, and a document is not
-        # a message: what is printed here should be byte-for-byte what --out would write.
-        print(result.markdown, end="")
+        # a message: `> flow.md` has to hold what a file of it would.
+        print(commands.diagram(args.flow, paths).markdown, end="")
+    else:
+        print(commands.graph(args.flow, paths).text)
     return 0
 
 
@@ -150,11 +182,6 @@ def mcp_serve(args: argparse.Namespace, paths: Paths) -> int:
 
 def list_components(args: argparse.Namespace, paths: Paths) -> int:
     print(render.inventory(commands.inventory(paths)))
-    return 0
-
-
-def show_paths(args: argparse.Namespace, paths: Paths) -> int:
-    print(render.search_paths(commands.search_paths(paths)))
     return 0
 
 

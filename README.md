@@ -37,9 +37,9 @@ deliver.
 **Why it is built this way.** Workflows are code. They live in files you can diff, review
 and override, not in a UI. A flow names a graph and nothing else. Which model, which
 effort and which prompt belong to the agent, in its own directory, so changing a prompt is
-not a change to the workflow. A flow can also be read without running it. `atf diagram`
-draws the graph, `atf lint` checks every reference and every component spec, and neither
-calls a model.
+not a change to the workflow. A flow can also be read without running it.
+`atf inspect flow` draws the graph, `atf lint` checks every reference and every component
+spec, and neither calls a model.
 
 ---
 
@@ -85,7 +85,8 @@ adapters this build carries and what each one runs, so install what the agents y
 for.
 
 ```sh
-atf list             # adapters, and every component name the engine can see
+atf list             # every name that resolves, and where each was found:
+                     #   ./x, $HOME/.arctic/x, $ATF_ROOT/x
 ```
 
 ### The tools that ship
@@ -135,7 +136,7 @@ Four projects that run as they are. Read them forwards, the way the engine does:
   where the same job as three would also work, and the flow header says when to prefer which.
 
 ```sh
-atf --workspace examples/file-review graph review_file
+atf --workspace examples/file-review inspect flow review_file
 
 ATF_VAULT_PASSWORD=demo atf --workspace examples/sign-release \
     run sign_release --input path=release-notes.md
@@ -147,8 +148,18 @@ atf --workspace examples/agent-tools run annotate \
 ```
 
 A project is a directory with `flows/` in it. There is nothing to initialise. `atf --help`
-lists the rest, and only `run` calls a model: `lint`, `graph` and `diagram` read a flow
-without executing it.
+lists the rest, and only `run` calls a model. `lint` and `inspect` read without executing
+anything: `list` says which definition of a name wins, `inspect` says what is in it.
+
+```sh
+atf --workspace examples/file-review lint                       # every flow in the project
+atf --workspace examples/file-review inspect flow review_file -o md > review.md
+atf --workspace examples/file-review inspect agent summarizer   # its system prompt
+atf inspect tool common/read_file                               # what it may touch
+```
+
+`lint` with no flow checks every flow in scope and reports all of them before exiting
+non-zero, which is the shape a pipeline wants: one run, every answer.
 
 ### Grouping components
 

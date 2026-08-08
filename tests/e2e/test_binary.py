@@ -20,6 +20,8 @@ import pytest
 
 from support.outcome import Runner
 
+from .conftest import VERSION_PREFIX, reported_version
+
 BUILT_IN_TOOLS = (
     "common/read_file",
     "common/write_file",
@@ -33,15 +35,27 @@ SHIPPED_ADAPTERS = ("claude_code", "echo")
 # than by whoever runs it first. `mcp-serve` is the one that matters: it is spawned by a
 # runtime rather than typed, so a build that could not run it would look like a tool that
 # does not work.
-COMMANDS = ("run", "lint", "graph", "diagram", "list", "paths", "completion", "vault", "mcp-serve")
+COMMANDS = (
+    ("run",),
+    ("lint",),
+    ("list",),
+    ("inspect",),
+    ("inspect", "flow"),
+    ("inspect", "agent"),
+    ("inspect", "adapter"),
+    ("inspect", "tool"),
+    ("completion",),
+    ("vault",),
+    ("mcp-serve",),
+)
 
 
 class TestIdentity:
     def test_the_version_is_one_line_on_a_pipe(self, atf: Runner) -> None:
-        """`release.sh` reads the second field of it, so the shape is the decision."""
+        """`release.sh` reads the number back out of it, so the shape is the decision."""
         result = atf("--version")
         assert result.code == 0
-        assert result.out.startswith("atf ")
+        assert result.out.startswith(VERSION_PREFIX)
         assert len(result.out.splitlines()) == 1
 
     def test_the_version_is_the_one_the_tag_promised(
@@ -51,11 +65,11 @@ class TestIdentity:
         writes a source tree nothing reads again, and every other check still passes."""
         if expected_version is None:
             pytest.skip("no $ATF_EXPECTED_VERSION: not a release build")
-        assert atf("--version").out == f"atf {expected_version}\n"
+        assert atf("--version").out == f"{VERSION_PREFIX}{expected_version}\n"
 
     def test_the_placeholder_is_not_a_plausible_release(self, atf: Runner) -> None:
         """An unstamped build has to be obvious rather than look like 0.1.0."""
-        version = atf("--version").out.split()[1]
+        version = reported_version(atf("--version").out)
         assert version == "0.0.0.dev0" or not version.endswith(".dev0")
 
 
@@ -69,10 +83,10 @@ class TestWhatTheBundleCarries:
         assert tool in result.out
 
     @pytest.mark.parametrize("command", COMMANDS)
-    def test_each_command_is_reachable(self, atf: Runner, command: str) -> None:
+    def test_each_command_is_reachable(self, atf: Runner, command: tuple[str, ...]) -> None:
         """`--help` on each, which parses the subcommand without doing anything. A command
         whose module is only reached lazily would be missing from the bundle."""
-        assert atf(command, "--help").code == 0
+        assert atf(*command, "--help").code == 0
 
     @pytest.mark.parametrize("name", SHIPPED_ADAPTERS)
     def test_each_adapter_is_in_the_frozen_registry(self, atf: Runner, name: str) -> None:
@@ -80,20 +94,21 @@ class TestWhatTheBundleCarries:
         resolved by name, and would say `unknown adapter` at the first agent step."""
         assert name in atf("list").out
 
-    def test_the_built_in_root_is_inside_the_bundle(
+    def test_what_ships_with_the_engine_is_named_as_the_engines_own(
         self, atf: Runner, binary: Path, tmp_path: Path
     ) -> None:
         """`builtin_root()` resolves against its own module, which sits somewhere else once
-        frozen. Asserted as containment: where PyInstaller puts package data inside a bundle
-        is its business, but it has to end up under the binary.
+        frozen, and `engine_root()` one directory above it. Both landing inside the bundle
+        is what makes a shipped tool print as `$ATF_ROOT/...`: either one resolving outside
+        it falls through to an absolute path here, and the adapter half is only reachable
+        in a frozen build, where a module's `__file__` is a path into the bundle.
 
-        The workspace is elsewhere on purpose. `display()` shortens a path inside it to
-        `./x`, and a relative root cannot be checked against the binary's own location.
+        The workspace is elsewhere on purpose, so nothing shortens to `./x` by accident.
         """
-        printed = atf("--workspace", str(tmp_path), "paths").out
-        roots = [line for line in printed.splitlines() if "builtin" in line]
-        assert roots, printed
-        assert any(str(binary.parent) in root for root in roots)
+        printed = atf("--workspace", str(tmp_path), "list").out
+        assert "$ATF_ROOT/tools/common/read_file" in printed, printed
+        assert "$ATF_ROOT/adapters/" in printed, printed
+        assert str(binary.parent) not in printed
 
 
 class TestTheInterface:
@@ -104,6 +119,10 @@ class TestTheInterface:
 
     def test_help_succeeds(self, atf: Runner) -> None:
         assert atf("--help").code == 0
+
+    def test_help_into_a_pipe_carries_no_banner(self, atf: Runner) -> None:
+        """The half a pipe can ask. The terminal half is in test_terminal.py."""
+        assert "A R C T I C" not in atf("--help").out
 
     def test_a_usage_mistake_is_argparses_two(self, atf: Runner) -> None:
         assert atf("--nonsense").code == 2

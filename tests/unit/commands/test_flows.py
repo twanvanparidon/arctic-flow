@@ -231,6 +231,59 @@ class TestLint:
             commands.lint("nameless", paths)
 
 
+class TestLintAll:
+    def test_every_flow_in_scope_is_checked(self, project: Path, paths: Paths) -> None:
+        make.write_flow(
+            project,
+            "second",
+            {"flow": "second", "start": "a", "steps": [{"id": "a", "tool": "emit"}]},
+        )
+        report = commands.lint_all(paths)
+        assert sorted(result.flow for result in report.checked) == ["demo_flow", "second"]
+        assert report.ok
+
+    def test_a_broken_flow_is_reported_rather_than_raised(
+        self, project: Path, paths: Paths
+    ) -> None:
+        """The difference from `lint`. A sweep that raised would report on one flow and
+        leave the rest unchecked, which is a pipeline failing four times over four pushes."""
+        make.write_flow(
+            project, "bad", {"flow": "bad", "start": "a", "steps": [{"id": "a", "tool": "ghost"}]}
+        )
+        report = commands.lint_all(paths)
+        assert not report.ok
+        assert [issue.flow for issue in report.issues] == ["bad"]
+        assert "unknown tool 'ghost'" in report.issues[0].error
+
+    def test_the_flows_after_a_failure_are_still_checked(self, project: Path, paths: Paths) -> None:
+        make.write_flow(
+            project, "a_bad", {"flow": "a_bad", "start": "a", "steps": [{"id": "a", "tool": "gh"}]}
+        )
+        make.write_flow(
+            project,
+            "z_good",
+            {"flow": "z_good", "start": "a", "steps": [{"id": "a", "tool": "emit"}]},
+        )
+        report = commands.lint_all(paths)
+        assert "z_good" in [result.flow for result in report.checked]
+
+    def test_a_workspace_with_no_flows_is_an_empty_report(self, paths: Paths) -> None:
+        """Not an error. A project being set up has none yet, and neither does an empty one."""
+        report = commands.lint_all(paths)
+        assert report.checked == () and report.ok
+
+    def test_a_flow_installed_at_home_is_in_scope_too(
+        self, project: Path, paths: Paths, home: Path
+    ) -> None:
+        """The same scope `list` shows, because there is one meaning of "in scope"."""
+        make.write_flow(
+            home / ".arctic",
+            "personal",
+            {"flow": "personal", "start": "a", "steps": [{"id": "a", "tool": "emit"}]},
+        )
+        assert "personal" in [result.flow for result in commands.lint_all(paths).checked]
+
+
 class TestGraph:
     def test_renders_the_push_edges(self, project: Path, paths: Paths) -> None:
         result = commands.graph("demo", paths)
@@ -248,15 +301,11 @@ class TestDiagram:
     def test_returns_the_markdown(self, project: Path, paths: Paths) -> None:
         assert commands.diagram("demo", paths).markdown.startswith("# demo_flow")
 
-    def test_writing_is_the_same_operation_from_any_front_end(
-        self, project: Path, paths: Paths, tmp_path: Path
-    ) -> None:
-        out = tmp_path / "demo.md"
-        result = commands.diagram("demo", paths, out)
-        assert out.read_text() == result.markdown
-        assert result.written_to == out
-
-    def test_nothing_is_written_unless_a_destination_is_given(
+    def test_it_validates_first_so_the_diagram_is_of_a_real_graph(
         self, project: Path, paths: Paths
     ) -> None:
-        assert commands.diagram("demo", paths).written_to is None
+        make.write_flow(
+            project, "bad", {"flow": "bad", "start": "a", "steps": [{"id": "a", "tool": "ghost"}]}
+        )
+        with pytest.raises(FlowError, match="unknown tool 'ghost'"):
+            commands.diagram("bad", paths)

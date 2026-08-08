@@ -15,7 +15,15 @@ from pathlib import Path
 
 import pytest
 
-from paths.resolver import LookupError_, Paths, builtin_root, flat_name
+from paths.resolver import (
+    ENGINE_SYMBOL,
+    HOME_SYMBOL,
+    LookupError_,
+    Paths,
+    builtin_root,
+    engine_root,
+    flat_name,
+)
 from support import components as make
 
 
@@ -361,8 +369,28 @@ class TestDisplay:
     ) -> None:
         assert paths.display(workspace / "tools" / "greet") == "./tools/greet"
 
-    def test_a_path_inside_home_wears_a_tilde(self, paths: Paths, home: Path) -> None:
-        assert paths.display(home / ".arctic" / "tools") == "~/.arctic/tools"
+    def test_a_path_inside_home_is_named_for_the_variable(self, paths: Paths, home: Path) -> None:
+        """`$HOME` is a real variable, so what is printed pastes into a shell and resolves."""
+        assert paths.display(home / ".arctic" / "tools") == f"{HOME_SYMBOL}/.arctic/tools"
+
+    def test_a_built_in_is_named_as_the_engines_own(self, paths: Paths) -> None:
+        """`$ATF_ROOT` is not a variable anything reads. It stands for "this shipped with
+        the engine", which in a release build is a path inside a PyInstaller bundle."""
+        assert paths.display(builtin_root() / "tools") == f"{ENGINE_SYMBOL}/tools"
+
+    def test_an_adapter_module_is_named_the_same_way(self, paths: Paths) -> None:
+        """Adapters ship with the engine too, from a directory beside the built-ins, so
+        the label covers both: `$ATF_ROOT/tools` and `$ATF_ROOT/adapters`."""
+        module = engine_root() / "adapters" / "echo.py"
+        assert paths.display(module) == f"{ENGINE_SYMBOL}/adapters/echo.py"
+
+    def test_the_built_in_root_wins_over_the_directory_it_sits_in(
+        self, workspace: Path, home: Path
+    ) -> None:
+        """From a checkout it is under the workspace, and from install.sh it is under home.
+        Matched by either it would read as an ordinary file of yours, which it is not."""
+        paths = Paths(builtin_root().parent.parent, env={}, home=home)
+        assert paths.display(builtin_root() / "tools").startswith(ENGINE_SYMBOL)
 
     def test_anything_else_is_shown_in_full(self, paths: Paths) -> None:
         assert paths.display(Path("/usr/share/atf")) == "/usr/share/atf"

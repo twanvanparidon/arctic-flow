@@ -13,8 +13,8 @@
 # the `sign` step as an environment variable and to nothing else. `read_artifact`, one
 # step earlier, cannot read it at all.
 #
-# Check that claim rather than taking it: `diagram` prints a secrets column showing
-# exactly which step holds what, without running anything.
+# Check that claim rather than taking it: `inspect flow -o md` prints a secrets column
+# showing exactly which step holds what, without running anything.
 
 flow: sign_release
 version: 1

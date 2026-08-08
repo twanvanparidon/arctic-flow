@@ -53,7 +53,7 @@ class TestEveryShippedFlow:
     def test_its_graph_can_be_printed(
         self, examples: Path, atf: Runner, directory: str, name: str
     ) -> None:
-        result = atf("--workspace", str(examples / directory), "graph", name)
+        result = atf("--workspace", str(examples / directory), "inspect", "flow", name)
         assert result.code == 0
         assert result.out.startswith(name)
 
@@ -62,7 +62,7 @@ class TestEveryShippedFlow:
     ) -> None:
         """`util/` is reached only through a lazy import, so the analysis pass cannot see it
         and `atf.spec` names it by hand. A missing hiddenimport fails right here."""
-        result = atf("--workspace", str(examples / directory), "diagram", name)
+        result = atf("--workspace", str(examples / directory), "inspect", "flow", name, "-o", "md")
         assert result.code == 0
         assert "```mermaid" in result.out
 

@@ -1,20 +1,25 @@
-"""Commands that report on the installation rather than on a flow.
+"""What is installed, reported rather than run.
 
-Neither runs anything or touches a flow file. They answer the two questions that come up
-when a name does not resolve to what you expected: what is available, and where the engine
-looked for it.
+`inventory` answers it for the whole lookup: every name that resolves, and which of the
+definitions behind it won.
+
+The rest answer it for one component. A name resolving through a layered lookup means a
+flow can name an agent whose prompt was written by someone else, on another machine, and
+nothing in the flow shows what it says. `inventory` names the file that won; these read it.
 """
 
 from __future__ import annotations
 
 import adapters
 from commands.results import (
+    AdapterDetail,
+    AgentDetail,
     ComponentEntry,
     Inventory,
     KindListing,
-    PathsReport,
-    RootReport,
+    ToolDetail,
 )
+from engine.executor import load_agent, load_component
 from paths.resolver import COMPONENT_DIRS, Paths
 
 # Flows first, then the component kinds, so a listing reads top-down from what you run to
@@ -23,7 +28,7 @@ LIST_ORDER = ("flow", *[kind for kind in COMPONENT_DIRS if kind != "flow"])
 
 
 def inventory(paths: Paths) -> Inventory:
-    """What is available by name, and what a higher-precedence root is hiding.
+    """What is available by name, where each definition is, and what is hidden by what.
 
     Adapters are registered in code, so they have no roots to search and nothing can
     shadow them. Hence a separate field rather than one more kind in the list.
@@ -43,31 +48,77 @@ def inventory(paths: Paths) -> Inventory:
         )
         kinds.append(KindListing(kind=kind, entries=entries))
 
-    return Inventory(adapters=adapters.describe(), kinds=tuple(kinds))
+    return Inventory(adapters=_adapters(paths), kinds=tuple(kinds))
 
 
-def search_paths(paths: Paths) -> PathsReport:
-    """Where the engine looks, in the order it looks. First match wins.
+def _adapters(paths: Paths) -> tuple[ComponentEntry, ...]:
+    """The registered adapters, as entries like any other, so a listing reads one way.
 
-    `subdirs` is what each root actually contains, not what it could. A root listed with
-    nothing in it is the answer to "why is my tool not found".
+    `shadows` stays empty and always will: they are static imports in `ADAPTERS`, not
+    names resolved through the roots, so there is no second definition to hide behind one.
     """
-    roots = tuple(
-        RootReport(
-            path=root,
-            display=paths.display(root),
-            subdirs=tuple(
-                sorted(
-                    {
-                        subdir
-                        for kind in COMPONENT_DIRS
-                        for subdir in COMPONENT_DIRS[kind]
-                        if (root / subdir).is_dir()
-                    }
-                )
-            ),
+    return tuple(
+        ComponentEntry(
+            name=name,
+            path=adapters.locate(module),
+            display=paths.display(adapters.locate(module)),
         )
-        # One pass over the property: `roots` re-derives the list on every access.
-        for root in paths.roots
+        for name, module in sorted(adapters.ADAPTERS.items())
     )
-    return PathsReport(roots=roots, workspace=paths.workspace)
+
+
+def agent_detail(name: str, paths: Paths) -> AgentDetail:
+    """An agent's spec, and the prompt a turn would actually be handed.
+
+    Read through `load_agent` rather than off the disk here, so what this shows and what
+    `run` sends cannot drift apart. A view of the prompt that is not the prompt is worse
+    than no view at all, and its failures are already worded for a person: an agent
+    pointing at a file that is missing, or at one that is empty.
+    """
+    # Located and loaded separately: `load_agent` returns the spec and the prompt but not
+    # the directory they came from, and going through `load_component` for that reports a
+    # missing agent the same way a missing tool is reported one function down.
+    base, _ = load_component(paths, "agent", name)
+    spec, prompt = load_agent(paths, name)
+    return AgentDetail(
+        name=name,
+        path=base,
+        display=paths.display(base),
+        spec=spec,
+        prompt=prompt,
+    )
+
+
+def adapter_detail(name: str, paths: Paths) -> AdapterDetail:
+    """One adapter's description and the settings schema an agent spec is checked against.
+
+    Looked up in `ADAPTERS` rather than through the roots, because that is the whole of
+    where an adapter can come from. `adapters.get` raises the message that lists the ones
+    there are, which is the useful answer to a typo.
+    """
+    module = adapters.get(name)
+    path = adapters.locate(module)
+    return AdapterDetail(
+        name=name,
+        path=path,
+        display=paths.display(path),
+        description=getattr(module, "DESCRIPTION", ""),
+        input_schema=getattr(module, "INPUT_SCHEMA", {}),
+    )
+
+
+def tool_detail(name: str, paths: Paths) -> ToolDetail:
+    """A tool's spec, and its doc when it names one that is there.
+
+    The name is the one it was looked up by, not `spec["name"]`, which for a namespaced
+    tool carries only the leaf. That is the same rule an in-turn grant follows.
+    """
+    base, spec = load_component(paths, "tool", name)
+    doc = base / spec["doc"] if spec.get("doc") else None
+    return ToolDetail(
+        name=name,
+        path=base,
+        display=paths.display(base),
+        spec=spec,
+        doc=doc.read_text().strip() if doc is not None and doc.is_file() else "",
+    )

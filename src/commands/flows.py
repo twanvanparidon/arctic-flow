@@ -11,7 +11,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from commands.results import DiagramResult, FlowPlan, GraphResult, LintResult, RunResult
+from commands.results import (
+    DiagramResult,
+    FlowIssue,
+    FlowPlan,
+    GraphResult,
+    LintReport,
+    LintResult,
+    RunResult,
+)
 from commands.secrets import Password, open_vault
 from engine.executor import (
     FlowError,
@@ -21,7 +29,7 @@ from engine.executor import (
     run_flow,
     validate,
 )
-from paths.resolver import Paths
+from paths.resolver import LookupError_, Paths
 
 # The engine's observer: called with one event dict as steps start, finish, skip and fail.
 # Events arrive from worker threads, so anything passed here must be safe to call
@@ -113,6 +121,28 @@ def lint(flow_ref: str, paths: Paths) -> LintResult:
     )
 
 
+def lint_all(paths: Paths) -> LintReport:
+    """Validate every flow in scope, and report all of them rather than the first failure.
+
+    `lint` raises, because someone asking about one flow is asking for its problem. A sweep
+    is asked by a pipeline, which wants every answer from one run: stopping at the first
+    hides the other four and turns one fix per push into four pushes.
+
+    The caught set is `EXPECTED_ERRORS` minus `VaultError`, which validation cannot raise
+    because it opens no vault. Anything else is a bug and keeps its traceback.
+    """
+    checked, issues = [], []
+    for name in sorted(paths.list("flow")):
+        try:
+            checked.append(lint(name, paths))
+        except (FlowError, LookupError_, OSError) as exc:
+            path = paths.find("flow", name)
+            issues.append(
+                FlowIssue(flow=name, path=path, display=paths.display(path), error=str(exc))
+            )
+    return LintReport(checked=tuple(checked), issues=tuple(issues))
+
+
 def graph(flow_ref: str, paths: Paths) -> GraphResult:
     """A flow's push edges as text. Validates first, so the edges are real ones."""
     from util.graph import render  # noqa: PLC0415 (as with diagram, `run` never needs it)
@@ -129,23 +159,20 @@ def graph(flow_ref: str, paths: Paths) -> GraphResult:
     )
 
 
-def diagram(flow_ref: str, paths: Paths, out: Path | None = None) -> DiagramResult:
+def diagram(flow_ref: str, paths: Paths) -> DiagramResult:
     """Mermaid markdown plus the static resolution report. No model, nothing run.
 
-    Writes to `out` when one is given, since saving it is the same operation from any
-    front end, and returns the markdown either way so a caller can show what it wrote.
+    The markdown is returned rather than written anywhere. Saving it is a redirect, which
+    every front end already has, and a file to write is one more thing to get wrong.
     """
     from util.mermaid import render  # noqa: PLC0415 (keeps `run` free of it)
 
     path = resolve_flow(flow_ref, paths)
     definition = load_flow(path)
     markdown = render(definition, validate(definition, paths), paths)
-    if out:
-        out.write_text(markdown)
     return DiagramResult(
         flow=str(definition["flow"]),
         path=path,
         display=paths.display(path),
         markdown=markdown,
-        written_to=out,
     )
