@@ -35,6 +35,7 @@ from commands.inventory import adapter_detail, agent_detail, inventory, tool_det
 from commands.results import (
     AdapterDetail,
     AgentDetail,
+    ComponentCreated,
     ComponentEntry,
     DiagramResult,
     FlowIssue,
@@ -53,6 +54,7 @@ from commands.results import (
     VaultContents,
     VaultCreated,
 )
+from commands.scaffold import create
 from commands.secrets import (
     Password,
     PasswordProvider,
@@ -95,6 +97,7 @@ __all__ = [
     "adapter_detail",
     "agent_detail",
     "tool_detail",
+    "create",
     # vault
     "open_vault",
     "create_vault",
@@ -114,6 +117,7 @@ __all__ = [
     # results
     "AdapterDetail",
     "AgentDetail",
+    "ComponentCreated",
     "ComponentEntry",
     "DiagramResult",
     "FlowIssue",

@@ -19,9 +19,11 @@ from typing import Any
 
 import yaml
 
+from cli import branding
 from commands.results import (
     AdapterDetail,
     AgentDetail,
+    ComponentCreated,
     ComponentEntry,
     Inventory,
     LintReport,
@@ -67,6 +69,14 @@ TOOL_FIELDS = (
     "secrets",
     "requires",
 )
+
+# What to do with a component that was just scaffolded. One line each, and each names the
+# file that is about to be edited rather than telling someone to go and edit something.
+NEXT = {
+    "flow": f"next: {branding.COMMAND} lint {{name}}",
+    "agent": "next: write {path}/agent.md, which is the system prompt",
+    "tool": "next: write {path}/run.sh, which is what the tool does",
+}
 
 
 def count(n: int, noun: str) -> str:
@@ -226,6 +236,19 @@ def _schema(label: str, schema: dict[str, Any] | None) -> list[str]:
         return []
     body = json.dumps(schema, indent=2).splitlines()
     return [f"{label}:"] + [f"  {line}" for line in body] + [""]
+
+
+def component_created(result: ComponentCreated) -> str:
+    """What was written, and the one thing to do with it next.
+
+    A scaffold runs as it is, so the useful next step is not "finish it" but whichever
+    file the reader is about to edit: an agent is its prompt, a tool is its script, and a
+    flow is already something `lint` can answer for.
+    """
+    lines = [f"created {result.kind} {result.name}  {result.display}", ""]
+    if result.files:
+        lines += [f"  {name}" for name in result.files] + [""]
+    return "\n".join(lines + [NEXT[result.kind].format(name=result.name, path=result.display)])
 
 
 def vault_created(result: VaultCreated) -> str:

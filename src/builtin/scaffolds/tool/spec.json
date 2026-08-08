@@ -1,0 +1,44 @@
+{
+  "name": "__NAME__",
+  "version": 1,
+  "description": "Returns the text it was given. Replace this with one sentence saying what the tool does and when to reach for it: it is the first thing a model reads about this tool.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 10
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The text to return. Describe every property: this is what a model reads when it decides what to pass, and what `atf lint` checks a flow's input against."
+      }
+    },
+    "required": ["text"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "The text, unchanged."
+  },
+
+  "exit_codes": {
+    "0": "success (the result is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)"
+  },
+
+  "permissions": {
+    "filesystem": "none",
+    "network": false
+  },
+
+  "requires": ["bash", "jq"]
+}

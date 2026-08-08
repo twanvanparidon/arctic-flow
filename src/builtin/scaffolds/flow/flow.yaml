@@ -1,0 +1,60 @@
+# __NAME__: one line saying what this flow is for.
+#
+#   start: read_target ──> (whatever you add next)
+#
+# Read it forwards. Every step names where its result goes: `push` hands it on
+# unconditionally, `switch` with `cases` picks one branch from the step's own result.
+# Nothing declares what it waits for; the engine derives that and runs whatever is
+# ready.
+#
+#   atf lint __NAME__
+#   atf run __NAME__ --input path=README.md
+#
+# As written it runs one built-in tool, so it needs no model, no network and no key.
+
+flow: __NAME__
+version: 1
+description: One sentence saying what this flow does.
+
+# What the caller supplies. Each also reads from the environment, so `path` can arrive
+# as --input path=... or as $ATF_VAR_PATH.
+inputs:
+  path:
+    type: string
+    required: true
+    description: File to read, relative to the project root.
+
+# Where the first push goes. A flow has exactly one entry.
+start: read_target
+
+steps:
+  # A tool step: deterministic, no model involved, and free. Cheaper and more reliable
+  # than asking an agent to go and read something.
+  - id: read_target
+    tool: common/read_file
+    input:
+      path: "{{ inputs.path }}"
+      max_lines: 400
+
+  # An agent step. Write the agent first:
+  #
+  #   atf create agent reporter
+  #
+  # then add `push: [report]` to the step above, uncomment this, and point the output
+  # template at `steps.report.text`. Model, effort and output shape are the agent's, in
+  # its own spec.json: a flow names the graph and nothing else.
+  #
+  # - id: report
+  #   agent: reporter
+  #   prompt: |
+  #     Review this file.
+  #
+  #     Path: {{ inputs.path }}
+  #     ---
+  #     {{ steps.read_target.text }}
+
+# What the run prints on stdout. `{{ steps.<id>.text }}` is a step's result as text;
+# `.json` reads a field out of it when the step declared an output schema.
+output:
+  template: |
+    {{ steps.read_target.text }}

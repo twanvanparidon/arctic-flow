@@ -1,0 +1,13 @@
+{
+  "name": "__NAME__",
+  "kind": "agent",
+  "version": 1,
+  "description": "One sentence saying what this agent is for. A flow's author reads this to decide whether to name it.",
+
+  "system_prompt": "agent.md",
+  "adapter": "claude_code",
+  "model": "sonnet",
+  "effort": "medium",
+
+  "tools": []
+}

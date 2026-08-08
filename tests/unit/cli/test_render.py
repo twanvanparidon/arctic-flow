@@ -18,6 +18,7 @@ from cli import render
 from commands.results import (
     AdapterDetail,
     AgentDetail,
+    ComponentCreated,
     ComponentEntry,
     FlowIssue,
     Inventory,
@@ -273,6 +274,35 @@ class TestToolDetail:
         assert not text.endswith("\n")
 
 
+class TestComponentCreated:
+    AGENT = ComponentCreated(
+        kind="agent",
+        name="reviewer",
+        path=Path("a"),
+        display="./agents/reviewer",
+        files=("agent.md", "spec.json"),
+    )
+    FLOW = ComponentCreated(
+        kind="flow", name="review", path=Path("f"), display="./flows/review.yaml"
+    )
+
+    def test_it_says_what_was_made_and_where(self) -> None:
+        first = render.component_created(self.AGENT).splitlines()[0]
+        assert "agent" in first and "reviewer" in first and "./agents/reviewer" in first
+
+    def test_the_files_are_listed_under_it(self) -> None:
+        lines = [line.strip() for line in render.component_created(self.AGENT).splitlines()]
+        assert "agent.md" in lines and "spec.json" in lines
+
+    def test_a_flow_lists_no_files_because_the_path_is_the_file(self) -> None:
+        assert "\n\n\n" not in render.component_created(self.FLOW)
+
+    def test_each_kind_is_told_what_to_do_with_it(self) -> None:
+        """A scaffold runs as it is, so the next step is the file about to be edited."""
+        assert render.component_created(self.FLOW).endswith("lint review")
+        assert "./agents/reviewer/agent.md" in render.component_created(self.AGENT)
+
+
 class TestVaultWording:
     def test_a_created_vault_counts_its_secrets(self) -> None:
         result = VaultCreated(path=Path("v"), display="./v", count=1)
@@ -322,6 +352,8 @@ class TestTheHouseRules:
             render.adapter_detail(ADAPTER),
             render.agent_detail(AGENT),
             render.tool_detail(TOOL),
+            render.component_created(TestComponentCreated.AGENT),
+            render.component_created(TestComponentCreated.FLOW),
             render.vault_created(VaultCreated(path=Path("v"), display="./v", count=2)),
             render.secret_names(SecretListing(path=Path("v"), display="./v", names=("a",))),
             render.vault_contents(TestVaultContents.RESULT),

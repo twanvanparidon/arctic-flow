@@ -120,7 +120,7 @@ src/commands/    one function per command, no terminal attached; returns results
 src/engine/      executor.py runs a flow; specs.py checks components before it does
 src/paths/       layered component lookup
 src/adapters/    model runtimes as Python modules, registered in code
-src/builtin/     components that ship with the engine (data, not code)
+src/builtin/     components that ship with the engine, and `create`'s scaffolds (data, not code)
 src/util/        ways of reading a flow without running it (graph text, Mermaid)
 ```
 
@@ -210,6 +210,17 @@ refuses a name whose segments would leave the root (`..`, an absolute path, an e
 segment), which is why the check sits in the resolver and not in `lint`: one place covers
 `run`, a grant and `mcp-serve` alike. Granted tools reach a turn under `flat_name`, where
 the separator is `__`, because `mcp__atf__<tool>` cannot carry a slash.
+
+`atf create <kind> <name>` writes one, out of `../src/builtin/scaffolds/<kind>/`, into
+`./.arctic` when the workspace has one and the workspace root otherwise: the top of that
+same precedence list, so what is created is what then resolves. `$ATF_PATH` and `~/.arctic`
+are deliberately not offered. The scaffolds are data rather than strings in
+`commands/scaffold.py`, so a scaffolded `run.sh` is covered by `shellcheck` and read as
+shell; `__NAME__` is the placeholder, and `_declared_name` decides whether it becomes the
+whole name (a flow, which is what `run` is handed) or the leaf (a spec, whose namespace is
+the directory it sits in). Everything written has to be runnable as it is, which only
+`tests/unit/commands/test_scaffold.py` checks: **a new requirement in `engine/specs.py`
+means updating the scaffold too**.
 
 | Kind | Is | Contract |
 | --- | --- | --- |

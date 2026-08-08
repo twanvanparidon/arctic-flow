@@ -83,6 +83,16 @@ class LookupError_(RuntimeError):
     """A component could not be found, a kind is not a component kind, or a name is not one."""
 
 
+def check_kind(kind: str) -> None:
+    """Refuse anything that is not one of the kinds found by name.
+
+    Beside `check_name` and called from the same place, so a lookup and a `create` refuse
+    an unknown kind with the same sentence, which names the three there are.
+    """
+    if kind not in COMPONENT_DIRS:
+        raise LookupError_(f"'{kind}' is not a component kind ({', '.join(COMPONENT_DIRS)})")
+
+
 def check_name(name: str) -> None:
     """Refuse a name that would resolve to something outside the search roots.
 
@@ -190,8 +200,7 @@ class Paths:
 
     def _candidates(self, kind: str, name: str) -> list[Path]:
         """Every location a component of this kind and name could occupy."""
-        if kind not in COMPONENT_DIRS:
-            raise LookupError_(f"'{kind}' is not a component kind ({', '.join(COMPONENT_DIRS)})")
+        check_kind(kind)
         check_name(name)
 
         found: list[Path] = []

@@ -246,6 +246,21 @@ class Inventory:
 
 
 @dataclass(frozen=True)
+class ComponentCreated:
+    """A component that was scaffolded into the project, and the files it is made of.
+
+    `files` are names relative to `path`. A flow is a single YAML file, so `path` is that
+    file and this is empty rather than repeating it.
+    """
+
+    kind: str
+    name: str
+    path: Path
+    display: str
+    files: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class VaultCreated:
     """A vault that was written. `count` is how many secrets went into it."""
 

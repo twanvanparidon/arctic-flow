@@ -20,18 +20,21 @@ from pathlib import Path
 import adapters
 from paths.resolver import Paths
 
-# Commands whose first argument is a component name, and the kind to answer it from.
-# Components are named rather than pathed, so the candidates come out of the lookup; a path
-# to a .yaml file is left to the shell. Keyed by the command's own name, which for anything
-# in a bucket is the leaf: the walk below descends before it asks what the command takes.
-# So `inspect agent` arrives here as `agent`.
+# Commands whose first argument names an existing component, and the kind to answer it
+# from. Components are named rather than pathed, so the candidates come out of the lookup;
+# a path to a .yaml file is left to the shell.
+#
+# Keyed by the whole command rather than by its last word, because the same leaf appears
+# under two buckets and means opposite things: `inspect flow` asks which flows there are,
+# and `create flow` asks for a name there is not. A command absent from here is answered
+# with nothing, which is the right answer for a name being invented.
 NAME_COMMANDS = {
     "run": "flow",
     "lint": "flow",
-    "flow": "flow",
-    "agent": "agent",
-    "tool": "tool",
-    "adapter": "adapter",
+    "inspect flow": "flow",
+    "inspect agent": "agent",
+    "inspect tool": "tool",
+    "inspect adapter": "adapter",
 }
 
 # One name per snippet in completions/. A second shell is a second file and a second entry.
@@ -101,11 +104,12 @@ def _parser() -> argparse.ArgumentParser:
 def _reached(
     parser: argparse.ArgumentParser, words: list[str], name: str = ""
 ) -> tuple[argparse.ArgumentParser, str, list[str]]:
-    """The parser the words got to, the command that named it, and its arguments so far.
+    """The parser the words got to, the whole command that named it, and its arguments.
 
     One level per subcommand, so `vault set secrets.vault` ends at `set`'s own parser with
-    one argument. Descending before the arguments are counted is what keeps a flag at the
-    level that declares it: `--vault-password-file` belongs to `set`, not to `vault`.
+    one argument, and the command is `vault set` rather than `set`. Descending before the
+    arguments are counted is what keeps a flag at the level that declares it:
+    `--vault-password-file` belongs to `set`, not to `vault`.
     """
     flags, subcommands = _flags(parser), _subcommands(parser)
     arguments: list[str] = []
@@ -118,7 +122,7 @@ def _reached(
         elif word.startswith("-"):
             expecting = flags.get(word, False)
         elif not arguments and word in subcommands:
-            return _reached(subcommands[word], words[index + 1 :], word)
+            return _reached(subcommands[word], words[index + 1 :], f"{name} {word}".strip())
         else:
             arguments.append(word)
 

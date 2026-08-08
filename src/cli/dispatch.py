@@ -166,6 +166,12 @@ def inspect_flow(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def create(args: argparse.Namespace, paths: Paths) -> int:
+    """Scaffold one component. stdout, because what it prints is the command's result."""
+    print(render.component_created(commands.create(args.create_kind, args.name, paths)))
+    return 0
+
+
 def mcp_serve(args: argparse.Namespace, paths: Paths) -> int:
     """Serve the named tools to an agent's turn, until stdin closes.
 

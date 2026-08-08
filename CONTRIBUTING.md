@@ -234,7 +234,22 @@ registry frozen into a binary cannot be added to from outside.
 
 ## Adding a component
 
-Copy the nearest existing one. That is the intended way in.
+`atf create` writes one from the scaffold that ships with the engine, into `./.arctic` when
+the project keeps one and the project root otherwise:
+
+```sh
+atf create flow review          # flows/review.yaml
+atf create agent reviewer       # agents/reviewer/: spec.json, agent.md
+atf create tool git/commit      # tools/git/commit/: spec.json, tool.md, run.sh
+```
+
+The scaffolds are data, under `src/builtin/scaffolds/`, for the reason the built-in tools
+are: a scaffolded `run.sh` is shell, so `shellcheck` reads it with the rest of the
+repository and it is edited as shell rather than as a string in a Python module. Changing
+what a new component looks like is editing those files.
+
+The scaffold is a plain component of each kind. Anything past that, copy the nearest
+existing one: a tool that writes, one that reaches the network, an adapter.
 
 | Adding | Copy | Needs |
 | ------ | ---- | ----- |
