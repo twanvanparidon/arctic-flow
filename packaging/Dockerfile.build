@@ -78,7 +78,7 @@ RUN pyinstaller --clean --noconfirm --distpath /out --workpath /tmp/pyi packagin
 # passes, and the binary reports the placeholder. release.sh would catch it a job later,
 # once the artefact exists and has been uploaded.
 RUN /out/atf/atf --version \
- && { [ -z "$VERSION" ] || /out/atf/atf --version | grep -Fqx "atf ${VERSION#v}"; } \
+ && { [ -z "$VERSION" ] || /out/atf/atf --version | grep -Fqx "Arctic Flow v${VERSION#v}"; } \
  && /out/atf/atf list | tee /tmp/list.txt \
  && grep -q read_file   /tmp/list.txt \
  && grep -q write_file  /tmp/list.txt \

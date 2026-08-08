@@ -97,7 +97,7 @@ class TestExitCodes:
         assert caught.value.code == 0
         # The shape is the contract, not the number: a build stamps the version in from the
         # tag, so a literal here would pin whatever a checkout happens to carry.
-        assert capsys.readouterr().out.strip() == f"atf {branding.__version__}"
+        assert capsys.readouterr().out.strip() == f"{branding.NAME} v{branding.__version__}"
 
     def test_an_expected_failure_is_one_line_on_stderr_and_exit_one(
         self, workspace: Path, capsys: pytest.CaptureFixture[str]

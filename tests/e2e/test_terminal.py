@@ -178,9 +178,12 @@ class TestARunThatNeedsUnlocking:
 
 class TestWhatAPersonSees:
     def test_the_banner_is_drawn_for_a_person(self, console: Callable[..., Console]) -> None:
-        """`atf --version` is one parseable line on a pipe and a banner on a terminal. Both
-        halves matter; the pipe half is in test_binary.py."""
-        with console("--version") as session:
+        """Help is the only thing it is drawn above, and only for someone watching. The
+        other half, `atf --help | cat` staying plain, needs a pipe and is in test_binary.py.
+
+        `--version` gets no banner either way: scripts read it and CI logs print it.
+        """
+        with console("--help") as session:
             session.wait()
         assert "A R C T I C" in session.output
 

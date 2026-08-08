@@ -2,8 +2,8 @@
 
 ASCII only, because a snowflake given emoji presentation renders double-width and skews
 everything aligned after it, and a non-UTF-8 stdout turns a decoration into a
-UnicodeEncodeError. Suppressed off a terminal, because `atf --version` gets parsed by
-scripts and read in CI logs.
+UnicodeEncodeError. Suppressed off a terminal, because `atf --help | cat` has to stay
+plain.
 """
 
 from __future__ import annotations
@@ -36,10 +36,6 @@ class TestBanner:
 
 
 class TestVersionLine:
-    def test_a_pipe_gets_one_parseable_line(self) -> None:
-        assert branding.version_line("1.2.3", io.StringIO()) == "atf 1.2.3\n"
-
-    def test_a_terminal_gets_the_banner(self, terminal: Terminal) -> None:
-        assert branding.version_line("1.2.3", terminal.stream) == branding.banner(
-            "1.2.3", terminal.stream
-        )
+    def test_it_names_the_product_and_the_tag(self) -> None:
+        """`release.sh` reads the number back out of it, so the shape is the decision."""
+        assert branding.version_line("1.2.3") == f"{branding.NAME} v1.2.3\n"

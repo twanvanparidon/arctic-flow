@@ -20,6 +20,8 @@ import pytest
 
 from support.outcome import Runner
 
+from .conftest import VERSION_PREFIX, reported_version
+
 BUILT_IN_TOOLS = ("read_file", "write_file")
 SHIPPED_ADAPTERS = ("claude_code", "echo")
 
@@ -32,10 +34,10 @@ COMMANDS = ("run", "lint", "graph", "diagram", "list", "paths", "completion", "v
 
 class TestIdentity:
     def test_the_version_is_one_line_on_a_pipe(self, atf: Runner) -> None:
-        """`release.sh` reads the second field of it, so the shape is the decision."""
+        """`release.sh` reads the number back out of it, so the shape is the decision."""
         result = atf("--version")
         assert result.code == 0
-        assert result.out.startswith("atf ")
+        assert result.out.startswith(VERSION_PREFIX)
         assert len(result.out.splitlines()) == 1
 
     def test_the_version_is_the_one_the_tag_promised(
@@ -45,11 +47,11 @@ class TestIdentity:
         writes a source tree nothing reads again, and every other check still passes."""
         if expected_version is None:
             pytest.skip("no $ATF_EXPECTED_VERSION: not a release build")
-        assert atf("--version").out == f"atf {expected_version}\n"
+        assert atf("--version").out == f"{VERSION_PREFIX}{expected_version}\n"
 
     def test_the_placeholder_is_not_a_plausible_release(self, atf: Runner) -> None:
         """An unstamped build has to be obvious rather than look like 0.1.0."""
-        version = atf("--version").out.split()[1]
+        version = reported_version(atf("--version").out)
         assert version == "0.0.0.dev0" or not version.endswith(".dev0")
 
 
@@ -98,6 +100,10 @@ class TestTheInterface:
 
     def test_help_succeeds(self, atf: Runner) -> None:
         assert atf("--help").code == 0
+
+    def test_help_into_a_pipe_carries_no_banner(self, atf: Runner) -> None:
+        """The half a pipe can ask. The terminal half is in test_terminal.py."""
+        assert "A R C T I C" not in atf("--help").out
 
     def test_a_usage_mistake_is_argparses_two(self, atf: Runner) -> None:
         assert atf("--nonsense").code == 2

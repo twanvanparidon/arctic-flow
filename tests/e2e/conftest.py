@@ -49,6 +49,16 @@ NAMED_BINARY = os.environ.get("ATF_BINARY")
 # thing that stamped it. Absent when the suite is run against a local build.
 EXPECTED_VERSION = os.environ.get("ATF_EXPECTED_VERSION")
 
+# What `atf --version` prints, up to the number. Written out rather than imported from the
+# checkout, because the subject here is the artefact: `release.sh` reads the number back out
+# of this shape, and a build that printed something else would be a mislabelled release.
+VERSION_PREFIX = "Arctic Flow v"
+
+
+def reported_version(printed: str) -> str:
+    """The number out of `atf --version`, the way `release.sh` takes it."""
+    return printed.strip().removeprefix(VERSION_PREFIX)
+
 
 def binary_path() -> Path | None:
     candidate = Path(NAMED_BINARY) if NAMED_BINARY else DEFAULT_BINARY

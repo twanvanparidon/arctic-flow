@@ -132,8 +132,15 @@ class TestOnATerminal:
         assert result.err == ""
 
     def test_the_banner_appears_only_for_a_person(self, project: Path, atf_process: Runner) -> None:
-        assert "A R C T I C" in on_a_terminal(["--version"]).out
-        assert atf_process("--version").out == f"atf {branding.__version__}\n"
+        """Help is the only thing it is drawn above, so `atf --help | cat` stays plain."""
+        assert "A R C T I C" in on_a_terminal(["--help"]).out
+        assert "A R C T I C" not in atf_process("--help").out
+
+    def test_the_version_is_one_line_on_a_terminal_too(self, atf_process: Runner) -> None:
+        """Scripts read it and CI logs print it, so it does not change with the audience."""
+        line = f"{branding.NAME} v{branding.__version__}"
+        assert on_a_terminal(["--version"]).out.strip() == line
+        assert atf_process("--version").out == f"{line}\n"
 
 
 class TestExitStatus:
