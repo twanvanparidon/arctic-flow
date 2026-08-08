@@ -32,7 +32,8 @@ waits for. The engine derives the reverse edges, runs whatever is ready, and del
 results onward. Two steps pushed from one place run concurrently. A step named by two
 places runs once both have arrived. A branch that is not taken is skipped, and the skip
 travels downstream, so a join is reached without waiting for a path that will never
-deliver.
+deliver. A case naming a step that already ran sends the work back to it, which is how a
+reviewer declines a draft, and `max_loops` says how many times it may.
 
 **Why it is built this way.** Workflows are code. They live in files you can diff, review
 and override, not in a UI. A flow names a graph and nothing else. Which model, which
@@ -123,7 +124,7 @@ to send a `switch` down the branch you want to look at.
 
 ## Examples
 
-Four projects that run as they are. Read them forwards, the way the engine does:
+Five projects that run as they are. Read them forwards, the way the engine does:
 
 - **[`examples/sign-release`](examples/sign-release)** is tools and secrets. Two steps and
   one key from an encrypted vault. Deterministic, no key, no network.
@@ -131,6 +132,9 @@ Four projects that run as they are. Read them forwards, the way the engine does:
   picks one path, the other is skipped, and the report waits for neither. A few cents to run.
 - **[`examples/gated-summary`](examples/gated-summary)** is a gate. A tool has to accept the
   agent's answer before it goes anywhere, and says what was wrong with it when it does not.
+- **[`examples/draft-review`](examples/draft-review)** is a loop. A reviewer sends the draft
+  back to the writer until it passes or runs out of passes, and the writer is handed what
+  the reviewer said. Read it against `gated-summary` for when to use which.
 - **[`examples/agent-tools`](examples/agent-tools)** grants an agent `common/read_file`
   and `common/write_file`, so it decides for itself when to read and when to write. One step
   where the same job as three would also work, and the flow header says when to prefer which.
@@ -142,6 +146,8 @@ ATF_VAULT_PASSWORD=demo atf --workspace examples/sign-release \
     run sign_release --input path=release-notes.md
 
 atf --workspace examples/gated-summary run summarize --input path=incident.md
+
+atf --workspace examples/draft-review run draft_review --input path=brief.md
 
 atf --workspace examples/agent-tools run annotate \
     --input path=notes/incident.md --input out=out/incident.md

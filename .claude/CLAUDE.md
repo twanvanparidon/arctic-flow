@@ -23,7 +23,8 @@ ATF_VAULT_PASSWORD=demo python3 src/main.py --workspace examples/sign-release \
 python3 src/main.py --workspace examples/file-review inspect flow review_file
 ```
 
-`../examples/file-review` and `../examples/gated-summary` call models: they need the
+`../examples/file-review`, `../examples/gated-summary` and `../examples/draft-review`
+(which loops, so it pays for several turns) call models: they need the
 `claude` CLI authenticated and cost a few cents per run. `../examples/sign-release` needs
 nothing (vault password `demo`).
 
@@ -158,16 +159,27 @@ An agent step may also carry a `gate`: a tool that has to exit 0 on the step's r
 before any edge is delivered. A rejection is not a failure. The tool's output is appended
 to the original prompt through the step's own `feedback` template and the agent answers
 again, up to `max_attempts` (3 by default, minimum 2), after which the step fails carrying
-what the gate said. The loop is inside `run_agent`, not in the graph: the graph has no
-cycles and every turn is a fresh session, so the retry has to carry its own history. A
-gated step reports the cost of *all* its attempts, because the envelope only knows the
-last one. Gates are refused on tool steps: same input, same result, no way out of the loop.
+what the gate said. The loop is inside `run_agent` rather than in the graph, because every
+turn is a fresh session, so the retry has to carry its own history. A gated step reports
+the cost of *all* its attempts, because the envelope only knows the last one. Gates are
+refused on tool steps: same input, same result, no way out of the loop.
+
+A `switch` case naming a step that is already upstream is a **loop**, the only cycle a flow
+may have. `back_edges` finds it by a depth-first walk from `start`, so declaration order
+decides which edge closes a cycle, and `max_loops` on that step is then required. When it
+fires, the body (`descendants_of(head) & ancestors_of(source)`) goes back to `waiting` and
+the edges *inside* it go back to `pending`. `results` is deliberately not cleared, so the
+next pass reads the last one, and a body step that has not run yet is seeded with
+`SKIPPED_RESULT`. The subtle part is that a step which took a back-edge leaves its **other**
+edges `pending` rather than `skipped`: marking the exit branch skipped propagates and skips
+everything after the loop, so the run ends with no output. Anything derived from an
+ordering (waves, guarantees, the cycle check) reads `without_back_edges` instead.
 
 Templates are `{{ dotted.path }}` over five namespaces: `inputs`, `steps`, `secrets`,
 `this` (the step's own result, in a switch or a gate) and `gate` (gate feedback only). An
 unresolvable path is an error, never an empty string. `validate()` rejects reading from a
-step that is not transitively upstream, cycles, unreachable steps, self-pushes, and both
-`push` and `switch` on one step.
+step that is not transitively upstream, an undeclared cycle, unreachable steps, self-pushes,
+and both `push` and `switch` on one step.
 
 An input comes from the caller's mapping or from `$ATF_VAR_<NAME>`, merged in
 `commands.prepare` with the mapping winning. The prefix is `ATF_VAR_` and not a bare `ATF_`

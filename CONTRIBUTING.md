@@ -323,8 +323,9 @@ the next prompt, appended to the original one. Every turn is a fresh session, so
 carries its own history or it has none. When the attempts run out the step fails with what
 the gate last said, and nothing downstream ever sees a result the gate refused.
 
-The loop is inside the step. There is no edge back to the agent, so a flow still has no
-cycles, and `inspect flow` reports the gate rather than drawing one.
+The loop is inside the step. There is no edge back to the agent, so `inspect flow` reports
+the gate rather than drawing one. That is what separates a gate from a loop, which is a
+real edge and is drawn as one.
 
 Four rules, all enforced by `lint`:
 
@@ -340,6 +341,74 @@ Four rules, all enforced by `lint`:
 Any tool is a gate, with no second contract to write to. The cost of that is a gate that is
 itself broken: it reports its own error the same way a rejection arrives, and spends the
 attempts before the step fails.
+
+## Loops
+
+A gate checks one answer against a fixed rule. A loop sends the work back through the steps
+that produced it, which is what a reviewer declining a draft needs: the reviewer is a step
+of its own, with its own agent, its own cost line and its own row in `inspect flow`.
+
+Nothing declares a loop. A `switch` case naming a step that is already upstream **is** one,
+and `lint` finds it from the graph:
+
+```yaml
+- id: write
+  agent: writer
+  prompt: |
+    Write the section.
+    Last review: {{ steps.review.text }}
+  push: [review]
+
+- id: review
+  agent: reviewer
+  prompt: "Review this draft: {{ steps.write.text }}"
+  switch: "{{ this.json.verdict }}"
+  max_loops: 5
+  cases:
+    rejected: [write]        # already upstream, so this is the loop
+    approved: [publish]
+```
+
+Every step from `write` to `review` goes back to waiting and runs again. `max_loops` is how
+many times `review` may send the work back, so `write` runs at most six times. Running out
+is a failure rather than a quiet exit: a loop that never converged has not done its job.
+
+What the last pass produced stays in `steps`, and that is how `write` reads the review that
+sent its work back. On the first pass there is no review yet, so it reads `(not run)`, the
+same literal a skipped step resolves to. That holds for `.text` only. There is nothing to
+reach into for `{{ steps.review.json.verdict }}` before the step has run, so what a first
+pass reads is the prose.
+
+**A loop makes a step its own ancestor, so a step may read itself.** `{{ steps.write.text }}`
+inside `write` is the draft it produced last pass, and `(not run)` on the first. Outside a
+loop the same reference is refused, because a step is not upstream of itself there, so the
+permission arrives with the loop and goes away with it.
+
+Reach for it whenever a pass is meant to improve on the last one rather than replace it.
+Without it an agent starts from its inputs every pass, and a draft that fixes what was
+flagged breaks something that had already passed, so a strict reviewer and a forgetful
+writer produce a loop that runs to its bound and fails. With it each pass is an edit. The
+`draft-review` example reads both its own draft and the review of it, and says why.
+
+Six rules, all enforced by `lint`:
+
+- **A loop needs a `switch`.** A `push` always fires, so a step that always sends its result
+  back has no way to stop, and could only run to its bound and fail.
+- **`max_loops` is required**, and refused where nothing loops. An unbounded cycle is the
+  one mistake here that spends money rather than failing.
+- **`max_loops` is an integer of 1 or more.** YAML reads `yes` as `True` and a bool is an
+  int, so without its own check `max_loops: yes` would pass as a bound of one.
+- **Everything the loop reaches is on it or after it.** A step the loop head reaches that
+  does not lead back would run on the first pass and then sit finished while the rest went
+  round again.
+- **No nested or overlapping loops.** Two loops sharing a step leaves it undefined which
+  one's count a pass resets.
+- **A cycle nothing enters is still refused.** No walk from `start` reaches it, so nothing
+  opens it: it is a ring of steps that can never run.
+
+The last rule but one is also what keeps a pass safe to start. A loop's body is bounded by
+what leads back to the step that closes it, so every member has finished by the time the
+work goes back, and none is still running when its state returns to waiting.
 
 ## Inputs
 
