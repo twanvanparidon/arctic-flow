@@ -19,8 +19,10 @@ from commands.results import (
     AdapterDetail,
     AgentDetail,
     ComponentEntry,
+    FlowIssue,
     Inventory,
     KindListing,
+    LintReport,
     LintResult,
     RunResult,
     SecretListing,
@@ -63,6 +65,39 @@ class TestLint:
         rendered = render.lint(result)
         assert "./flows/demo.yaml" in rendered
         assert "1 step" in rendered
+
+
+class TestLintReport:
+    PASSED = LintResult(flow="demo", path=Path("f"), display="./flows/demo.yaml", steps=[{}])
+    BROKEN = FlowIssue(
+        flow="bad", path=Path("b"), display="./flows/bad.yaml", error="unknown tool 'ghost'"
+    )
+
+    def test_a_clean_sweep_says_what_it_checked(self) -> None:
+        text = render.lint_report(LintReport(checked=(self.PASSED,)))
+        assert "./flows/demo.yaml" in text
+        assert text.endswith("1 flow checked, no issues found")
+
+    def test_a_failure_names_the_flow_and_what_stopped_it(self) -> None:
+        text = render.lint_report(LintReport(checked=(self.PASSED,), issues=(self.BROKEN,)))
+        assert "./flows/bad.yaml" in text
+        assert "unknown tool 'ghost'" in text
+
+    def test_failures_come_last(self) -> None:
+        """Read in a pipeline log, where the end of the output is what is on screen."""
+        text = render.lint_report(LintReport(checked=(self.PASSED,), issues=(self.BROKEN,)))
+        assert text.index("demo.yaml") < text.index("bad.yaml")
+
+    def test_the_count_covers_the_ones_that_failed_too(self) -> None:
+        text = render.lint_report(LintReport(checked=(self.PASSED,), issues=(self.BROKEN,)))
+        assert text.endswith("2 flows checked, 1 failed")
+
+    def test_a_pass_reads_the_same_as_that_flow_checked_on_its_own(self) -> None:
+        """One flow linted alone and the same flow inside a sweep say the same sentence."""
+        assert render.lint(self.PASSED) in render.lint_report(LintReport(checked=(self.PASSED,)))
+
+    def test_nothing_to_check_says_so_rather_than_counting_to_zero(self) -> None:
+        assert render.lint_report(LintReport()) == "no flows found"
 
 
 class TestTrace:

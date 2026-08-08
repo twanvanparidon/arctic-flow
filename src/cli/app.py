@@ -235,9 +235,12 @@ def build_parser() -> argparse.ArgumentParser:
         "declared schemas are valid schemas, that an agent's settings are ones its adapter\n"
         "accepts, and that the inputs a step passes match what the tool declares.\n\n"
         "These are the same checks `run` performs before its first step, so a clean lint\n"
-        "means a flow will not fail on its own definitions.\n",
+        "means a flow will not fail on its own definitions.\n\n"
+        "Named with no flow, or with `.`, it checks every flow in scope and reports all of\n"
+        "them before exiting non-zero, which is the shape a pipeline wants: one run, every\n"
+        "answer. Naming one flow stops at its first problem instead.\n",
     )
-    lint.add_argument("flow", help=FLOW_HELP)
+    lint.add_argument("flow", nargs="?", help=f"{FLOW_HELP}; omitted, every flow in scope")
 
     inspect = sub.add_parser(
         "inspect",

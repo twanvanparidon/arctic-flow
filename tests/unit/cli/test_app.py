@@ -42,6 +42,15 @@ class TestTheCommandsThatExist:
         with pytest.raises(SystemExit):
             build_parser().parse_args(["inspect"])
 
+    @pytest.mark.parametrize("command", [["run"], ["inspect", "flow"]])
+    def test_a_command_taking_a_name_is_given_one(self, command: list[str]) -> None:
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(command)
+
+    def test_lint_takes_no_flow_at_all(self) -> None:
+        """The sweep, which is what a pipeline runs: every flow in scope, in one call."""
+        assert build_parser().parse_args(["lint"]).flow is None
+
     @pytest.mark.parametrize("action", ["create", "set", "list", "view"])
     def test_each_vault_action_parses(self, action: str) -> None:
         argv = ["vault", action, "secrets.vault"]

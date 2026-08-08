@@ -185,10 +185,10 @@ ruff format --check src packaging tests
 shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 pytest
 
-# the engine validates flows better than any generic linter
-for flow in examples/*/flows/*.yaml; do
-  project=$(dirname "$(dirname "$flow")")
-  python3 src/main.py --workspace "$project" lint "$(basename "$flow" .yaml)"
+# the engine validates flows better than any generic linter. A bare `lint` checks every
+# flow in the workspace and exits non-zero if any of them failed.
+for project in examples/*/; do
+  python3 src/main.py --workspace "$project" lint
 done
 ```
 

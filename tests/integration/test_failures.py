@@ -252,3 +252,56 @@ class TestLint:
         result = atf("--workspace", str(project), "lint", "broken")
         assert result.code == 0
         assert "1 step" in result.out
+
+
+class TestTheLintSweep:
+    """What a pipeline runs: no flow named, every flow in scope, one exit code."""
+
+    def two_flows(self, project: Path) -> None:
+        make.write_flow(
+            project, "good", {"flow": "good", "start": "a", "steps": [{"id": "a", "tool": "x"}]}
+        )
+        make.write_tool(project, "x", script=make.prints("ok"))
+        make.write_flow(
+            project, "bad", {"flow": "bad", "start": "a", "steps": [{"id": "a", "tool": "ghost"}]}
+        )
+
+    @pytest.mark.parametrize("argv", [(), (".",)])
+    def test_both_spellings_check_everything(
+        self, project: Path, atf: Runner, argv: tuple[str, ...]
+    ) -> None:
+        self.two_flows(project)
+        result = atf("--workspace", str(project), "lint", *argv)
+        assert "good.yaml" in result.out and "bad.yaml" in result.out
+
+    def test_one_bad_flow_fails_the_run_without_hiding_the_others(
+        self, project: Path, atf: Runner
+    ) -> None:
+        """The reason it does not raise on the first: a pipeline wants every answer from
+        one push, not one failure per push."""
+        self.two_flows(project)
+        result = atf("--workspace", str(project), "lint")
+        assert result.code == 1
+        assert "ok, 1 step" in result.out
+        assert "unknown tool 'ghost'" in result.out
+        assert "2 flows checked, 1 failed" in result.out
+
+    def test_a_clean_sweep_exits_zero(self, project: Path, atf: Runner) -> None:
+        make.write_tool(project, "x", script=make.prints("ok"))
+        make.write_flow(
+            project, "good", {"flow": "good", "start": "a", "steps": [{"id": "a", "tool": "x"}]}
+        )
+        result = atf("--workspace", str(project), "lint")
+        assert result.code == 0
+        assert "no issues found" in result.out
+
+    def test_a_project_with_no_flows_says_so_and_does_not_fail(
+        self, tmp_path: Path, atf: Runner
+    ) -> None:
+        """A project being set up has none yet. Worth saying out loud rather than printing
+        a count of zero that reads like everything passed."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        result = atf("--workspace", str(empty), "lint")
+        assert result.code == 0
+        assert result.out.strip() == "no flows found"

@@ -42,6 +42,11 @@ from vault.vault import VaultError, resolve_password
 GRAPH_TEXT, GRAPH_MERMAID = "raw", "md"
 GRAPH_FORMATS = (GRAPH_TEXT, GRAPH_MERMAID)
 
+# `lint .` means every flow, the same as naming none. Spelled the way other linters spell
+# it, and unambiguous here because flows are named rather than pathed: `.` is not a flow
+# name the lookup could ever return, and `resolve_flow` would only ever refuse it.
+EVERYTHING = "."
+
 
 def parse_input_pairs(pairs: list[str]) -> dict[str, str]:
     """`--input KEY=VALUE`, repeated, as a mapping. A repeated key takes its last value.
@@ -120,6 +125,18 @@ def run(args: argparse.Namespace, paths: Paths) -> int:
 
 
 def lint(args: argparse.Namespace, paths: Paths) -> int:
+    """One flow, or every flow in scope when none is named.
+
+    The sweep returns its own exit code rather than raising, because it has already
+    checked the flows after the one that failed and the report is the point. A single
+    flow still raises, so `lint one_flow` reports its problem the way every other
+    command reports one.
+    """
+    if args.flow in (None, EVERYTHING):
+        report = commands.lint_all(paths)
+        print(render.lint_report(report))
+        return 0 if report.ok else 1
+
     print(render.lint(commands.lint(args.flow, paths)))
     return 0
 

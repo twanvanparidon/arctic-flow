@@ -38,15 +38,15 @@ ruff format --check src packaging tests
 shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 pytest
 
-for flow in examples/*/flows/*.yaml; do
-  project=$(dirname "$(dirname "$flow")")
-  python3 src/main.py --workspace "$project" lint "$(basename "$flow" .yaml)"
+for project in examples/*/; do
+  python3 src/main.py --workspace "$project" lint
 done
 ```
 
 The flow-lint loop is the substantive check on the examples: `lint` runs the same validation
 `run` does before its first step (graph, template references, component specs), so it catches
-far more than ruff can. Line length is 100, set in `pyproject.toml`.
+far more than ruff can. Named with no flow it checks every flow in the workspace and
+reports all of them before exiting non-zero. Line length is 100, set in `pyproject.toml`.
 
 ### Tests
 

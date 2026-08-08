@@ -124,10 +124,14 @@ lists the rest, and only `run` calls a model: `lint` and `inspect` read a flow w
 executing it.
 
 ```sh
+atf --workspace examples/file-review lint                       # every flow in the project
 atf --workspace examples/file-review inspect flow review_file -o md > review.md
 atf --workspace examples/file-review inspect agent summarizer   # its system prompt
 atf inspect tool read_file                                      # what it may touch
 ```
+
+`lint` with no flow checks every flow in scope and reports all of them before exiting
+non-zero, which is the shape a pipeline wants: one run, every answer.
 
 ### Grouping components
 
