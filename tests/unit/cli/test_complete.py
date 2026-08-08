@@ -111,6 +111,18 @@ class TestComponentNames:
         assert "greet" in offered
         assert "release" not in offered and "writer" not in offered
 
+    def test_a_name_being_invented_is_not_answered_with_the_ones_that_exist(
+        self, workspace: Path
+    ) -> None:
+        """`create flow` and `inspect flow` are the same last word. Completing the first
+        out of the lookup would offer every name `create` is about to refuse."""
+        write_flow(workspace, "release")
+        assert candidates(["create", "flow", ""], workspace) == []
+        assert candidates(["inspect", "flow", ""], workspace) == ["release"]
+
+    def test_create_offers_the_kinds_it_can_write(self, workspace: Path) -> None:
+        assert candidates(["create", ""], workspace) == ["agent", "flow", "tool"]
+
     def test_a_command_taking_no_flow_offers_none(self, workspace: Path) -> None:
         write_flow(workspace, "release")
         assert candidates(["list", ""], workspace) == []
@@ -177,9 +189,11 @@ class TestReadingTheParser:
     def test_a_leaf_command_has_none(self) -> None:
         assert _subcommands(_subcommands(build_parser())["run"]) == {}
 
-    def test_the_walk_names_the_command_it_reached(self) -> None:
+    def test_the_walk_names_the_whole_command_it_reached(self) -> None:
+        """The whole command and not its last word: `inspect flow` and `create flow` share
+        a leaf and are answered from opposite sides of the lookup."""
         _, command, arguments = _reached(build_parser(), ["vault", "set", "secrets.vault"])
-        assert (command, arguments) == ("set", ["secrets.vault"])
+        assert (command, arguments) == ("vault set", ["secrets.vault"])
 
 
 class TestTheSnippet:

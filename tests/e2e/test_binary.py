@@ -14,6 +14,7 @@ run on a laptop, skip when `jq` is absent, or say which assertion failed.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -44,9 +45,21 @@ COMMANDS = (
     ("inspect", "agent"),
     ("inspect", "adapter"),
     ("inspect", "tool"),
+    ("create",),
+    ("create", "flow"),
+    ("create", "agent"),
+    ("create", "tool"),
     ("completion",),
     ("vault",),
     ("mcp-serve",),
+)
+
+# The kinds `create` writes, and the file each one has to arrive with. A scaffold is package
+# data like the built-in tools, so it is one more thing that can be left out of the bundle.
+SCAFFOLDED = (
+    ("flow", "review", "flows/review.yaml"),
+    ("agent", "reviewer", "agents/reviewer/agent.md"),
+    ("tool", "shout", "tools/shout/run.sh"),
 )
 
 
@@ -93,6 +106,23 @@ class TestWhatTheBundleCarries:
         """`ADAPTERS` is static imports for this reason: a frozen build misses anything
         resolved by name, and would say `unknown adapter` at the first agent step."""
         assert name in atf("list").out
+
+    @pytest.mark.parametrize(("kind", "name", "written"), SCAFFOLDED)
+    def test_each_scaffold_came_along(
+        self, atf: Runner, tmp_path: Path, kind: str, name: str, written: str
+    ) -> None:
+        """`create` copies out of package data the same way the built-in tools are read.
+        Dropped from the bundle, every one of these fails at the first thing a new user
+        types, and nothing before this notices."""
+        result = atf("--workspace", str(tmp_path), "create", kind, name)
+        assert result.code == 0, result.err
+        assert (tmp_path / written).is_file()
+
+    def test_a_scaffolded_tool_arrives_executable(self, atf: Runner, tmp_path: Path) -> None:
+        """The mode is set on the way out rather than carried from the bundle, which is the
+        only arrangement that survives however PyInstaller collected the file."""
+        assert atf("--workspace", str(tmp_path), "create", "tool", "shout").code == 0
+        assert os.access(tmp_path / "tools" / "shout" / "run.sh", os.X_OK)
 
     def test_what_ships_with_the_engine_is_named_as_the_engines_own(
         self, atf: Runner, binary: Path, tmp_path: Path

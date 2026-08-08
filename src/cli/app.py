@@ -307,6 +307,55 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_tool.add_argument("name", help="tool name (resolved through the lookup)")
 
+    create = sub.add_parser(
+        "create",
+        help="scaffold a new flow, agent or tool in this project",
+        description="Scaffold a new component, by kind and name.",
+        epilog="It lands where the lookup reads from first: ./.arctic when the project has\n"
+        "one, and the project root otherwise. A name may carry a namespace, so\n"
+        "`create tool git/commit` writes tools/git/commit/.\n\n"
+        "What is written runs as it is. A scaffolded flow reads a file through a built-in\n"
+        "tool, so `lint` passes and `run` works with no model and no key, and the agent\n"
+        "step is commented out beside it.\n\n"
+        "Nothing is overwritten. A name that already resolves somewhere else is allowed,\n"
+        "since writing one into the project is how an inherited component is overridden;\n"
+        "`list` then shows which of the two wins.\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    create_sub = create.add_subparsers(dest="create_kind", metavar="<kind>", required=True)
+
+    create_flow = add(
+        "flow",
+        dispatch.create,
+        "a flow: one YAML file naming the graph",
+        "Written as flows/<name>.yaml. The name is a name rather than a path, so it takes\n"
+        "no .yaml on the end.\n",
+        group=create_sub,
+    )
+    create_flow.add_argument("name", help="flow name, without a suffix")
+
+    create_agent = add(
+        "agent",
+        dispatch.create,
+        "an agent: a spec.json and the prompt beside it",
+        "agent.md is the system prompt, read verbatim, and is the whole of what an agent\n"
+        "is. spec.json says which adapter runs it and with what; `inspect adapter` lists\n"
+        "the settings that adapter accepts.\n",
+        group=create_sub,
+    )
+    create_agent.add_argument("name", help="agent name (may carry a namespace)")
+
+    create_tool = add(
+        "tool",
+        dispatch.create,
+        "a tool: a spec.json, a doc for the model, and an executable run.sh",
+        "run.sh reads one JSON object on stdin and writes its result to stdout. It is\n"
+        "written executable and runs as it is, so it can be piped into by hand before a\n"
+        "flow ever names it.\n",
+        group=create_sub,
+    )
+    create_tool.add_argument("name", help="tool name (may carry a namespace)")
+
     mcp_serve = add(
         "mcp-serve",
         dispatch.mcp_serve,
@@ -383,12 +432,12 @@ def build_parser() -> argparse.ArgumentParser:
         add_password_flag(command)
         return command
 
-    create = add_vault(
+    vault_create = add_vault(
         "create",
         dispatch.vault_create,
         "create a vault from a YAML mapping on stdin",
     )
-    create.add_argument("--force", action="store_true", help="replace the file if it exists")
+    vault_create.add_argument("--force", action="store_true", help="replace the file if it exists")
 
     set_command = add_vault(
         "set",
