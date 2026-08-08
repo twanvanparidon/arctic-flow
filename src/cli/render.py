@@ -25,6 +25,7 @@ from commands.results import (
     AgentDetail,
     ComponentCreated,
     ComponentEntry,
+    HomeInitialised,
     Inventory,
     LintReport,
     LintResult,
@@ -35,6 +36,7 @@ from commands.results import (
     VaultContents,
     VaultCreated,
 )
+from paths.config import CONFIG_FILE
 
 # Wide enough for the longest built-in name with a gap after it, so a listing's second
 # column lines up without being measured per run.
@@ -249,6 +251,22 @@ def component_created(result: ComponentCreated) -> str:
     if result.files:
         lines += [f"  {name}" for name in result.files] + [""]
     return "\n".join(lines + [NEXT[result.kind].format(name=result.name, path=result.display)])
+
+
+def home_initialised(result: HomeInitialised) -> str:
+    """What `init` wrote, and what was already there.
+
+    The second list is not noise on a re-run: it is the reassurance being asked for, since
+    the one thing someone fears from `init` is that it overwrote a config they had edited.
+    Nothing to report at all still says the directory is ready, because "no output" would
+    read as a command that did not run.
+    """
+    lines = [f"{result.display}", ""]
+    lines += [f"  created   {name}" for name in result.created]
+    lines += [f"  already   {name}" for name in result.existing]
+    return "\n".join(
+        lines + ["", f"next: edit {result.display}/{CONFIG_FILE}, or drop a tool in tools/"]
+    )
 
 
 def vault_created(result: VaultCreated) -> str:

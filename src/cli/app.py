@@ -19,7 +19,8 @@ from pathlib import Path
 import commands
 from cli import branding, colour, complete, dispatch
 from engine.executor import VARIABLE_PREFIX
-from paths.resolver import Paths
+from paths.config import CONFIG_FILE
+from paths.resolver import DOT_DIR, HOME_SYMBOL, Paths
 from vault.vault import PASSWORD_ENV, PASSWORD_FILE_ENV
 
 # Python 3.14 colours argparse help itself, and nothing before it does. That made the CLI's
@@ -379,6 +380,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         help="append one JSON line per call, for the engine to report as progress",
+    )
+
+    add(
+        "init",
+        dispatch.initialise,
+        f"create {HOME_SYMBOL}/{DOT_DIR}: your own tools, agents and flows, plus the config",
+        f"Writes {HOME_SYMBOL}/{DOT_DIR} with tools/, agents/, flows/ and {CONFIG_FILE}.\n"
+        "That directory is a search layer under every project, so a tool you drop in it\n"
+        "resolves everywhere, and a project still overrides it by defining the same name.\n\n"
+        f"{CONFIG_FILE} holds what neither a flow nor a spec should: `sources`, extra\n"
+        "directories to search for components. The file that is written documents it.\n\n"
+        "Nothing existing is touched, so running it again after an upgrade adds whatever\n"
+        "is missing and leaves the rest alone. --workspace does not apply.\n",
     )
 
     add(

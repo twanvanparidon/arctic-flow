@@ -191,6 +191,12 @@ def list_components(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def initialise(args: argparse.Namespace, paths: Paths) -> int:
+    """Create the home layer. Ignores --workspace: this one is not about a project."""
+    print(render.home_initialised(commands.initialise(paths)))
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # vault
 # --------------------------------------------------------------------------- #

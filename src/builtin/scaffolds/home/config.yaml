@@ -1,0 +1,15 @@
+# Arctic Flow, across every project. Written by `atf init`, read by every command.
+#
+# Everything here is optional, and an unknown key is refused rather than ignored.
+# Anything a flow should decide belongs in the flow; anything a component should
+# decide belongs in its spec.json.
+
+# Extra places to look for tools, agents and flows, searched in the order listed.
+# Each is a directory laid out the way this one is: tools/, agents/, flows/.
+#
+# They sit below this directory and above what ships with the engine, so a source can
+# replace a built-in but never something you or the project defines. A source that is
+# not there is skipped. Absolute or ~/ only.
+sources: []
+#  - ~/work/arctic-components
+#  - /opt/team/arctic

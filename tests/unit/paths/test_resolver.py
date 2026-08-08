@@ -102,6 +102,98 @@ class TestRoots:
         assert paths.roots.count(workspace) == 1
 
 
+class TestSources:
+    """Extra roots named by `~/.arctic/config.yaml`. See `paths/config.py`."""
+
+    @staticmethod
+    def configured(home: Path, *sources: Path) -> None:
+        (home / ".arctic").mkdir(exist_ok=True)
+        listed = "\n".join(f"  - {source}" for source in sources)
+        (home / ".arctic" / "config.yaml").write_text(f"sources:\n{listed}\n")
+
+    def test_a_source_sits_below_home_and_above_the_builtins(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        """A library you opted into may replace what shipped with the engine. It may not
+        replace what you or the project defined, or a flow would stop saying what it runs."""
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        self.configured(home, shared)
+        assert Paths(workspace, env={}, home=home).roots == [
+            workspace,
+            home / ".arctic",
+            shared,
+            builtin_root(),
+        ]
+
+    def test_several_sources_keep_their_listed_order(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        first, second = tmp_path / "one", tmp_path / "two"
+        first.mkdir()
+        second.mkdir()
+        self.configured(home, first, second)
+        roots = Paths(workspace, env={}, home=home).roots
+        assert roots.index(first) < roots.index(second)
+
+    def test_a_source_that_is_not_there_is_dropped(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        """Same rule every other root follows. A library on a drive that is not mounted
+        costs a missing component, not a command that refuses to start."""
+        self.configured(home, tmp_path / "absent")
+        assert Paths(workspace, env={}, home=home).roots == [
+            workspace,
+            home / ".arctic",
+            builtin_root(),
+        ]
+
+    def test_a_tool_resolves_out_of_a_source(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        shared = tmp_path / "shared"
+        base = make.write_tool(shared, "greet")
+        self.configured(home, shared)
+        assert Paths(workspace, env={}, home=home).find("tool", "greet") == base
+
+    def test_the_home_directory_wins_over_a_source_of_the_same_name(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        shared = tmp_path / "shared"
+        make.write_tool(shared, "greet")
+        mine = make.write_tool(home / ".arctic", "greet")
+        self.configured(home, shared)
+        assert Paths(workspace, env={}, home=home).find("tool", "greet") == mine
+
+    def test_a_source_inside_the_project_is_not_displayed_as_the_project(
+        self, workspace: Path, home: Path
+    ) -> None:
+        """`list` exists to say which layer won, and `./x` is a claim about the project.
+        A source commonly sits under the workspace or under home, so shortening it against
+        either would name the wrong layer."""
+        shared = workspace / "vendor"
+        base = make.write_tool(shared, "greet")
+        self.configured(home, shared)
+        assert Paths(workspace, env={}, home=home).display(base) == str(base)
+
+    def test_a_source_under_home_is_not_displayed_as_home(
+        self, workspace: Path, home: Path
+    ) -> None:
+        shared = home / "work" / "components"
+        base = make.write_tool(shared, "greet")
+        self.configured(home, shared)
+        assert Paths(workspace, env={}, home=home).display(base) == str(base)
+
+    def test_the_project_is_still_shortened_when_a_source_exists(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        self.configured(home, shared)
+        base = make.write_tool(workspace, "greet")
+        assert Paths(workspace, env={}, home=home).display(base) == "./tools/greet"
+
+
 class TestFinding:
     def test_finds_a_tool_by_name(self, paths: Paths, workspace: Path) -> None:
         base = make.write_tool(workspace, "greet")

@@ -261,6 +261,22 @@ class ComponentCreated:
 
 
 @dataclass(frozen=True)
+class HomeInitialised:
+    """The home layer after `init`, split by what the command actually did.
+
+    Two tuples rather than one list of names, because "already there" and "just written"
+    are the whole of what someone re-running `init` is asking about. Names are relative to
+    `path`, and a directory carries its trailing slash so a listing does not have to say
+    which of the two each line is.
+    """
+
+    path: Path
+    display: str
+    created: tuple[str, ...] = ()
+    existing: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class VaultCreated:
     """A vault that was written. `count` is how many secrets went into it."""
 

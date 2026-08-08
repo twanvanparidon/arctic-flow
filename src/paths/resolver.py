@@ -10,7 +10,13 @@ first match wins, so a project overrides what it inherits without a config file:
   2. ./.arctic     this project, in a dot-directory
   3. ./            this project, at the top level
   4. ~/.arctic     you, across every project
-  5. builtin/      what ships with the engine
+  5. sources       extra roots named by ~/.arctic/config.yaml (see `paths/config.py`)
+  6. builtin/      what ships with the engine
+
+A source sits below your own home directory and above the built-ins on purpose. A shared
+library of tools is something you opted into, so it may replace what shipped with the
+engine; it may not quietly replace what this project or your own `~/.arctic` defines,
+because then reading a flow would no longer tell you which definition it runs.
 
 `display()` names a path by the layer it came out of, which is what `atf list` prints
 beside every name: `./x` for the project, `$HOME/.arctic/x` for yours, `$ATF_ROOT/x` for
@@ -35,6 +41,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from paths.config import Config, load
 
 # The subdirectory each kind lives in, under any root. One spelling per kind: a root
 # is a project, a home directory, or the engine's own src/, and all three lay their
@@ -151,21 +159,39 @@ def engine_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _under(path: Path, base: Path, prefix: str) -> str | None:
+    """`path` written against `base`, or None when it is not inside it."""
+    if path == base:
+        return prefix
+    try:
+        return f"{prefix}/{path.relative_to(base)}"
+    except ValueError:
+        return None
+
+
 @dataclass
 class Paths:
     """Resolves component names against the layered roots.
 
     `workspace` is the project root: the top search layer, and the working directory
     every component executes in.
+
+    `config` is what `~/.arctic/config.yaml` said, read once here and handed around with
+    the rest of the run's ambient context. The engine reads it for the run ceiling.
     """
 
     workspace: Path
     env: dict[str, str] = field(default_factory=lambda: dict(os.environ))
     home: Path | None = None
+    config: Config = field(init=False)
 
     def __post_init__(self) -> None:
         self.workspace = Path(self.workspace).resolve()
         self.home = Path(self.home).resolve() if self.home else Path.home()
+        # Eagerly, not on first use. `roots` is read from worker threads, so a lazy load
+        # would be a race for no gain, and a config that cannot be parsed should stop the
+        # command rather than surface halfway through a run as a missing component.
+        self.config = load(self.home / DOT_DIR)
 
     @property
     def roots(self) -> list[Path]:
@@ -184,6 +210,7 @@ class Paths:
             self.workspace / DOT_DIR,
             self.workspace,
             self.home / DOT_DIR,
+            *self.config.sources,
             builtin_root(),
         ]
 
@@ -274,28 +301,35 @@ class Paths:
     def _display(self, path: Path) -> str:
         """Shorten a path for messages, by which layer it came out of.
 
-        The built-in root is tried first because it sits inside one of the other two in
-        every install: under the workspace from a checkout, under home from `install.sh`.
-        Matched later it would read as an ordinary project file, which is the one thing it
-        is not: nothing under it is yours and nothing under it is edited.
+        The order is the whole of this function, because these bases contain one another.
+        A layer matched against the wrong base is named as the wrong layer, and the name is
+        what the reader acts on.
         """
-        # The built-in root before the engine root it sits inside, so a shipped tool reads
+        # The built-in root first, because it sits inside one of the others in every
+        # install: under the workspace from a checkout, under home from `install.sh`.
+        # Matched later it would read as an ordinary project file, which is the one thing
+        # it is not: nothing under it is yours and nothing under it is edited.
+        #
+        # Then the engine root it sits inside, so a shipped tool reads
         # `$ATF_ROOT/tools/read_file` rather than gaining a `builtin/` segment that means
         # nothing to a reader. `$ATF_ROOT` is a label for "this came with the engine", not
-        # a directory, so what hangs off it is the vocabulary a person already has: its
-        # tools, its agents, its adapters.
-        for base, prefix in (
-            (builtin_root(), ENGINE_SYMBOL),
-            (engine_root(), ENGINE_SYMBOL),
-            (self.workspace, "."),
-            (self.home, HOME_SYMBOL),
-        ):
-            if path == base:
-                return prefix
-            try:
-                return f"{prefix}/{path.relative_to(base)}"
-            except ValueError:
-                continue
+        # a directory, so what hangs off it is the vocabulary a person already has.
+        for base, prefix in ((builtin_root(), ENGINE_SYMBOL), (engine_root(), ENGINE_SYMBOL)):
+            if (shortened := _under(path, base, prefix)) is not None:
+                return shortened
+
+        # A source, before the two it commonly sits inside. `~/work/components` is under
+        # home and a source named inside the project is under the workspace, so shortening
+        # it against either would print a sourced component as `$HOME/...` or, worse, as
+        # `./...`: the project's own, which is exactly what it is not. Left absolute
+        # rather than given a symbol, because there can be several and one symbol could
+        # not say which.
+        if any(path == source or source in path.parents for source in self.config.sources):
+            return str(path)
+
+        for base, prefix in ((self.workspace, "."), (self.home, HOME_SYMBOL)):
+            if (shortened := _under(path, base, prefix)) is not None:
+                return shortened
         return str(path)
 
     def display(self, path: Path) -> str:

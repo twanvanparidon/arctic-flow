@@ -15,6 +15,7 @@ hands over to `cli/`, so every `atf …` in the docs works as `python3 src/main.
 ```sh
 python3 src/main.py --help
 python3 src/main.py list                     # every name that resolves, and what shadows what
+python3 src/main.py init                     # writes ~/.arctic: careful, this is your real home
 
 # the examples are the test corpus until tests/ is filled in
 python3 src/main.py --workspace examples/sign-release lint sign_release
@@ -118,7 +119,7 @@ src/main.py      dev entry point: src/ on sys.path, hand to cli/
 src/cli/         the terminal: app.py (args/help) → dispatch.py (call+print) → render.py (pure)
 src/commands/    one function per command, no terminal attached; returns results.py dataclasses
 src/engine/      executor.py runs a flow; specs.py checks components before it does
-src/paths/       layered component lookup
+src/paths/       layered component lookup, and `~/.arctic/config.yaml` (`config.py`)
 src/adapters/    model runtimes as Python modules, registered in code
 src/builtin/     components that ship with the engine, and `create`'s scaffolds (data, not code)
 src/util/        ways of reading a flow without running it (graph text, Mermaid)
@@ -194,8 +195,8 @@ load the bundle's OpenSSL and fail in frozen builds only.
 ### Components are directories with a contract, found by name
 
 `paths/resolver.py` searches roots in precedence order and the first match wins:
-`$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `../src/builtin`. Under any root,
-components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and total: a
+`$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `sources` → `../src/builtin`. Under any
+root, components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and total: a
 project-level `common/read_file` replaces the built-in and inherits nothing. Where a
 component is *found* never changes where it *runs*: tools execute with cwd set to the
 workspace root.
@@ -210,6 +211,12 @@ refuses a name whose segments would leave the root (`..`, an absolute path, an e
 segment), which is why the check sits in the resolver and not in `lint`: one place covers
 `run`, a grant and `mcp-serve` alike. Granted tools reach a turn under `flat_name`, where
 the separator is `__`, because `mcp__atf__<tool>` cannot carry a slash.
+
+`sources` are extra roots named by `~/.arctic/config.yaml`, which `atf init` writes and
+`paths/config.py` reads. They sit below your own home layer and above the built-ins, so a
+shared library may replace a shipped tool but never one the project or `~/.arctic` defines.
+An unknown key in that file is refused rather than ignored, and `Paths` loads it eagerly,
+so a broken config stops every command rather than one.
 
 `atf create <kind> <name>` writes one, out of `../src/builtin/scaffolds/<kind>/`, into
 `./.arctic` when the workspace has one and the workspace root otherwise: the top of that

@@ -31,8 +31,15 @@ disk restating what the module already says, and a layer of shell quoting in bet
 
 **Components are found by name, not by path.** `paths/resolver.py` searches roots in
 precedence order and the first match wins: working directory first, then `~/.arctic`, then
-what ships with the engine. A project overrides anything it inherits by defining
-the same name. Adapters are not part of this: see above.
+any `sources` that directory's `config.yaml` names, then what ships with the engine. A
+project overrides anything it inherits by defining the same name. Adapters are not part of
+this: see above.
+
+**There is one config file, and it is small.** `~/.arctic/config.yaml`, written by
+`atf init` and read by `paths/config.py`. It holds what neither a flow nor a spec can:
+so far, extra roots to search. Anything a flow should decide belongs in the flow, so the
+bar for adding a key here is that no component and no flow could own it. An unknown key
+is refused rather than ignored.
 
 **A name may carry a namespace.** `common/read_file` is `tools/common/read_file` under
 whichever root wins, at any depth, with nothing to declare: a directory holding a

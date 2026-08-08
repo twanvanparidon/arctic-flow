@@ -107,6 +107,9 @@ These are contracts. Other people's flows, specs, and vaults are written against
 - A tool's `spec.json`: `input_schema`, `output_schema`, `exit_codes`, and the JSON on
   stdin, text on stdout protocol.
 - `TOOL_SPEC_SCHEMA`, `AGENT_SPEC_SCHEMA` and `FORWARDED` in `engine/specs.py`.
+- `CONFIG_SCHEMA` in `paths/config.py`, which is what `~/.arctic/config.yaml` may hold.
+  It refuses unknown keys, so adding one is safe and removing or renaming one breaks a
+  file already on someone's disk.
 - The flow YAML keys read by `engine.executor.validate`.
 - The dataclasses in `commands/results.py`, and the names `commands/__init__.py` exports.
 - `EXPECTED_ERRORS`, and the event dicts the engine passes to `on_event`.

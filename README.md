@@ -46,8 +46,8 @@ spec, and neither calls a model.
 
 ## Install
 
-One binary, Linux x86-64. No Python, no running service, no config file. The script takes
-the latest release, checks its `sha256`, and installs it under `~/.local`:
+One binary, Linux x86-64. No Python and no running service. The script takes the latest
+release, checks its `sha256`, and installs it under `~/.local`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/twanvanparidon/arctic-flow/main/packaging/install.sh | bash
@@ -181,6 +181,29 @@ It lands where the lookup reads first: `./.arctic` when the project keeps one, t
 root otherwise. What it writes runs as it is. A scaffolded flow reads a file through a
 built-in tool, so `lint` passes and `run` works before any agent exists to name, and the
 agent step is commented out beside it, waiting for one. Nothing is overwritten.
+
+### Components you keep across projects
+
+`atf init` creates `~/.arctic`, which is a search layer under every project:
+
+```sh
+atf init             # ~/.arctic/: tools/, agents/, flows/, config.yaml
+```
+
+A tool you put in `~/.arctic/tools/` resolves from any directory, and a project still
+overrides it by defining the same name. Run `init` again after an upgrade and it adds
+whatever is missing, leaving what is there alone.
+
+`config.yaml` beside them holds what neither a flow nor a spec should:
+
+```yaml
+sources:                    # more directories to search, laid out the same way
+  - ~/work/arctic-components
+```
+
+They sit below `~/.arctic` and above the built-ins, so a shared library can replace a
+shipped tool but never one you or the project defined. An unknown key in this file is
+refused rather than ignored.
 
 ### Grouping components
 
