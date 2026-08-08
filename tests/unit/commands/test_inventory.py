@@ -52,7 +52,7 @@ class TestInventory:
     ) -> None:
         make.write_tool(home / ".arctic", "greet")
         make.write_tool(workspace, "greet")
-        assert _entry(paths, "tool", "greet").shadows == ("~/.arctic/tools/greet",)
+        assert _entry(paths, "tool", "greet").shadows == ("$HOME/.arctic/tools/greet",)
 
     def test_something_shadowing_nothing_says_nothing(self, paths: Paths, workspace: Path) -> None:
         make.write_tool(workspace, "greet")

@@ -106,7 +106,7 @@ class TestListing:
         result = atf("--workspace", str(project), "list")
         line = next(line for line in result.out.splitlines() if line.strip().startswith("greet"))
         assert "shadows" in line
-        assert "~/.arctic/tools/greet" in line
+        assert "$HOME/.arctic/tools/greet" in line
 
     def test_something_shadowing_nothing_is_listed_plainly(
         self, project: Path, atf: Runner

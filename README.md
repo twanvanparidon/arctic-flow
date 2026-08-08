@@ -82,7 +82,8 @@ adapters this build carries and what each one runs, so install what the agents y
 for.
 
 ```sh
-atf list             # every name the engine can resolve, and where each was found
+atf list             # every name that resolves, and where each was found:
+                     #   ./x, $HOME/.arctic/x, $ATF_ROOT/x
 ```
 
 One of them needs nothing. Point an agent at `"adapter": "echo"` and it answers from the
@@ -120,8 +121,8 @@ atf --workspace examples/agent-tools run annotate \
 ```
 
 A project is a directory with `flows/` in it. There is nothing to initialise. `atf --help`
-lists the rest, and only `run` calls a model: `lint` and `inspect` read a flow without
-executing it.
+lists the rest, and only `run` calls a model. `lint` and `inspect` read without executing
+anything: `list` says which definition of a name wins, `inspect` says what is in it.
 
 ```sh
 atf --workspace examples/file-review lint                       # every flow in the project

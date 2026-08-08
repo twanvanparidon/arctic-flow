@@ -45,8 +45,8 @@ done
 
 The flow-lint loop is the substantive check on the examples: `lint` runs the same validation
 `run` does before its first step (graph, template references, component specs), so it catches
-far more than ruff can. Named with no flow it checks every flow in the workspace and
-reports all of them before exiting non-zero. Line length is 100, set in `pyproject.toml`.
+far more than ruff can. Named with no flow it checks every flow in the workspace and reports
+all of them before exiting non-zero. Line length is 100, set in `pyproject.toml`.
 
 ### Tests
 

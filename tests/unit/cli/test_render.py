@@ -37,7 +37,7 @@ INVENTORY = Inventory(
         ComponentEntry(
             name="claude_code",
             path=Path("a"),
-            display="./src/adapters/claude_code.py",
+            display="$ATF_ROOT/adapters/claude_code.py",
         ),
     ),
     kinds=(
@@ -136,6 +136,7 @@ class TestInventory:
         assert "agents: none" in render.inventory(INVENTORY)
 
     def test_an_entry_shows_where_its_definition_is(self) -> None:
+        """The layer a name came out of answers most of what a listing is read for."""
         line = next(line for line in render.inventory(INVENTORY).splitlines() if "demo" in line)
         assert "./flows/demo.yaml" in line
 
@@ -149,14 +150,17 @@ class TestInventory:
                             name="read_file",
                             path=Path("t"),
                             display="./tools/read_file",
-                            shadows=("~/.arctic/tools/read_file", "/opt/atf/tools/read_file"),
+                            shadows=("$HOME/.arctic/tools/read_file", "/opt/atf/tools/read_file"),
                         ),
                     ),
                 ),
             )
         )
         text = render.inventory(listing)
-        assert "(shadows ~/.arctic/tools/read_file, /opt/atf/tools/read_file)" in text
+        assert "(shadows $HOME/.arctic/tools/read_file, /opt/atf/tools/read_file)" in text
+
+    def test_something_shadowing_nothing_carries_no_note(self) -> None:
+        assert "shadows" not in render.inventory(INVENTORY)
 
 
 AGENT = AgentDetail(
@@ -338,6 +342,9 @@ class TestTheHouseRules:
         "text",
         [
             render.inventory(INVENTORY),
+            render.adapter_detail(ADAPTER),
+            render.agent_detail(AGENT),
+            render.tool_detail(TOOL),
         ],
     )
     def test_nothing_is_coloured(self, text: str) -> None:

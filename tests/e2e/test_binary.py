@@ -88,20 +88,21 @@ class TestWhatTheBundleCarries:
         resolved by name, and would say `unknown adapter` at the first agent step."""
         assert name in atf("list").out
 
-    def test_the_built_in_root_is_inside_the_bundle(
+    def test_what_ships_with_the_engine_is_named_as_the_engines_own(
         self, atf: Runner, binary: Path, tmp_path: Path
     ) -> None:
         """`builtin_root()` resolves against its own module, which sits somewhere else once
-        frozen. Asserted as containment: where PyInstaller puts package data inside a bundle
-        is its business, but it has to end up under the binary.
+        frozen, and `engine_root()` one directory above it. Both landing inside the bundle
+        is what makes a shipped tool print as `$ATF_ROOT/...`: either one resolving outside
+        it falls through to an absolute path here, and the adapter half is only reachable
+        in a frozen build, where a module's `__file__` is a path into the bundle.
 
-        The workspace is elsewhere on purpose. `display()` shortens a path inside it to
-        `./x`, and a relative root cannot be checked against the binary's own location.
+        The workspace is elsewhere on purpose, so nothing shortens to `./x` by accident.
         """
         printed = atf("--workspace", str(tmp_path), "list").out
-        roots = [line for line in printed.splitlines() if "builtin" in line]
-        assert roots, printed
-        assert any(str(binary.parent) in root for root in roots)
+        assert "$ATF_ROOT/tools/read_file" in printed, printed
+        assert "$ATF_ROOT/adapters/" in printed, printed
+        assert str(binary.parent) not in printed
 
 
 class TestTheInterface:

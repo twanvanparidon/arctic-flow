@@ -339,6 +339,8 @@ def build_parser() -> argparse.ArgumentParser:
         "The flows, tools, agents and adapters available, each beside the definition that\n"
         "won. Anything a higher-precedence root is shadowing is marked, since a second\n"
         "definition is why an edit can appear to do nothing.\n\n"
+        "A path reads as the layer it came from: ./x is this project, $HOME/.arctic/x is\n"
+        "yours across projects, $ATF_ROOT/x shipped with the engine.\n\n"
         "Set ATF_PATH to prepend roots, for tests and one-off overrides. A name that does\n"
         "not resolve reports every path it was looked for, so the order is answered there\n"
         "rather than here.\n",

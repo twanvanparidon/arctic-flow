@@ -148,9 +148,9 @@ directory deleted.
 
 Validation deliberately does **not** live there, even though `atf lint` looks like a
 sibling of `atf inspect flow`. Its checks are the ones `run` performs before executing
-anything, so they sit in `engine/specs.py` next to the code that depends on them. The
-test for whether something belongs in `util/`: could the core import it? If yes, it is
-not a util.
+anything, so they sit in `engine/specs.py` next to the code that depends on them. The test
+for whether something belongs in `util/`: could the core import it? If yes, it is not a
+util.
 
 **Stdout carries the flow's output and nothing else.** Progress, the frame around
 the output, warnings and traces all go to stderr, so `run … > file` produces the result
