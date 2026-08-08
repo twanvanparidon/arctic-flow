@@ -167,6 +167,21 @@ atf inspect tool common/read_file                               # what it may to
 `lint` with no flow checks every flow in scope and reports all of them before exiting
 non-zero, which is the shape a pipeline wants: one run, every answer.
 
+### Starting your own
+
+`create` writes one component from the scaffold that ships with the engine:
+
+```sh
+atf create flow review          # flows/review.yaml
+atf create agent reviewer       # agents/reviewer/: spec.json, agent.md
+atf create tool git/commit      # tools/git/commit/: spec.json, tool.md, run.sh
+```
+
+It lands where the lookup reads first: `./.arctic` when the project keeps one, the project
+root otherwise. What it writes runs as it is. A scaffolded flow reads a file through a
+built-in tool, so `lint` passes and `run` works before any agent exists to name, and the
+agent step is commented out beside it, waiting for one. Nothing is overwritten.
+
 ### Grouping components
 
 Put a component in a subdirectory and its name says so. There is nothing to declare and no
