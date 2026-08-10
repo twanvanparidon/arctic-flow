@@ -1,0 +1,24 @@
+# Arctic Flow, across every project. Written by `atf init`, read by every command.
+#
+# Everything here is optional, and an unknown key is refused rather than ignored.
+# Anything a flow should decide belongs in the flow; anything a component should
+# decide belongs in its spec.json.
+
+run:
+  # A ceiling on one run, in minutes. A safeguard against a flow that never finishes,
+  # not a per-flow tuning knob, so no flow can raise it. Four hours by default.
+  #
+  # When it fires the run fails and its tools are stopped. An agent turn already in
+  # flight is bounded by its own `timeout_seconds` instead, so the real stop can be
+  # one turn later than this.
+  max_minutes: 240
+
+# Extra places to look for tools, agents and flows, searched in the order listed.
+# Each is a directory laid out the way this one is: tools/, agents/, flows/.
+#
+# They sit below this directory, so a source never replaces something you or the
+# project defines, and it cannot define anything under `common/`, which belongs to
+# the engine. A source that is not there is skipped. Absolute or ~/ only.
+sources: []
+#  - ~/work/arctic-components
+#  - /opt/team/arctic

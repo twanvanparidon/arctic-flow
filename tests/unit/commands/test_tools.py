@@ -61,18 +61,18 @@ class TestDescribeTools:
     def test_a_namespaced_tool_is_named_by_the_name_it_was_looked_up_by(
         self, paths: Paths, workspace: Path
     ) -> None:
-        """`tools/common/greet/spec.json` says "greet", which is not what anyone granted."""
-        make.write_tool(workspace, "common/greet")
-        [tool] = describe_tools(["common/greet"], paths)
-        assert tool.name == "common/greet"
+        """`tools/group/greet/spec.json` says "greet", which is not what anyone granted."""
+        make.write_tool(workspace, "group/greet")
+        [tool] = describe_tools(["group/greet"], paths)
+        assert tool.name == "group/greet"
 
     def test_two_namespaces_holding_the_same_leaf_stay_two_tools(
         self, paths: Paths, workspace: Path
     ) -> None:
-        make.write_tool(workspace, "common/greet", description="the common one")
+        make.write_tool(workspace, "group/greet", description="the common one")
         make.write_tool(workspace, "legacy/greet", description="the old one")
-        described = describe_tools(["common/greet", "legacy/greet"], paths)
-        assert [tool.name for tool in described] == ["common/greet", "legacy/greet"]
+        described = describe_tools(["group/greet", "legacy/greet"], paths)
+        assert [tool.name for tool in described] == ["group/greet", "legacy/greet"]
         assert described[0].description == "the common one"
 
 

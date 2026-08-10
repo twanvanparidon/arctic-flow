@@ -17,6 +17,7 @@ from commands.results import (
     ComponentEntry,
     Inventory,
     KindListing,
+    RefusedComponent,
     ToolDetail,
 )
 from engine.executor import load_agent, load_component
@@ -48,7 +49,21 @@ def inventory(paths: Paths) -> Inventory:
         )
         kinds.append(KindListing(kind=kind, entries=entries))
 
-    return Inventory(adapters=_adapters(paths), kinds=tuple(kinds))
+    return Inventory(adapters=_adapters(paths), kinds=tuple(kinds), refused=_refused(paths))
+
+
+def _refused(paths: Paths) -> tuple[RefusedComponent, ...]:
+    """Definitions in the engine's own namespace, which nothing can reach by name.
+
+    Reported because the alternative is silence: the directory is there, `list` would not
+    mention it, and the name it claims fails somewhere else entirely.
+    """
+    return tuple(
+        RefusedComponent(kind=kind, name=name, path=path, display=paths.display(path))
+        for kind in LIST_ORDER
+        for name, paths_for_name in paths.all_intruders(kind).items()
+        for path in paths_for_name
+    )
 
 
 def _adapters(paths: Paths) -> tuple[ComponentEntry, ...]:

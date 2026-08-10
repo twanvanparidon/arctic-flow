@@ -46,8 +46,8 @@ spec, and neither calls a model.
 
 ## Install
 
-One binary, Linux x86-64. No Python, no running service, no config file. The script takes
-the latest release, checks its `sha256`, and installs it under `~/.local`:
+One binary, Linux x86-64. No Python and no running service. The script takes the latest
+release, checks its `sha256`, and installs it under `~/.local`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/twanvanparidon/arctic-flow/main/packaging/install.sh | bash
@@ -182,6 +182,36 @@ root otherwise. What it writes runs as it is. A scaffolded flow reads a file thr
 built-in tool, so `lint` passes and `run` works before any agent exists to name, and the
 agent step is commented out beside it, waiting for one. Nothing is overwritten.
 
+### Components you keep across projects
+
+`atf init` creates `~/.arctic`, which is a search layer under every project:
+
+```sh
+atf init             # ~/.arctic/: tools/, agents/, flows/, config.yaml
+```
+
+A tool you put in `~/.arctic/tools/` resolves from any directory, and a project still
+overrides it by defining the same name. Run `init` again after an upgrade and it adds
+whatever is missing, leaving what is there alone.
+
+`config.yaml` beside them holds the two things neither a flow nor a spec should:
+
+```yaml
+run:
+  max_minutes: 240          # a ceiling on any one run
+
+sources:                    # more directories to search, laid out the same way
+  - ~/work/arctic-components
+```
+
+`max_minutes` is a safeguard rather than a tuning knob, so no flow can raise it. When it
+fires the run fails and its tools are stopped; an agent turn already in flight is bounded
+by its own `timeout_seconds` instead, so the real stop can be one turn later than this.
+
+`sources` sit below `~/.arctic` and above the built-ins, so a shared library can replace a
+shipped tool but never one you or the project defined. An unknown key in this file is
+refused rather than ignored.
+
 ### Grouping components
 
 Put a component in a subdirectory and its name says so. There is nothing to declare and no
@@ -190,7 +220,7 @@ namespace.
 
 ```txt
 tools/
-   common/             <- where the shipped tools live
+   common/             <- the engine's own. Yours may not go here
       read_file/        ->  tool: common/read_file
       grep/
    git/
@@ -200,9 +230,26 @@ tools/
 
 `agents/` and `flows/` group the same way, so `atf run release/sign_release` runs
 `flows/release/sign_release.yaml`. The name is the whole path, so `common/read_file` and a
-`read_file` of your own are two tools and overriding one does not touch the other. To
-replace a shipped tool, match its full name: `tools/common/read_file/` in your project.
+`read_file` of your own are two tools and overriding one does not touch the other.
 `atf list` prints every name qualified.
+
+The first segment says who a component came from, the way `vendor/package` does in
+Composer. **`common/` is the engine's, and nothing else may define a name inside it:**
+
+```sh
+atf create tool common/read_file
+# engine: 'common/' belongs to the engine, so 'common/read_file' is not a name to
+#         create. Put yours in a namespace of your own: 'tool <yours>/read_file'
+```
+
+That is a security property rather than tidiness. `tool: common/read_file` in a flow has to
+mean the contained, no-network tool that ships, and if any higher root could define that
+name then reading the flow would tell you nothing about what runs. A repository you cloned
+is a higher root. So a directory in that namespace is refused rather than used, by name and
+wherever it came from, including `$ATF_PATH` and a source; `atf list` reports it under
+`refused` so it is not merely missing. Want different behaviour from a shipped tool? Copy it
+under a name of your own and change the flows that name it, which is the same edit, said out
+loud.
 
 ### Writing them with Claude Code
 

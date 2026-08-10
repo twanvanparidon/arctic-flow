@@ -245,7 +245,10 @@ class TestCancellingASpawn:
         self, paths: Paths, workspace: Path, tmp_path: Path
     ) -> None:
         """The claim is the marker, not the exception: a suppressed reply and a real kill
-        look identical from the caller's side, and only the marker tells them apart."""
+        look identical from the caller's side, and only the marker tells them apart.
+
+        `grouped` is what reaches the tree, and it is a separate argument from `cancel`
+        because a step needs the second without the first."""
         started, finished = tmp_path / "started", tmp_path / "finished"
         make.write_tool(
             workspace,
@@ -258,11 +261,43 @@ class TestCancellingASpawn:
         threading.Thread(target=lambda: (make.wait_for(started), stop.set()), daemon=True).start()
 
         with pytest.raises(Cancelled, match="blocker was cancelled"):
-            spawn(base, spec, {}, paths, cancel=stop)
+            spawn(base, spec, {}, paths, cancel=stop, grouped=True)
         # Long enough for a survivor to have written it, so this separates a real stop from
         # an exception raised over a process still running.
         time.sleep(3.5)
         assert not finished.exists()
+
+    def test_a_cancel_alone_does_not_put_the_tool_in_its_own_session(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """A step passes a cancel and must still share the caller's process group, or
+        Ctrl-C on `atf run` stops reaching its tool. The two used to be one flag."""
+        make.write_tool(workspace, "group", script=make.sh("cat >/dev/null\nps -o pgid= -p $$"))
+        base, spec = load_component(paths, "tool", "group")
+
+        ungrouped = spawn(base, spec, {}, paths, cancel=threading.Event())
+        assert int(ungrouped.stdout.strip()) == os.getpgrp()
+
+        grouped = spawn(base, spec, {}, paths, cancel=threading.Event(), grouped=True)
+        assert int(grouped.stdout.strip()) != os.getpgrp()
+
+    def test_an_ungrouped_cancel_still_stops_the_tool_itself(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """What the run ceiling rests on: a step's tool is signalled directly, so a run
+        that ran out of time does not then wait out the tool's own timeout."""
+        make.write_tool(
+            workspace,
+            "slow",
+            script=make.sleeps(30),
+            run={"command": ["./run.sh"], "timeout_seconds": 30},
+        )
+        base, spec = load_component(paths, "tool", "slow")
+        stop = threading.Event()
+        threading.Thread(target=lambda: (time.sleep(0.2), stop.set()), daemon=True).start()
+
+        with pytest.raises(Cancelled, match="slow was cancelled"):
+            spawn(base, spec, {}, paths, cancel=stop)
 
     def test_an_event_never_set_leaves_the_run_alone(self, paths: Paths, workspace: Path) -> None:
         make.write_tool(workspace, "greet", script=make.prints("hello"))
