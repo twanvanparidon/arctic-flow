@@ -74,6 +74,7 @@ through the lookup, from the `--workspace` on the line. bash for now.
 | --- | --- |
 | `arctic/read_file` | `bash`, `jq`, `awk`, `realpath` |
 | `arctic/write_file` | `bash`, `jq`, `realpath`, `wc` |
+| `arctic/edit_file` | `bash`, `jq`, `realpath`, `mktemp`, `cmp` |
 | `arctic/grep` | `bash`, `jq`, `find`, `grep`, `sed` |
 | `arctic/glob` | `bash`, `jq`, `find`, `sed`, `sort` |
 | `arctic/fetch_url` | `bash`, `jq`, `curl`, and a network |
@@ -92,12 +93,13 @@ atf list             # every name that resolves, and where each was found:
 
 ### The tools that ship
 
-Five, all under the `arctic/` namespace, all contained to the workspace:
+Six, all under the `arctic/` namespace, all contained to the workspace:
 
 | Tool | Does |
 | --- | --- |
 | `arctic/read_file` | Returns one file verbatim, or several with a header each. |
 | `arctic/write_file` | Writes a file. Refuses to clobber unless told to. |
+| `arctic/edit_file` | Replaces an exact string in a file. Refuses an ambiguous match. |
 | `arctic/glob` | Lists the paths matching a shell pattern. |
 | `arctic/grep` | Finds a pattern across the tree, as `path:line:text`. |
 | `arctic/fetch_url` | Fetches an `http(s)` URL and returns the body undecorated. |
@@ -106,7 +108,10 @@ Five, all under the `arctic/` namespace, all contained to the workspace:
 usual order, and doing it in that order is much cheaper than reading a tree to find
 one thing.
 
-The first four cannot reach outside the workspace root: a path is canonicalised
+`write_file` takes whole contents and `edit_file` takes the old text and the new, so
+a one line change to a large file costs one line rather than all of it.
+
+The first five cannot reach outside the workspace root: a path is canonicalised
 before it is used, so `..` and a symlink pointing out are both refused. `fetch_url`
 is the one that touches the network, and it touches nothing else: its
 `permissions.filesystem` is `none`.

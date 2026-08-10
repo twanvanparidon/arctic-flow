@@ -162,11 +162,12 @@ echo '{"text":"hello"}' | ./tools/greet/run.sh
 | --- | --- |
 | `arctic/read_file` | one file verbatim, or several with a header each |
 | `arctic/write_file` | writes a file; refuses to clobber unless told to |
+| `arctic/edit_file` | replaces an exact string in a file; refuses an ambiguous match |
 | `arctic/glob` | the paths matching a shell pattern |
 | `arctic/grep` | a pattern across the tree, as `path:line:text` |
 | `arctic/fetch_url` | an `http(s)` body, undecorated |
 
-The first four cannot reach outside the workspace root: a path is canonicalised before use,
+The first five cannot reach outside the workspace root: a path is canonicalised before use,
 so `..` and a symlink pointing out are both refused. `fetch_url` touches the network and
 nothing else.
 
