@@ -455,6 +455,91 @@ class TestNamespaces:
         assert "./tools/group/absent" in message
 
 
+class TestFlowBundles:
+    """`flows/review/review.yaml` is the flow `review`, so its prompts have a home.
+
+    What makes the directory a bundle is that it holds a flow of its own name. Everything
+    here is about the two ways that could collide with what already resolved: a namespace,
+    and the flat spelling of the same name.
+    """
+
+    def test_a_directory_holding_a_flow_of_its_own_name_is_that_flow(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        path = make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        assert paths.find("flow", "review") == path
+
+    def test_either_suffix_works_inside_a_bundle(self, paths: Paths, workspace: Path) -> None:
+        path = make.write_text_flow(workspace, "review", "flow: review\n", ".yml", bundle=True)
+        assert paths.find("flow", "review") == path
+
+    def test_a_bundle_may_sit_inside_a_namespace(self, paths: Paths, workspace: Path) -> None:
+        """The file carries the leaf, the way a namespaced spec.json does, so
+        `release/sign` is `flows/release/sign/sign.yaml`."""
+        path = make.write_text_flow(workspace, "release/sign", "flow: sign\n", bundle=True)
+        assert paths.find("flow", "release/sign") == path
+
+    def test_a_bundle_is_listed_once_under_its_own_name(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """Not also as `review/review`, which is a name nobody wrote."""
+        path = make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        assert paths.list("flow") == {"review": path}
+
+    def test_a_bundle_is_still_a_namespace(self, paths: Paths, workspace: Path) -> None:
+        """So nothing that resolved before the bundle layout existed stops resolving."""
+        bundle = make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        helper = bundle.parent / "helper.yaml"
+        helper.write_text("flow: helper\n")
+        assert paths.find("flow", "review/helper") == helper
+        assert paths.list("flow") == {"review": bundle, "review/helper": helper}
+
+    def test_a_directory_without_a_flow_of_its_own_name_is_only_a_namespace(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        make.write_text_flow(workspace, "release/sign", "flow: sign\n")
+        with pytest.raises(LookupError_, match="unknown flow 'release'"):
+            paths.find("flow", "release")
+
+    def test_the_prompts_directory_is_not_a_namespace_of_flows(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        bundle = make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        make.write_prompt_file(bundle, "report", "Report.\n")
+        assert paths.list("flow") == {"review": bundle}
+
+    def test_the_flat_spelling_wins_when_a_name_is_written_both_ways(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """A half-made bundle must not take a name off the flow that already answered to it."""
+        flat = make.write_text_flow(workspace, "review", "flow: review\n")
+        make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        assert paths.find("flow", "review") == flat
+
+    def test_the_other_spelling_is_reported_as_shadowing(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """The same answer two suffixes in one directory get: both are listed, so an edit
+        that appears to do nothing has somewhere to be seen."""
+        flat = make.write_text_flow(workspace, "review", "flow: review\n")
+        bundle = make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        assert paths.find_all("flow", "review") == [flat, bundle]
+
+    def test_the_listing_agrees_with_what_find_returns(self, paths: Paths, workspace: Path) -> None:
+        """These are walked in opposite orders, so agreeing is a decision rather than a
+        coincidence: `list` reads files before directories to match the candidate order."""
+        flat = make.write_text_flow(workspace, "review", "flow: review\n")
+        make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        assert paths.list("flow")["review"] == flat == paths.find("flow", "review")
+
+    def test_a_bundle_in_a_nearer_root_still_wins(
+        self, paths: Paths, workspace: Path, home: Path
+    ) -> None:
+        make.write_text_flow(home / ".arctic", "review", "flow: review\n")
+        project = make.write_text_flow(workspace, "review", "flow: review\n", bundle=True)
+        assert paths.find("flow", "review") == project
+
+
 class TestNameChecking:
     """`root / subdir / name` resolves whatever it is handed, so the name is checked first."""
 

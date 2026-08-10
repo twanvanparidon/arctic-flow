@@ -251,16 +251,41 @@ def write_agent(
     return base
 
 
-def write_flow(root: Path, name: str, definition: dict[str, Any]) -> Path:
-    path = root / "flows" / f"{name}.yaml"
+def flow_path(root: Path, name: str, suffix: str = ".yaml", *, bundle: bool = False) -> Path:
+    """Where a flow of this name goes, in either of the two spellings.
+
+    `bundle` puts it in a directory of its own name, which is what gives its prompts
+    somewhere to live: `flows/review/review.yaml` rather than `flows/review.yaml`.
+    """
+    if bundle:
+        return root / "flows" / name / f"{leaf(name)}{suffix}"
+    return root / "flows" / f"{name}{suffix}"
+
+
+def write_flow(root: Path, name: str, definition: dict[str, Any], *, bundle: bool = False) -> Path:
+    path = flow_path(root, name, bundle=bundle)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(definition, sort_keys=False))
     return path
 
 
-def write_text_flow(root: Path, name: str, text: str, suffix: str = ".yaml") -> Path:
+def write_text_flow(
+    root: Path, name: str, text: str, suffix: str = ".yaml", *, bundle: bool = False
+) -> Path:
     """A flow written as literal YAML, for cases a mapping cannot express."""
-    path = root / "flows" / f"{name}{suffix}"
+    path = flow_path(root, name, suffix, bundle=bundle)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def write_prompt_file(flow: Path, name: str, text: str) -> Path:
+    """A prompt in `prompts/` beside the flow that names it, where `prompt_file` reads from.
+
+    Takes the flow's path rather than a root and a name, because that is what decides the
+    directory: a bundle's prompts are its own, and a flat flow shares `flows/prompts/`.
+    """
+    path = flow.parent / "prompts" / f"{name}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
