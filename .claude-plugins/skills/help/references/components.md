@@ -60,9 +60,34 @@ packs:
 is a directory somebody cloned. So `tool: arctic/git/commit` in a flow is the tool that
 shipped under that name.
 
-The `git` pack holds `arctic/git/status`, `log`, `diff`, `show` and `branch` (read), and
-`add`, `commit` and `checkout` (write). Every one of them refuses to act when the
-repository's root is above the workspace, and none of them reaches the network.
+Three ship:
+
+| Pack | Holds |
+| --- | --- |
+| `git` | `arctic/git/` status, log, diff, show, branch (read); add, commit, checkout (write) |
+| `github` | `arctic/github/pr/` open, status, comment |
+| `bitbucket` | the same three under `arctic/bitbucket/pr/`, for Bitbucket Cloud |
+
+Every tool in all three refuses to act when the git repository's root is above the
+workspace. Nothing in `git` reaches the network.
+
+The two forge packs answer in **JSON with the same field names**, so a flow can swap one
+for the other and change only the tool name. A field a forge cannot answer is `null`:
+Bitbucket has no `mergeable`, so gate on `checks` and `reviews`.
+
+Every forge tool declares `secrets`, so a step running one declares it too:
+
+```yaml
+- id: report
+  tool: arctic/github/pr/comment
+  secrets: [GITHUB_TOKEN]
+  input:
+    body: "{{ steps.review.text }}"
+```
+
+**None of them can be granted to an agent.** The engine refuses to grant a tool that
+declares `secrets`, so commenting on a pull request is always a step, never a model's
+mid-turn decision.
 
 ## Tool spec.json
 

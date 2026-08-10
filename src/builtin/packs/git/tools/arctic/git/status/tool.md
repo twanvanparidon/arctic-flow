@@ -58,16 +58,26 @@ branch main
 clean
 ```
 
-So a flow can switch on it:
+Which is what a prompt wants:
 
 ```yaml
 - id: check
   tool: arctic/git/status
-  switch: "{{ this.text }}"
-  cases:
-    "*clean*": [nothing_to_do]
-    "*": [write_commit]
+  push: [describe]
+
+- id: describe
+  agent: summariser
+  prompt: |
+    Write a commit message for this change.
+    ---
+    {{ steps.check.text }}
 ```
+
+**A `switch` needs an exact value**, and this returns a report rather than one. The
+rendered value is compared to each case whole, so `clean` never matches the two
+lines above. A flow that has to branch on whether the tree is clean should run a
+tool of its own that answers in one word, and template this report into the message
+it eventually writes.
 
 ## What the words mean
 

@@ -123,13 +123,20 @@ to send a `switch` down the branch you want to look at.
 ### Packs: more tools, switched off
 
 A pack is a set of first-party tools that ships in the binary and does nothing until you
-say so. One ships today:
+say so. Three ship today:
 
 ```yaml
 # ~/.arctic/config.yaml
 packs:
   - git
+  - github        # or bitbucket
 ```
+
+| Pack | Holds | Needs |
+| --- | --- | --- |
+| `git` | the repository a flow runs in: status, log, diff, show, branch, add, commit, checkout | `git`, `jq` |
+| `github` | pull requests: open, status, comment. Also GitHub Enterprise | `curl`, `jq`, `git` |
+| `bitbucket` | the same three, for Bitbucket **Cloud** | `curl`, `jq`, `git` |
 
 | Tool | | Does |
 | --- | --- | --- |
@@ -164,6 +171,48 @@ work on the outer repository, point the engine at it: `atf --workspace myrepo ru
 A pack is not a `source`. A source is a directory you cloned, so it sits below `~/.arctic`
 and may not define anything under `arctic/`. A pack ships with the engine, so it can, and
 `arctic/git/commit` in a flow means the tool that shipped under that name.
+
+### The forge packs
+
+`github` and `bitbucket` open pull requests, read their state and comment on them.
+
+```yaml
+- id: pr
+  tool: arctic/github/pr/status
+  secrets: [GITHUB_TOKEN]
+  switch: "{{ this.json.checks.failure }}"
+  cases:
+    "0": [approve_note]
+  default: [failing_note]
+
+- id: failing_note
+  tool: arctic/github/pr/comment
+  secrets: [GITHUB_TOKEN]
+  input:
+    body: "These are red: {{ steps.pr.json.checks.failing }}"
+```
+
+They answer in **JSON with the same field names**, so swapping `arctic/github/pr/status`
+for `arctic/bitbucket/pr/status` changes the tool name and nothing else. Where a forge
+genuinely cannot answer it says `null` rather than inventing one: Bitbucket reports no
+`mergeable` without a dry-run merge, so it returns `null` there and you gate on `checks`
+and `reviews` instead.
+
+The token lives in the vault and reaches exactly the step that declares it:
+
+```sh
+atf vault set GITHUB_TOKEN
+```
+
+**No agent can be granted these tools.** Every one declares `secrets`, and the engine
+refuses to grant a tool that expects a credential, because nothing scopes one to a single
+in-turn call. So opening a pull request or commenting is always a step the flow decided
+on, never something a model does mid-turn. The token never reaches `argv` either: `curl`
+reads the header from a private config file, because `-H` would show it to `ps`.
+
+Neither pack approves, requests changes, merges, closes or pushes. Approving is a verdict
+that counts in a branch protection rule, and a flow that could cast one could approve its
+own work.
 
 ---
 

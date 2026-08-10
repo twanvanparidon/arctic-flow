@@ -341,7 +341,9 @@ packs:
 ```
 
 Adding one is a directory under `src/builtin/packs/`, with a `pack.json` beside the same
-`tools/`, `agents/`, `flows/` every root has. `src/builtin/packs/git` is the one to copy.
+`tools/`, `agents/`, `flows/` every root has. Copy the nearest of the three that ship:
+`packs/git` for a pack that runs a local command, `packs/github` for one that calls an API
+with a credential.
 
 ```txt
 src/builtin/packs/git/
@@ -374,9 +376,27 @@ Four things to get right, and each has a test that says so:
   anything else in there reads as an empty namespace. The sourcing line needs
   `# shellcheck source-path=SCRIPTDIR`, and the gate runs `shellcheck -x`.
 
-Adding a pack means adding to `tests/integration/test_pack_<name>.py`. The mechanism is
-covered once, in `tests/unit/paths/test_packs.py` and `tests/integration/test_packs.py`;
-what a new pack owes is its own tools, run through the CLI against the real thing.
+A pack that reaches the network owes three more, and `packs/github` is where each is
+worked out:
+
+- **Declare `secrets` and read the credential from the environment.** That is what makes
+  the token come out of the vault and reach exactly the step that asked for it. It also
+  means the engine refuses to grant the tool to an agent, which is the right answer:
+  nothing scopes a credential to one in-turn call.
+- **Keep the credential out of `argv`.** `curl -H "Authorization: ..."` shows it to `ps`
+  for the length of the request. `lib/api.sh` writes a config file with mode 600 instead.
+- **Answer in JSON, with the same field names as its sibling.** The engine parses a tool's
+  stdout and offers it as `.json`, so a JSON answer is switchable where prose is not. And
+  a normalised vocabulary is what lets a flow swap `arctic/github/pr/status` for
+  `arctic/bitbucket/pr/status` and change nothing else. Where a forge cannot answer a
+  field, return `null`; do not invent one and do not drop the key.
+
+Adding a pack means adding to `tests/integration/`. The mechanism is covered once, in
+`tests/unit/paths/test_packs.py` and `tests/integration/test_packs.py`; what a new pack
+owes is its own tools, run through the CLI against the real thing. For a network pack that
+means a real loopback server (`tests/support/forge.py`), routed by method and path exactly
+as the tools request them, so a wrong verb or a dropped filter fails rather than passing
+against a double that was happy with anything.
 
 ## Gates
 

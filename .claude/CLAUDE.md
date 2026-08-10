@@ -243,8 +243,25 @@ binary: a pack holds tools that write, and an install nobody configured has none
 An unknown pack name is refused in `Paths._check_packs`, because a typo would otherwise
 build a root that does not exist, which is silently dropped. `find` names the pack and the
 line to add when a tool is only in one that is off (`_disabled_pack`), so `lint` and `run`
-both say what to do rather than "unknown tool". One ships: `git`, eight tools, and its
-README says what it deliberately refuses to do.
+both say what to do rather than "unknown tool".
+
+Three ship, and each README says what it deliberately refuses to do. `git` is eight tools
+over the repository the flow runs in. `github` and `bitbucket` are three each over pull
+requests, and are where the rules for a **network pack** are worked out:
+
+- **They answer in JSON with normalised field names**, so `arctic/github/pr/status` and
+  `arctic/bitbucket/pr/status` are interchangeable in a flow's templates. A tool's stdout
+  is already parsed into `.json` by `run_step`, so JSON is what makes a result switchable.
+  A field a forge cannot answer is `null`, never invented and never dropped.
+- **Every one declares `secrets`, so none can be granted to an agent.** `validate` refuses
+  a grant of a credentialled tool, which means opening a pull request or commenting is
+  always a step the flow decided on. That is the intended design, not a limitation worked
+  around, and per-call secret scoping is what would change it.
+- **The credential never reaches `argv`.** `lib/api.sh` hands curl a config file with mode
+  600 rather than `-H`, because `ps` shows a command line to every user on the machine.
+- **The repository is the workspace**, the same containment rule the git pack has, and the
+  remote's host is checked so a github tool cannot derive its repository from a bitbucket
+  remote.
 
 **`ENGINE_NAMESPACE` (`arctic/`) is the engine's, and that is a security property.** A
 flow reading `tool: arctic/read_file` has to mean the shipped tool, or the name tells a
