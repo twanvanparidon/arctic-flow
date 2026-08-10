@@ -65,7 +65,8 @@ and `Paths.intruders`.
 **A branch that is not taken skips its subtree.** `switch` picks one case; the edges to the
 others are marked skipped, and skipping propagates. That is what lets a join downstream of
 a branch run on both paths instead of waiting forever. A skipped step still resolves in
-templates, as the literal `(not run)`.
+templates, as the literal `(not run)`, and is *false* in a conditional, so a prompt can leave
+out the section that would have read it. See "Prompts and templates".
 
 ## Running it
 
@@ -283,6 +284,7 @@ existing one: a tool that writes, one that reaches the network, an adapter.
 | An adapter | `src/adapters/claude_code.py` | one Python module, plus an entry in `ADAPTERS` |
 | An agent | `examples/file-review/agents/summarizer` | `spec.json`, `agent.md` |
 | A flow | `examples/sign-release/flows/sign_release.yaml` | one YAML file |
+| A flow with its prompts | `examples/file-review/flows/review_file/` | a directory of its own name, holding the flow and `prompts/` |
 
 Conventions that are load-bearing rather than stylistic:
 
@@ -514,6 +516,103 @@ Six rules, all enforced by `lint`:
 The last rule but one is also what keeps a pass safe to start. A loop's body is bounded by
 what leads back to the step that closes it, so every member has finished by the time the
 work goes back, and none is still running when its state returns to waiting.
+
+## Prompts and templates
+
+A template is `{{ dotted.path }}` over five namespaces, plus `{% if %}` to leave a section
+out. `render` and `parse_template` in `engine/executor.py` are the whole of it, and both are
+deliberately small: the language is not meant to grow into a second way of expressing the
+graph.
+
+### Conditionals
+
+A skipped branch and a loop's first pass are the same problem. A template reads a step that
+has no result, and the only answer used to be the literal `(not run)` plus a sentence in the
+system prompt explaining it. A guard leaves the section out instead:
+
+```yaml
+prompt: |
+  Summary:
+  {{ steps.summarize.text }}
+
+  {% if steps.risk_scan %}
+  Risk findings:
+  {{ steps.risk_scan.text }}
+  {% else %}
+  No risk review was run.
+  {% endif %}
+```
+
+Four tags: `{% if path %}`, `{% if not path %}`, `{% else %}` and `{% endif %}`. They nest,
+and `{% else %}` is optional.
+
+**A step that did not run is false.** Its result is a mapping, so emptiness alone would call
+it true, and `truthy` checks the `skipped` marker before anything else. That one rule is what
+makes `{% if steps.risk_scan %}` the whole test. Everything else is JSON's emptiness: null,
+false, `0`, `""`, `[]` and `{}`. A string is never parsed, so the *text* `"false"` is true.
+
+**The branch that is not taken is never rendered.** This is the part worth keeping. A
+reference like `{{ steps.risk_scan.json.severity }}` is legal before the step has run but
+has nothing to reach into, so it fails on the path. Inside a guard it is never reached, which
+is what lets a prompt read a field of a step that may not have run.
+
+**Both branches are still validated.** `template_refs` walks the parsed template and returns
+the references from the condition and from both sides, so `check_refs` sees all of them. A
+guard is not a way to read a step that is not upstream, and not a way to put a secret in a
+prompt.
+
+**A tag alone on its line takes the line with it**, indentation and newline included, or
+every conditional would leave a blank line in the prompt it was added to tidy up. A tag with
+anything else on its line stays where it is.
+
+**A malformed tag is refused, and `lint` is where.** `template_refs` parses too, so an
+unclosed `{% if %}`, a second `{% else %}` and an unknown tag all fail validation rather
+than waiting for the step to run. That is the opposite of the rule for `{{ }}`, whose
+pattern is narrow enough that `{{ a-b }}` passes through as prose: `{{ a-b }}` is plausible
+English and `{% ... %}` is not, so the same leniency would only hide a typo. Half a tag is
+refused for the same reason, since `{ % if x %}` would otherwise render its body
+unconditionally.
+
+`{%` and `%}` are therefore reserved in any template. A flow written before this that has one
+in a prompt is refused by `lint`, which is the only backward-incompatible part of it.
+
+### Prompt files
+
+A prompt is the long part of a flow and inlining it buries the graph. `prompt_file` names a
+file instead:
+
+```yaml
+- id: report
+  agent: reporter
+  prompt_file: report      # reads prompts/report.md beside the flow
+```
+
+**The file is read from `prompts/` beside the flow file**, so where the flow lives decides
+where its prompts live. That is one rule with two useful results: a *bundle*
+(`flows/review/review.yaml`) has prompts of its own, and a flat `flows/review.yaml` shares
+`flows/prompts/` with its siblings.
+
+**A bundle is a directory holding a flow of its own name.** `flows/review/review.yaml` is the
+flow `review`; the directory is not part of the name. Inside a namespace the file carries the
+leaf, the way a `spec.json` does, so `release/sign` is `flows/release/sign/sign.yaml`. A
+bundle is *also* still a namespace, so `flows/review/helper.yaml` remains `review/helper` and
+nothing that resolved before stops resolving. Written both ways at once, the flat spelling
+wins and `find_all` reports the other as shadowing, which is what two suffixes in one
+directory already do.
+
+**`inline_prompts` resolves it in `load_flow`**, not in `run_agent`. By the time anything
+looks at a step there is one kind of prompt, so `validate`, `template_refs`, `inspect` and
+the engine are unchanged, and a missing file fails `lint` rather than a paid-for step. What
+it costs is that a template error names the step rather than the file.
+
+**The name cannot leave the directory.** Same rule as a component name and for the same
+reason: joining `../../etc/passwd` on resolves, and a flow can arrive by clone. Naming both
+`prompt` and `prompt_file` on one step is refused, because one of them would be the prompt
+and the other dead text in the repository.
+
+Only a step's prompt can be a file today. A gate's `feedback` and the flow's
+`output.template` have the same readability problem and would work the same way; nobody has
+asked yet.
 
 ## Inputs
 
