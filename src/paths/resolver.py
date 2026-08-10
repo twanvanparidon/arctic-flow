@@ -128,7 +128,7 @@ REFUSED_SEGMENTS = ("", ".", "..")
 # is who may define it. So it is the project's own name and not a word about what is inside
 # it: `common/` is what someone reaches for to group their own tools, and reserving that
 # would take a word they had a use for. The whole namespace is reserved
-# rather than only the five names that ship today, for two reasons. A near miss like
+# rather than only the names that ship today, for two reasons. A near miss like
 # `arctic/read_files` would otherwise read as shipped while being anyone's, and reserving
 # only what ships would mean each new built-in could collide with a name somebody had.
 ENGINE_NAMESPACE = "arctic"

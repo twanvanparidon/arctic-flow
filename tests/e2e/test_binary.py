@@ -26,6 +26,7 @@ from .conftest import VERSION_PREFIX, reported_version
 BUILT_IN_TOOLS = (
     "arctic/read_file",
     "arctic/write_file",
+    "arctic/edit_file",
     "arctic/glob",
     "arctic/grep",
     "arctic/fetch_url",

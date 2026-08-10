@@ -269,7 +269,7 @@ reader nothing: any higher root, a cloned repository included, could put anythin
 So `find` **refuses** a reserved name that anything outside `builtin/` also defines, rather
 than quietly preferring the built-in, which would leave someone editing a directory that
 does nothing. `create` refuses the name too, before a directory exists. The whole namespace
-is reserved and not just the five names that ship, so a near miss like `arctic/read_files`
+is reserved and not just the names that ship, so a near miss like `arctic/read_files`
 cannot read as shipped and a new built-in can never collide with a name somebody had.
 
 `find_all` deliberately does not raise, because `commands.inventory` calls it for every

@@ -74,9 +74,10 @@ atf inspect tool arctic/read_file
 atf inspect agent <name>
 ```
 
-Five tools ship under `arctic/`: `read_file`, `write_file`, `glob`, `grep`, `fetch_url`.
-The first four cannot reach outside the workspace root. Use them rather than writing a
-fifth way to read a file.
+Six tools ship under `arctic/`: `read_file`, `write_file`, `edit_file`, `glob`, `grep`,
+`fetch_url`. The first five cannot reach outside the workspace root. Use them rather than
+writing another way to read a file. `write_file` takes whole contents and `edit_file` takes
+the old text and the new, so a small change to a large file does not go through the model.
 
 ## 4. Write the flow
 
@@ -255,8 +256,8 @@ Four things the spec must get right:
   mid-line, and a stray newline breaks the line it lands in.
 
 Copy the nearest shipped tool rather than starting fresh: `arctic/read_file` to read,
-`arctic/write_file` to write, `arctic/grep` to search, `arctic/fetch_url` to reach the
-network.
+`arctic/write_file` to write, `arctic/edit_file` to change part of a file, `arctic/grep` to
+search, `arctic/fetch_url` to reach the network.
 
 ## 7. Verify before reporting it done
 
