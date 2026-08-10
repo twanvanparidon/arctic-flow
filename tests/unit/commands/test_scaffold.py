@@ -151,7 +151,23 @@ class TestRefusals:
         with pytest.raises(LookupError_, match="not a component kind"):
             commands.create("adapter", "claude_code", paths)
 
-    @pytest.mark.parametrize("name", ["../escape", ""])
+    @pytest.mark.parametrize("kind", KINDS)
+    def test_the_engines_own_namespace_is_refused(self, kind: str, paths: Paths) -> None:
+        """Refused here as well as in the resolver, so the answer comes before the directory
+        exists rather than the first time something tries to run it."""
+        with pytest.raises(LookupError_, match="belongs to the engine"):
+            commands.create(kind, "common/mine", paths)
+
+    def test_refusing_it_suggests_a_namespace_of_your_own(self, paths: Paths) -> None:
+        with pytest.raises(LookupError_, match="tool <yours>/read_file"):
+            commands.create("tool", "common/read_file", paths)
+
+    def test_a_name_beside_the_reserved_one_is_fine(self, paths: Paths, workspace: Path) -> None:
+        """The migration for anyone who was overriding a built-in: rename and say so."""
+        created = commands.create("tool", "mine/read_file", paths)
+        assert created.path == workspace / "tools" / "mine" / "read_file"
+
+    @pytest.mark.parametrize("name", ["../escape", "", "common/mine"])
     def test_a_refused_name_writes_nothing_at_all(
         self, name: str, paths: Paths, workspace: Path
     ) -> None:

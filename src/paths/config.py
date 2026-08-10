@@ -13,8 +13,9 @@ Two settings, and they are deliberately few:
                     them and 14400 reads as nothing.
   sources           extra roots to search, each laid out as `tools/`, `agents/`, `flows/`.
                     `Paths.roots` splices them in below `~/.arctic` and above the
-                    built-ins, so a sourced library can replace what shipped with the
-                    engine but never what the project or your own home directory defines.
+                    built-ins, so a sourced library never replaces what the project or
+                    your own home directory defines. It cannot replace a shipped
+                    component either: see `ENGINE_NAMESPACE` in the resolver.
 
 Anything a flow should decide belongs in the flow, and anything a component should decide
 belongs in its spec. What is left is the per-machine policy neither of those can hold.

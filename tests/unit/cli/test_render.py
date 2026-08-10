@@ -25,6 +25,7 @@ from commands.results import (
     KindListing,
     LintReport,
     LintResult,
+    RefusedComponent,
     RunResult,
     SecretListing,
     SecretSet,
@@ -162,6 +163,26 @@ class TestInventory:
 
     def test_something_shadowing_nothing_carries_no_note(self) -> None:
         assert "shadows" not in render.inventory(INVENTORY)
+
+    def test_nothing_refused_means_no_section_at_all(self) -> None:
+        """A heading over nothing would read as something that routinely happens."""
+        assert "refused" not in render.inventory(INVENTORY)
+
+    def test_a_refused_definition_is_named_last_with_its_path(self) -> None:
+        listing = Inventory(
+            kinds=INVENTORY.kinds,
+            refused=(
+                RefusedComponent(
+                    kind="tool",
+                    name="common/read_file",
+                    path=Path("t"),
+                    display="./tools/common/read_file",
+                ),
+            ),
+        )
+        text = render.inventory(listing)
+        assert "common/read_file" in text and "./tools/common/read_file" in text
+        assert text.index("refused") > text.index("flows:")
 
 
 AGENT = AgentDetail(

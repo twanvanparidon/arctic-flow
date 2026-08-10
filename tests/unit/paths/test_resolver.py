@@ -23,6 +23,7 @@ from paths.resolver import (
     builtin_root,
     engine_root,
     flat_name,
+    reserved,
 )
 from support import components as make
 
@@ -251,12 +252,159 @@ class TestFinding:
         assert paths.find_all("tool", "absent") == []
 
 
+class TestTheEngineNamespace:
+    """`common/` belongs to the engine, and nothing else may define a name inside it.
+
+    A security property rather than a convenience, so these tests are about what is
+    *refused*. Without it a flow reading `tool: common/read_file` says nothing about what
+    runs: any higher root, including a repository somebody cloned, could put anything there
+    under a name that reads as the contained, no-network tool that ships.
+    """
+
+    @pytest.mark.parametrize(
+        ("name", "is_reserved"),
+        [
+            ("common/read_file", True),
+            ("common/anything", True),
+            # A near miss is reserved too. It reads as shipped, which is the whole risk.
+            ("common/read_files", True),
+            ("common/deep/nested", True),
+            ("common", True),
+            ("read_file", False),
+            ("mine/read_file", False),
+            ("uncommon/read_file", False),
+        ],
+    )
+    def test_what_counts_as_the_engines_own(self, name: str, is_reserved: bool) -> None:
+        assert reserved(name) is is_reserved
+
+    @pytest.mark.parametrize("root", ["project", "dot", "home"])
+    def test_a_definition_of_a_shipped_name_is_refused(
+        self, workspace: Path, home: Path, root: str
+    ) -> None:
+        """The threat itself: the flow says common/read_file and something else runs."""
+        where = {"project": workspace, "dot": workspace / ".arctic", "home": home / ".arctic"}
+        make.write_tool(where[root], "common/read_file", script=make.prints("not the real one"))
+        paths = Paths(workspace, env={}, home=home)
+        with pytest.raises(LookupError_, match="belongs to the engine"):
+            paths.find("tool", "common/read_file")
+
+    def test_even_atf_path_cannot_define_one(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        """The highest root there is, and it does not help. Otherwise the reservation
+        would be advice rather than a rule."""
+        override = tmp_path / "override"
+        make.write_tool(override, "common/read_file")
+        paths = Paths(workspace, env={"ATF_PATH": str(override)}, home=home)
+        with pytest.raises(LookupError_, match="belongs to the engine"):
+            paths.find("tool", "common/read_file")
+
+    def test_a_source_cannot_define_one_either(
+        self, workspace: Path, home: Path, tmp_path: Path
+    ) -> None:
+        """The case nobody would think to check: a shared library you pulled, whose
+        contents you did not write and cannot see from the flow."""
+        shared = tmp_path / "shared"
+        make.write_tool(shared, "common/read_file")
+        (home / ".arctic").mkdir(exist_ok=True)
+        (home / ".arctic" / "config.yaml").write_text(f"sources:\n  - {shared}\n")
+        with pytest.raises(LookupError_, match="belongs to the engine"):
+            Paths(workspace, env={}, home=home).find("tool", "common/read_file")
+
+    def test_a_name_the_engine_does_not_ship_is_reserved_all_the_same(
+        self, workspace: Path, home: Path
+    ) -> None:
+        """Reserving the namespace rather than the five names means a new built-in can
+        never collide with something somebody already had."""
+        make.write_tool(workspace, "common/mine")
+        with pytest.raises(LookupError_, match="belongs to the engine"):
+            Paths(workspace, env={}, home=home).find("tool", "common/mine")
+
+    def test_the_refusal_names_the_directory_to_rename(self, workspace: Path, home: Path) -> None:
+        make.write_tool(home / ".arctic", "common/read_file")
+        paths = Paths(workspace, env={}, home=home)
+        with pytest.raises(LookupError_, match=r"\$HOME/\.arctic/tools/common/read_file"):
+            paths.find("tool", "common/read_file")
+
+    def test_it_refuses_rather_than_quietly_preferring_the_built_in(
+        self, workspace: Path, home: Path
+    ) -> None:
+        """The built-in exists and would have won. Silence would leave someone editing a
+        directory that does nothing, which is the whole reason this is loud."""
+        make.write_tool(workspace, "common/read_file")
+        with pytest.raises(LookupError_):
+            Paths(workspace, env={}, home=home).find("tool", "common/read_file")
+
+    @pytest.mark.parametrize("kind", ["tool", "agent", "flow"])
+    def test_every_kind_is_covered(self, workspace: Path, home: Path, kind: str) -> None:
+        """One rule for all three, so a built-in agent later needs no second decision."""
+        writer = {
+            "tool": lambda: make.write_tool(workspace, "common/thing"),
+            "agent": lambda: make.write_agent(workspace, "common/thing"),
+            "flow": lambda: make.write_text_flow(workspace, "common/thing", "flow: thing\n"),
+        }
+        writer[kind]()
+        with pytest.raises(LookupError_, match="belongs to the engine"):
+            Paths(workspace, env={}, home=home).find(kind, "common/thing")
+
+    def test_a_shipped_tool_still_resolves_when_nobody_interferes(self, paths: Paths) -> None:
+        assert paths.find("tool", "common/read_file").is_relative_to(builtin_root())
+
+    def test_your_own_name_is_unaffected(self, paths: Paths, workspace: Path) -> None:
+        """The migration for anyone who was overriding: rename it and say so in the flow."""
+        base = make.write_tool(workspace, "mine/read_file")
+        assert paths.find("tool", "mine/read_file") == base
+
+    def test_find_all_leaves_an_intruder_out_rather_than_shadowing_with_it(
+        self, workspace: Path, home: Path
+    ) -> None:
+        """`commands.inventory` calls this for every listed name, so it must not raise:
+        a listing has to survive the thing it exists to report."""
+        make.write_tool(workspace, "common/read_file")
+        matches = Paths(workspace, env={}, home=home).find_all("tool", "common/read_file")
+        assert [m for m in matches if not m.is_relative_to(builtin_root())] == []
+
+    def test_the_intruder_is_reported_by_path(self, workspace: Path, home: Path) -> None:
+        base = make.write_tool(workspace, "common/read_file")
+        paths = Paths(workspace, env={}, home=home)
+        assert paths.intruders("tool", "common/read_file") == [base]
+        assert paths.all_intruders("tool") == {"common/read_file": [base]}
+
+    def test_nothing_is_reported_for_an_ordinary_name(self, paths: Paths, workspace: Path) -> None:
+        make.write_tool(workspace, "greet")
+        assert paths.intruders("tool", "greet") == []
+        assert paths.all_intruders("tool") == {}
+
+    def test_a_contested_name_is_not_listed_as_available(self, workspace: Path, home: Path) -> None:
+        """It resolves to nothing until the directory is renamed, so a listing saying it is
+        available would be wrong about what the name does."""
+        make.write_tool(workspace, "common/read_file")
+        listed = Paths(workspace, env={}, home=home).list("tool")
+        assert "common/read_file" not in listed
+        # The others are untouched: one bad directory is not the whole namespace.
+        assert "common/write_file" in listed
+
+    def test_an_uncontested_shipped_name_is_still_listed(self, paths: Paths) -> None:
+        assert "common/read_file" in paths.list("tool")
+
+    def test_a_missing_reserved_name_is_only_looked_for_in_the_engines_root(
+        self, workspace: Path, home: Path
+    ) -> None:
+        """Naming roots it would never have been taken from would send someone to put the
+        component in one of them."""
+        paths = Paths(workspace, env={}, home=home)
+        message = str(pytest.raises(LookupError_, paths.find, "tool", "common/absent").value)
+        assert "$ATF_ROOT" in message
+        assert "./tools" not in message and HOME_SYMBOL not in message
+
+
 class TestNamespaces:
-    """A name may carry a namespace, so `common/read_file` is `tools/common/read_file`."""
+    """A name may carry a namespace, so `group/read_file` is `tools/group/read_file`."""
 
     def test_finds_a_tool_inside_a_namespace(self, paths: Paths, workspace: Path) -> None:
-        base = make.write_tool(workspace, "common/greet")
-        assert paths.find("tool", "common/greet") == base
+        base = make.write_tool(workspace, "group/greet")
+        assert paths.find("tool", "group/greet") == base
 
     def test_the_namespace_may_be_any_depth(self, paths: Paths, workspace: Path) -> None:
         base = make.write_tool(workspace, "git/worktree/add")
@@ -277,33 +425,33 @@ class TestNamespaces:
     ) -> None:
         """Two names, not one name with a search path. Overriding stays per whole name."""
         make.write_tool(workspace, "greet")
-        with pytest.raises(LookupError_, match="unknown tool 'common/greet'"):
-            paths.find("tool", "common/greet")
+        with pytest.raises(LookupError_, match="unknown tool 'group/greet'"):
+            paths.find("tool", "group/greet")
 
     def test_a_bare_name_does_not_reach_into_a_namespace(
         self, paths: Paths, workspace: Path
     ) -> None:
-        make.write_tool(workspace, "common/greet")
+        make.write_tool(workspace, "group/greet")
         with pytest.raises(LookupError_, match="unknown tool 'greet'"):
             paths.find("tool", "greet")
 
     def test_precedence_applies_to_the_whole_name(
         self, paths: Paths, workspace: Path, home: Path
     ) -> None:
-        make.write_tool(home / ".arctic", "common/greet")
-        project = make.write_tool(workspace, "common/greet")
-        assert paths.find("tool", "common/greet") == project
+        make.write_tool(home / ".arctic", "group/greet")
+        project = make.write_tool(workspace, "group/greet")
+        assert paths.find("tool", "group/greet") == project
 
     def test_a_namespace_directory_is_not_itself_a_component(
         self, paths: Paths, workspace: Path
     ) -> None:
-        make.write_tool(workspace, "common/greet")
+        make.write_tool(workspace, "group/greet")
         with pytest.raises(LookupError_, match="unknown tool 'common'"):
             paths.find("tool", "common")
 
     def test_the_message_names_the_namespaced_candidate(self, paths: Paths) -> None:
-        message = str(pytest.raises(LookupError_, paths.find, "tool", "common/absent").value)
-        assert "./tools/common/absent" in message
+        message = str(pytest.raises(LookupError_, paths.find, "tool", "group/absent").value)
+        assert "./tools/group/absent" in message
 
 
 class TestNameChecking:
@@ -313,7 +461,7 @@ class TestNameChecking:
         "name",
         [
             "../../../etc/passwd",
-            "common/../../../etc",
+            "group/../../../etc",
             "/etc/passwd",
             "git//commit",
             "git/./commit",
@@ -407,8 +555,8 @@ class TestListing:
 
     def test_a_namespaced_name_is_listed_qualified(self, paths: Paths, workspace: Path) -> None:
         """The name a flow would write, not the leaf in a directory the listing cannot show."""
-        base = make.write_tool(workspace, "common/greet")
-        assert paths.list("tool")["common/greet"] == base
+        base = make.write_tool(workspace, "group/greet")
+        assert paths.list("tool")["group/greet"] == base
 
     def test_a_namespace_of_any_depth_is_listed(self, paths: Paths, workspace: Path) -> None:
         make.write_tool(workspace, "git/worktree/add")
@@ -426,7 +574,7 @@ class TestListing:
         (workspace / "tools" / "common" / "notes").mkdir(parents=True)
         listed = paths.list("tool")
         assert "common" not in listed
-        assert "common/notes" not in listed
+        assert "group/notes" not in listed
 
     def test_a_dotted_directory_is_not_walked(self, paths: Paths, workspace: Path) -> None:
         """A .git or an editor's cache is not a namespace. Descending into one would list
@@ -447,9 +595,9 @@ class TestListing:
     def test_precedence_is_per_namespaced_name(
         self, paths: Paths, workspace: Path, home: Path
     ) -> None:
-        make.write_tool(home / ".arctic", "common/greet")
-        project = make.write_tool(workspace, "common/greet")
-        assert paths.list("tool")["common/greet"] == project
+        make.write_tool(home / ".arctic", "group/greet")
+        project = make.write_tool(workspace, "group/greet")
+        assert paths.list("tool")["group/greet"] == project
 
 
 class TestDisplay:

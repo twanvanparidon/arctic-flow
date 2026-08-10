@@ -24,6 +24,7 @@ from commands.results import ComponentCreated
 from paths.resolver import (
     COMPONENT_DIRS,
     DOT_DIR,
+    ENGINE_NAMESPACE,
     FLOW_SUFFIXES,
     SEPARATOR,
     LookupError_,
@@ -31,6 +32,7 @@ from paths.resolver import (
     builtin_root,
     check_kind,
     check_name,
+    reserved,
 )
 
 SCAFFOLDS = builtin_root() / "scaffolds"
@@ -54,6 +56,15 @@ def create(kind: str, name: str, paths: Paths) -> ComponentCreated:
     """Write a new component of `kind` under `name`, and report what it is made of."""
     check_kind(kind)
     check_name(name)
+    if reserved(name):
+        # Refused here as well as in the resolver, so the answer arrives before the
+        # directory exists rather than the first time something tries to run it.
+        leaf = name.rsplit(SEPARATOR, 1)[-1]
+        raise LookupError_(
+            f"'{ENGINE_NAMESPACE}{SEPARATOR}' belongs to the engine, so '{name}' is not a "
+            f"name to create. Put yours in a namespace of your own: "
+            f"'{kind} <yours>{SEPARATOR}{leaf}'"
+        )
     if kind == "flow" and name.endswith(FLOW_SUFFIXES):
         # Otherwise flows/review.yaml.yaml, resolved under a name nobody would type. Split
         # off the suffix rather than taking Path.stem, which would drop the namespace too.

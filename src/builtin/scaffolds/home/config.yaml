@@ -16,9 +16,9 @@ run:
 # Extra places to look for tools, agents and flows, searched in the order listed.
 # Each is a directory laid out the way this one is: tools/, agents/, flows/.
 #
-# They sit below this directory and above what ships with the engine, so a source can
-# replace a built-in but never something you or the project defines. A source that is
-# not there is skipped. Absolute or ~/ only.
+# They sit below this directory, so a source never replaces something you or the
+# project defines, and it cannot define anything under `common/`, which belongs to
+# the engine. A source that is not there is skipped. Absolute or ~/ only.
 sources: []
 #  - ~/work/arctic-components
 #  - /opt/team/arctic

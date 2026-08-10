@@ -231,10 +231,10 @@ class TestNamespacedTools:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        make.write_tool(workspace, "common/greet")
+        make.write_tool(workspace, "group/greet")
         frame = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-        [reply] = answers([frame], ["common/greet"], paths, monkeypatch, capsys)
-        assert [tool["name"] for tool in reply["result"]["tools"]] == ["common__greet"]
+        [reply] = answers([frame], ["group/greet"], paths, monkeypatch, capsys)
+        assert [tool["name"] for tool in reply["result"]["tools"]] == ["group__greet"]
 
     def test_the_namespace_is_kept_rather_than_dropped_to_the_leaf(
         self,
@@ -244,12 +244,12 @@ class TestNamespacedTools:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Two namespaces may hold the same leaf, so the leaf alone is not a name."""
-        make.write_tool(workspace, "common/greet")
+        make.write_tool(workspace, "group/greet")
         make.write_tool(workspace, "legacy/greet")
         frame = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-        [reply] = answers([frame], ["common/greet", "legacy/greet"], paths, monkeypatch, capsys)
+        [reply] = answers([frame], ["group/greet", "legacy/greet"], paths, monkeypatch, capsys)
         assert [tool["name"] for tool in reply["result"]["tools"]] == [
-            "common__greet",
+            "group__greet",
             "legacy__greet",
         ]
 
@@ -260,8 +260,8 @@ class TestNamespacedTools:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        make.write_tool(workspace, "common/greet", script=make.prints("hello"))
-        [reply] = answers([call("common__greet")], ["common/greet"], paths, monkeypatch, capsys)
+        make.write_tool(workspace, "group/greet", script=make.prints("hello"))
+        [reply] = answers([call("group__greet")], ["group/greet"], paths, monkeypatch, capsys)
         assert reply["result"]["content"][0]["text"] == "hello"
 
     def test_a_deep_namespace_flattens_all_the_way(
@@ -286,10 +286,10 @@ class TestNamespacedTools:
     ) -> None:
         """Nothing offered it, so it is refused the way any other wrong name is, naming
         what may be called instead."""
-        make.write_tool(workspace, "common/greet")
-        [reply] = answers([call("common/greet")], ["common/greet"], paths, monkeypatch, capsys)
+        make.write_tool(workspace, "group/greet")
+        [reply] = answers([call("group/greet")], ["group/greet"], paths, monkeypatch, capsys)
         assert reply["result"]["isError"] is True
-        assert "common__greet" in reply["result"]["content"][0]["text"]
+        assert "group__greet" in reply["result"]["content"][0]["text"]
 
     def test_the_call_is_reported_under_the_name_the_engine_resolves(
         self,
@@ -300,12 +300,10 @@ class TestNamespacedTools:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """The flat spelling is for the model. Progress is the engine's own vocabulary."""
-        make.write_tool(workspace, "common/greet", script=make.prints("hi"))
+        make.write_tool(workspace, "group/greet", script=make.prints("hi"))
         events = tmp_path / "calls.ndjson"
-        answers(
-            [call("common__greet")], ["common/greet"], paths, monkeypatch, capsys, events=events
-        )
-        assert json.loads(events.read_text().splitlines()[0])["tool"] == "common/greet"
+        answers([call("group__greet")], ["group/greet"], paths, monkeypatch, capsys, events=events)
+        assert json.loads(events.read_text().splitlines()[0])["tool"] == "group/greet"
 
 
 class TestReportingCalls:

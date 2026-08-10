@@ -626,17 +626,17 @@ class TestAnAgentsToolGrant:
             validate(flow(step), project)
 
     def test_a_namespaced_tool_can_be_granted(self, project: Paths, workspace: Path) -> None:
-        make.write_tool(workspace, "common/reader", permissions={"filesystem": "read"})
-        make.write_agent(workspace, "handy", tools=["common/reader"])
+        make.write_tool(workspace, "group/reader", permissions={"filesystem": "read"})
+        make.write_agent(workspace, "handy", tools=["group/reader"])
         assert validate(flow({"id": "a", "agent": "handy", "prompt": "x"}), project)
 
     def test_two_namespaces_holding_the_same_leaf_can_both_be_granted(
         self, project: Paths, workspace: Path
     ) -> None:
         """The namespace is kept in the name a model sees, so these are two tools."""
-        make.write_tool(workspace, "common/reader")
+        make.write_tool(workspace, "group/reader")
         make.write_tool(workspace, "legacy/reader")
-        make.write_agent(workspace, "handy", tools=["common/reader", "legacy/reader"])
+        make.write_agent(workspace, "handy", tools=["group/reader", "legacy/reader"])
         assert validate(flow({"id": "a", "agent": "handy", "prompt": "x"}), project)
 
     def test_two_grants_a_model_would_see_as_one_tool_are_refused(

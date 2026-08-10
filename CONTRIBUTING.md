@@ -45,7 +45,15 @@ flow could own it. An unknown key is refused rather than ignored.
 whichever root wins, at any depth, with nothing to declare: a directory holding a
 `spec.json` is a component and any other directory is a namespace. The name is the whole
 path, so grouping a tool moves it rather than aliasing it and a bare `read_file` neither
-overrides nor falls back to it. Everything the engine ships sits under `common/`.
+overrides nor falls back to it. The first segment says who a component came from, the way
+`vendor/package` does in Composer.
+
+**And one namespace is not overridable.** Everything the engine ships sits under `common/`,
+and nothing outside `builtin/` may define a name inside it: the resolver refuses rather than
+choosing, wherever the other definition came from. This is a security property, not tidiness.
+`tool: common/read_file` in a flow has to mean the tool that ships, or reading a flow says
+nothing about what it runs, and a cloned repository is a search root. See `ENGINE_NAMESPACE`
+and `Paths.intruders`.
 
 **A branch that is not taken skips its subtree.** `switch` picks one case; the edges to the
 others are marked skipped, and skipping propagates. That is what lets a join downstream of

@@ -234,15 +234,34 @@ class KindListing:
 
 
 @dataclass(frozen=True)
+class RefusedComponent:
+    """A definition the lookup will not use, because its name is the engine's own.
+
+    Not an error and not a shadow. It is a directory somebody wrote that cannot be reached
+    by the name it claims, so a listing has to say it is there and say why it is ignored.
+    Anything naming it fails rather than getting the shipped one by accident.
+    """
+
+    kind: str
+    name: str
+    path: Path
+    display: str
+
+
+@dataclass(frozen=True)
 class Inventory:
     """Every name the lookup can resolve, by kind, each with where it was found.
 
     Adapters are separate from the rest because they are registered in code: they have no
     roots to be found under, and nothing can shadow one.
+
+    `refused` is normally empty, and is what makes a definition in the engine's own
+    namespace visible rather than merely absent.
     """
 
     adapters: tuple[ComponentEntry, ...] = ()
     kinds: tuple[KindListing, ...] = ()
+    refused: tuple[RefusedComponent, ...] = ()
 
 
 @dataclass(frozen=True)

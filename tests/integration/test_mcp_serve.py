@@ -231,19 +231,19 @@ class TestANamespacedGrant:
     def test_what_the_adapter_allows_is_what_the_server_offers(
         self, atf_process: Runner, project: Path
     ) -> None:
-        make.write_tool(project, "common/shout", script=make.python("print('OK')\n"))
+        make.write_tool(project, "group/shout", script=make.python("print('OK')\n"))
         result = atf_process(
             "--workspace",
             str(project),
             "mcp-serve",
             "--tool",
-            "common/shout",
+            "group/shout",
             stdin=frames(HANDSHAKE, LIST),
         )
         offered = [tool["name"] for tool in answered(parsed(result.out), 2)["result"]["tools"]]
 
         args = claude_code.build_args(
-            {"prompt": "p", "tools": ["common/shout"], "tool_server": ["atf"]}
+            {"prompt": "p", "tools": ["group/shout"], "tool_server": ["atf"]}
         )
         allowed = args[args.index("--allowedTools") + 1].split(",")
         assert allowed == [f"mcp__{mcp_server.SERVER_NAME}__{name}" for name in offered]
@@ -251,14 +251,14 @@ class TestANamespacedGrant:
     def test_the_flat_name_reaches_the_tool_in_its_namespace(
         self, atf_process: Runner, project: Path
     ) -> None:
-        make.write_tool(project, "common/shout", script=make.python("print('OK')\n"))
+        make.write_tool(project, "group/shout", script=make.python("print('OK')\n"))
         result = atf_process(
             "--workspace",
             str(project),
             "mcp-serve",
             "--tool",
-            "common/shout",
-            stdin=frames(HANDSHAKE, call("common__shout")),
+            "group/shout",
+            stdin=frames(HANDSHAKE, call("group__shout")),
         )
         assert answered(parsed(result.out), 3)["result"]["content"][0]["text"].strip() == "OK"
 

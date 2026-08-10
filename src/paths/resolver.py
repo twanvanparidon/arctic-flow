@@ -13,10 +13,11 @@ first match wins, so a project overrides what it inherits without a config file:
   5. sources       extra roots named by ~/.arctic/config.yaml (see `paths/config.py`)
   6. builtin/      what ships with the engine
 
-A source sits below your own home directory and above the built-ins on purpose. A shared
-library of tools is something you opted into, so it may replace what shipped with the
-engine; it may not quietly replace what this project or your own `~/.arctic` defines,
-because then reading a flow would no longer tell you which definition it runs.
+A source sits below your own home directory on purpose. A shared library of tools is
+something you opted into, and it may not quietly replace what this project or your own
+`~/.arctic` defines, because then reading a flow would no longer tell you which definition
+it runs. It cannot replace what shipped with the engine either, for the stronger version of
+the same reason: see `ENGINE_NAMESPACE` below.
 
 `display()` names a path by the layer it came out of, which is what `atf list` prints
 beside every name: `./x` for the project, `$HOME/.arctic/x` for yours, `$ATF_ROOT/x` for
@@ -30,6 +31,13 @@ tools by purpose is done by moving the directories.
 Overriding is per *name*, not per directory: a project-level `read_file` replaces the
 built-in and inherits nothing from it. `common/read_file` and `read_file` are two names, so
 neither one overrides or falls back to the other.
+
+**One namespace is not overridable, and that is a security property rather than a
+convenience.** The engine owns `common/`, and nothing outside `builtin/` may define a name
+inside it. Without that, a flow reading `tool: common/read_file` says nothing about what
+runs: whoever controls a higher root, including a repository you cloned, could put anything
+there under a name that reads as the contained, no-network tool that ships. See
+`ENGINE_NAMESPACE` and `Paths.intruders`.
 
 Where a component is found does not change where it runs. Everything executes with the
 working directory set to the project root, so a tool installed in your home directory
@@ -85,6 +93,31 @@ FLAT_SEPARATOR = "__"
 # Segments that name something other than a directory inside the current one. Refused, so
 # a name cannot walk out of the root it was resolved against.
 REFUSED_SEGMENTS = ("", ".", "..")
+
+# The namespace the engine owns. A name whose first segment is this one resolves inside
+# `builtin/` or nowhere, so `tool: common/read_file` in a flow is the shipped tool and
+# cannot be anything else.
+#
+# It is a *vendor* segment, in the sense Composer's `vendor/package` and Java's reverse
+# domain root are: the first segment says who a component came from, and who it came from
+# is who may define it. The whole namespace is reserved rather than only the five names
+# that ship today, for two reasons. A near miss like `common/read_files` would otherwise
+# read as shipped while being anyone's, and reserving only what ships would mean each new
+# built-in could collide with a name somebody already had.
+ENGINE_NAMESPACE = "common"
+
+
+def reserved(name: str) -> bool:
+    """Whether this name is the engine's to define.
+
+    The first segment, so the whole namespace is covered at any depth. A bare name never
+    is: `read_file` of your own is a different name from `common/read_file` and always was.
+    """
+    return name.split(SEPARATOR)[0] == ENGINE_NAMESPACE
+
+
+def _inside(path: Path, base: Path) -> bool:
+    return path == base or base in path.parents
 
 
 class LookupError_(RuntimeError):
@@ -253,14 +286,78 @@ class Paths:
         return (candidate / "spec.json").is_file()
 
     def find_all(self, kind: str, name: str) -> list[Path]:
-        """Every match, in precedence order. More than one means shadowing."""
-        return [c for c in self._candidates(kind, name) if self._exists(kind, c)]
+        """Every match that may be used, in precedence order. More than one is shadowing.
+
+        A reserved name is matched inside the engine's root or not at all, so a definition
+        of one anywhere else is absent from this rather than shadowing what ships. It does
+        not silently lose either: `find` refuses outright. This one does not raise, because
+        `commands.inventory` calls it for every listed name and a listing has to survive
+        the thing it exists to report.
+        """
+        return [c for c in self._eligible(kind, name) if self._exists(kind, c)]
+
+    def _eligible(self, kind: str, name: str) -> list[Path]:
+        """The locations this name may legitimately come from, in precedence order.
+
+        Every candidate for an ordinary name, and only the engine's own for a reserved one.
+        `find` reports these when nothing matched, so a reserved name that is simply
+        misspelled is not answered with a list of roots it would never have been taken from.
+        """
+        candidates = self._candidates(kind, name)
+        if reserved(name):
+            return [c for c in candidates if _inside(c, builtin_root())]
+        return candidates
+
+    def intruders(self, kind: str, name: str) -> list[Path]:
+        """Definitions of a reserved name that are not the engine's, in precedence order.
+
+        Empty for every ordinary name, so nothing but a reserved one pays for this.
+        """
+        if not reserved(name):
+            return []
+        return [
+            candidate
+            for candidate in self._candidates(kind, name)
+            if self._exists(kind, candidate) and not _inside(candidate, builtin_root())
+        ]
+
+    def all_intruders(self, kind: str) -> dict[str, list[Path]]:
+        """Every definition of a reserved name outside the engine, by name.
+
+        For reporting, not resolving. `create` refuses to write one, so the only ways to
+        have one are by hand and out of a source somebody else wrote. The second is the
+        case worth naming out loud, and it is the one nobody would think to look for.
+        """
+        found: dict[str, list[Path]] = {}
+        for root in self.roots:
+            if _inside(root, builtin_root()):
+                continue
+            for subdir in COMPONENT_DIRS[kind]:
+                base = root / subdir / ENGINE_NAMESPACE
+                if not base.is_dir():
+                    continue
+                # A fresh mapping per root: `_collect` keeps the first of a name it sees,
+                # and here every one of them is being collected rather than resolved.
+                under_root: dict[str, Path] = {}
+                self._collect(kind, base, f"{ENGINE_NAMESPACE}{SEPARATOR}", under_root)
+                for name, path in under_root.items():
+                    found.setdefault(name, []).append(path)
+        return dict(sorted(found.items()))
 
     def find(self, kind: str, name: str) -> Path:
+        # Before the match, and refusing even when the built-in exists and would have won.
+        # Quietly preferring the shipped one would leave someone editing a directory that
+        # does nothing, and the whole point is that this is said rather than assumed.
+        if trespassing := self.intruders(kind, name):
+            raise LookupError_(
+                f"'{name}' is in '{ENGINE_NAMESPACE}{SEPARATOR}', which belongs to the "
+                f"engine, so {self._display(trespassing[0])} may not define it. Give yours "
+                f"a name of its own and change what names it"
+            )
         matches = self.find_all(kind, name)
         if matches:
             return matches[0]
-        looked = ", ".join(self._display(c) for c in self._candidates(kind, name))
+        looked = ", ".join(self._display(c) for c in self._eligible(kind, name))
         raise LookupError_(f"unknown {kind} '{name}', looked in {looked}")
 
     def list(self, kind: str) -> dict[str, Path]:
@@ -274,10 +371,35 @@ class Paths:
             for subdir in COMPONENT_DIRS[kind]:
                 base = root / subdir
                 if base.is_dir():
-                    self._collect(kind, base, "", available)
+                    # Reserved names are collected from the engine's root and nowhere else,
+                    # and at insert time rather than afterwards: the roots are walked in
+                    # precedence order, so an intruder would claim the name first and the
+                    # built-in would never be reached.
+                    self._collect(
+                        kind,
+                        base,
+                        "",
+                        available,
+                        skip_reserved=not _inside(root, builtin_root()),
+                    )
+
+        # A reserved name somebody else also defines resolves to nothing until that
+        # directory is renamed, so it is not offered here either. Listing it as available
+        # while `find` refuses it would make the listing the one thing it must not be,
+        # which is wrong about what a name does.
+        for name in self.all_intruders(kind):
+            available.pop(name, None)
         return dict(sorted(available.items()))
 
-    def _collect(self, kind: str, base: Path, prefix: str, available: dict[str, Path]) -> None:
+    def _collect(
+        self,
+        kind: str,
+        base: Path,
+        prefix: str,
+        available: dict[str, Path],
+        *,
+        skip_reserved: bool = False,
+    ) -> None:
         """Add every component under `base`, descending into namespaces.
 
         A directory holding a spec.json is a component, and the walk goes into it anyway.
@@ -294,9 +416,16 @@ class Paths:
             if self._exists(kind, entry):
                 name = f"{prefix}{entry.stem if kind == 'flow' else entry.name}"
                 # First one wins: the roots are walked in precedence order.
-                available.setdefault(name, entry)
+                if not (skip_reserved and reserved(name)):
+                    available.setdefault(name, entry)
             if entry.is_dir():
-                self._collect(kind, entry, f"{prefix}{entry.name}{SEPARATOR}", available)
+                self._collect(
+                    kind,
+                    entry,
+                    f"{prefix}{entry.name}{SEPARATOR}",
+                    available,
+                    skip_reserved=skip_reserved,
+                )
 
     def _display(self, path: Path) -> str:
         """Shorten a path for messages, by which layer it came out of.
@@ -324,7 +453,7 @@ class Paths:
         # `./...`: the project's own, which is exactly what it is not. Left absolute
         # rather than given a symbol, because there can be several and one symbol could
         # not say which.
-        if any(path == source or source in path.parents for source in self.config.sources):
+        if any(_inside(path, source) for source in self.config.sources):
             return str(path)
 
         for base, prefix in ((self.workspace, "."), (self.home, HOME_SYMBOL)):

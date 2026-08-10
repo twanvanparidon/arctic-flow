@@ -220,7 +220,7 @@ namespace.
 
 ```txt
 tools/
-   common/             <- where the shipped tools live
+   common/             <- the engine's own. Yours may not go here
       read_file/        ->  tool: common/read_file
       grep/
    git/
@@ -230,9 +230,26 @@ tools/
 
 `agents/` and `flows/` group the same way, so `atf run release/sign_release` runs
 `flows/release/sign_release.yaml`. The name is the whole path, so `common/read_file` and a
-`read_file` of your own are two tools and overriding one does not touch the other. To
-replace a shipped tool, match its full name: `tools/common/read_file/` in your project.
+`read_file` of your own are two tools and overriding one does not touch the other.
 `atf list` prints every name qualified.
+
+The first segment says who a component came from, the way `vendor/package` does in
+Composer. **`common/` is the engine's, and nothing else may define a name inside it:**
+
+```sh
+atf create tool common/read_file
+# engine: 'common/' belongs to the engine, so 'common/read_file' is not a name to
+#         create. Put yours in a namespace of your own: 'tool <yours>/read_file'
+```
+
+That is a security property rather than tidiness. `tool: common/read_file` in a flow has to
+mean the contained, no-network tool that ships, and if any higher root could define that
+name then reading the flow would tell you nothing about what runs. A repository you cloned
+is a higher root. So a directory in that namespace is refused rather than used, by name and
+wherever it came from, including `$ATF_PATH` and a source; `atf list` reports it under
+`refused` so it is not merely missing. Want different behaviour from a shipped tool? Copy it
+under a name of your own and change the flows that name it, which is the same edit, said out
+loud.
 
 ### Writing them with Claude Code
 

@@ -37,6 +37,7 @@ from commands.results import (
     VaultCreated,
 )
 from paths.config import CONFIG_FILE
+from paths.resolver import ENGINE_NAMESPACE, SEPARATOR
 
 # Wide enough for the longest built-in name with a gap after it, so a listing's second
 # column lines up without being measured per run.
@@ -136,6 +137,16 @@ def inventory(result: Inventory) -> str:
         # "agents: none" on one line rather than a heading over nothing.
         lines.append(f"{listing.kind}s:" if listing.entries else f"{listing.kind}s: none")
         lines += [f"  {_entry(entry)}" for entry in listing.entries]
+        lines.append("")
+
+    # Last, and only when there is one. It is the section someone has to act on, and a
+    # heading over nothing would suggest this is a thing that routinely happens.
+    if result.refused:
+        lines.append(f"refused ('{ENGINE_NAMESPACE}{SEPARATOR}' belongs to the engine):")
+        lines += [
+            f"  {item.name:<{NAME_WIDTH}} {item.display}  ({item.kind}, unreachable by name)"
+            for item in result.refused
+        ]
         lines.append("")
 
     return "\n".join(lines)

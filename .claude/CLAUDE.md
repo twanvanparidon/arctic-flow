@@ -208,15 +208,15 @@ load the bundle's OpenSSL and fail in frozen builds only.
 `paths/resolver.py` searches roots in precedence order and the first match wins:
 `$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `sources` → `../src/builtin`. Under any
 root, components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and total: a
-project-level `common/read_file` replaces the built-in and inherits nothing. Where a
+project-level `deploy` replaces an inherited one and inherits nothing from it. Where a
 component is *found* never changes where it *runs*: tools execute with cwd set to the
 workspace root.
 
 A name may carry a namespace, at any depth and for all three kinds: `common/read_file` is
 `tools/common/read_file`, `release/sign` is `flows/release/sign.yaml`. A directory holding
 a `spec.json` is a component and any other directory is a namespace, so there is nothing to
-declare. Everything the engine ships is under `common/`, so overriding one means matching
-that whole name. `common/read_file` and a bare `read_file` neither override nor fall back
+declare. The first segment is a *vendor* segment in the `vendor/package` sense.
+`common/read_file` and a bare `read_file` neither override nor fall back
 to each other, and `spec.json` still carries only the leaf. `check_name`
 refuses a name whose segments would leave the root (`..`, an absolute path, an empty
 segment), which is why the check sits in the resolver and not in `lint`: one place covers
@@ -225,10 +225,26 @@ the separator is `__`, because `mcp__atf__<tool>` cannot carry a slash.
 
 `sources` are extra roots named by `~/.arctic/config.yaml`, which `atf init` writes and
 `paths/config.py` reads. They sit below your own home layer and above the built-ins, so a
-shared library may replace a shipped tool but never one the project or `~/.arctic` defines.
+shared library never replaces one the project or `~/.arctic` defines, and cannot define
+anything under `common/` at all.
 The same file carries `run.max_minutes`, a ceiling on a whole run that `execute` enforces
 and no flow may raise; an unknown key in it is refused rather than ignored. `Paths` loads
 it eagerly, so a broken config stops every command rather than one.
+
+**`ENGINE_NAMESPACE` (`common/`) is the engine's, and that is a security property.** A
+flow reading `tool: common/read_file` has to mean the shipped tool, or the name tells a
+reader nothing: any higher root, a cloned repository included, could put anything there.
+So `find` **refuses** a reserved name that anything outside `builtin/` also defines, rather
+than quietly preferring the built-in, which would leave someone editing a directory that
+does nothing. `create` refuses the name too, before a directory exists. The whole namespace
+is reserved and not just the five names that ship, so a near miss like `common/read_files`
+cannot read as shipped and a new built-in can never collide with a name somebody had.
+
+`find_all` deliberately does not raise, because `commands.inventory` calls it for every
+listed name and a listing has to survive the thing it exists to report. `intruders` and
+`all_intruders` are what `find` and `list` read instead: `list` drops a contested name
+rather than claiming it resolves, and reports it under `refused`. The reservation covers
+grants and `mcp-serve` for free, because both go through `find`.
 
 `atf create <kind> <name>` writes one, out of `../src/builtin/scaffolds/<kind>/`, into
 `./.arctic` when the workspace has one and the workspace root otherwise: the top of that
