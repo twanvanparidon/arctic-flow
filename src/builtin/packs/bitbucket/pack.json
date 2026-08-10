@@ -1,0 +1,4 @@
+{
+  "description": "Open, read and comment on Bitbucket Cloud pull requests. Cloud only, not Server or Data Center",
+  "requires": ["curl", "jq", "git"]
+}

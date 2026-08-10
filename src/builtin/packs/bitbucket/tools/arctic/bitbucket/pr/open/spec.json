@@ -1,0 +1,81 @@
+{
+  "name": "open",
+  "version": 1,
+  "description": "Open a Bitbucket Cloud pull request. Defaults to the branch the workspace is on, against the repository's own main branch. The branch must already be pushed: nothing in these packs pushes for you.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 60
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The pull request title."
+      },
+      "body": {
+        "type": "string",
+        "description": "The description, as markdown. Sent as Bitbucket's `description` field; the parameter is named `body` so a flow can swap this tool for the github one unchanged."
+      },
+      "source": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The branch to merge from. Omit to use the branch the workspace is on."
+      },
+      "target": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The branch to merge into. Omit to use the repository's own main branch, which is read from the API rather than assumed."
+      },
+      "repo": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The repository as \"workspace/repository\". Omit to read it from the origin remote."
+      }
+    },
+    "required": ["title"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "object",
+    "description": "The pull request that was opened. `number` and `url` are what a later step needs. `draft` is reported and cannot be asked for: the github pack takes a draft parameter and this one does not, which is the single place the two open tools differ.",
+    "properties": {
+      "repo": { "type": "string" },
+      "number": { "type": "integer" },
+      "state": { "enum": ["open"] },
+      "title": { "type": "string" },
+      "source": { "type": "string" },
+      "target": { "type": "string" },
+      "author": { "type": "string" },
+      "url": { "type": "string" },
+      "draft": { "type": "boolean" }
+    }
+  },
+
+  "exit_codes": {
+    "0": "success (the new pull request is on stdout as JSON)",
+    "2": "invalid input (title is missing, a parameter is wrong, or source and target are the same branch)",
+    "3": "not found (no such repository)",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "unreachable (DNS failure, connection refused, TLS failure, or the transfer timed out)",
+    "6": "http error (the API refused: the branch is not pushed, a pull request is already open for it, or the token was refused)",
+    "7": "no credential (BITBUCKET_TOKEN is not in this step's environment)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": true
+  },
+
+  "secrets": ["BITBUCKET_TOKEN"],
+
+  "requires": ["bash", "jq", "curl", "git"]
+}

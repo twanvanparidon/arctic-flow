@@ -37,9 +37,16 @@ this: see above.
 
 **There is one config file, and it is small.** `~/.arctic/config.yaml`, written by
 `atf init` and read by `paths/config.py`. It holds what neither a flow nor a spec can:
-extra roots to search, and a ceiling on how long a run may take. Anything a flow should
-decide belongs in the flow, so the bar for adding a key here is that no component and no
-flow could own it. An unknown key is refused rather than ignored.
+extra roots to search, which shipped packs are switched on, and a ceiling on how long a
+run may take. Anything a flow should decide belongs in the flow, so the bar for adding a
+key here is that no component and no flow could own it. An unknown key is refused rather
+than ignored.
+
+**A pack is components that ship switched off.** `src/builtin/packs/<name>/` is a search
+root laid out like any other, spliced in above the built-ins when `packs:` names it. It
+sits *inside* `builtin/`, which is the whole design: `arctic/` resolves inside the built-in
+root or nowhere, so a pack may define `arctic/git/commit` and a source never can. See
+`PACKS_DIR`, and "Adding a pack" below.
 
 **A name may carry a namespace.** `arctic/read_file` is `tools/arctic/read_file` under
 whichever root wins, at any depth, with nothing to declare: a directory holding a
@@ -197,7 +204,7 @@ The pipeline runs these, so run them first:
 ```sh
 ruff check src packaging tests
 ruff format --check src packaging tests
-shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
+shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 pytest
 
 # the engine validates flows better than any generic linter. A bare `lint` checks every
@@ -255,7 +262,7 @@ the project keeps one and the project root otherwise:
 ```sh
 atf create flow review          # flows/review.yaml
 atf create agent reviewer       # agents/reviewer/: spec.json, agent.md
-atf create tool git/commit      # tools/git/commit/: spec.json, tool.md, run.sh
+atf create tool deploy/notify   # tools/deploy/notify/: spec.json, tool.md, run.sh
 ```
 
 The scaffolds are data, under `src/builtin/scaffolds/`, for the reason the built-in tools
@@ -294,8 +301,8 @@ Conventions that are load-bearing rather than stylistic:
   the first of those works.
 - **`agent.md` *is* the system prompt**, read verbatim. That keeps prompts editable and
   reviewable as prose instead of escaped into a JSON string.
-- **A namespace is a directory, not a field.** Put the component in `tools/git/commit/` and
-  a flow names it `git/commit`. `spec.json` still says `"name": "commit"`: the namespace is
+- **A namespace is a directory, not a field.** Put the component in `tools/deploy/notify/`
+  and a flow names it `deploy/notify`. `spec.json` still says `"name": "notify"`: the namespace is
   where the directory sits, which the spec has no way of knowing.
 - **A flow names the graph, nothing else.** Model, effort, tools and output shape belong to
   the agent, in `agents/<name>/spec.json`.
@@ -322,6 +329,74 @@ Conventions that are load-bearing rather than stylistic:
   tool steps.
 - **Do not append a trailing newline to a single-value tool output.** A digest or an id gets
   templated mid-line, and a stray newline breaks the line it lands in.
+
+## Adding a pack
+
+A pack is a set of first-party components that ships with the engine and stays switched
+off until `~/.arctic/config.yaml` names it:
+
+```yaml
+packs:
+  - git
+```
+
+Adding one is a directory under `src/builtin/packs/`, with a `pack.json` beside the same
+`tools/`, `agents/`, `flows/` every root has. Copy the nearest of the three that ship:
+`packs/git` for a pack that runs a local command, `packs/github` for one that calls an API
+with a credential.
+
+```txt
+src/builtin/packs/git/
+  pack.json                  description, and what it needs on PATH
+  README.md                  what is in it, and what is deliberately not
+  lib/git.sh                 shared by the tools, outside tools/ on purpose
+  tools/arctic/git/log/      spec.json, tool.md, run.sh
+```
+
+Nothing has to be registered. `available_packs()` reads the directory, `pack.json` is the
+marker the way `spec.json` marks a component, and `Paths.roots` splices in whichever the
+config named. The packaging carries it for free: `builtin = ["**/*"]` puts it in the
+wheel and `collect_data_files("builtin")` puts it in the bundle.
+
+Four things to get right, and each has a test that says so:
+
+- **Name everything under `arctic/`.** That is the point of a pack rather than a source.
+  A pack sits inside `builtin_root()`, so the engine's namespace is one it may define, and
+  `tool: arctic/git/commit` in a flow means the tool that shipped. Naming a pack's tools
+  anything else gives away the only thing a pack has that a cloned repository does not.
+- **Say what is deliberately absent.** The git pack has no `push`, no `reset`, no
+  `--force` and no `add -A`, and its README says so. What a first-party tool refuses to do
+  is half of what makes it worth shipping, and it is invisible unless it is written down.
+- **Split read from write.** `permissions.filesystem` is one value per tool, so a tool that
+  both listed branches and switched them could only ever be granted as one that writes.
+  That is why `git/branch` and `git/checkout` are two tools rather than one with a flag.
+- **Share a helper if the tools share a check.** `lib/git.sh` holds the containment rule
+  for all eight, because eight copies of a security check is seven places to forget it. It
+  goes *outside* `tools/`, since the resolver walks that directory for `spec.json` and
+  anything else in there reads as an empty namespace. The sourcing line needs
+  `# shellcheck source-path=SCRIPTDIR`, and the gate runs `shellcheck -x`.
+
+A pack that reaches the network owes three more, and `packs/github` is where each is
+worked out:
+
+- **Declare `secrets` and read the credential from the environment.** That is what makes
+  the token come out of the vault and reach exactly the step that asked for it. It also
+  means the engine refuses to grant the tool to an agent, which is the right answer:
+  nothing scopes a credential to one in-turn call.
+- **Keep the credential out of `argv`.** `curl -H "Authorization: ..."` shows it to `ps`
+  for the length of the request. `lib/api.sh` writes a config file with mode 600 instead.
+- **Answer in JSON, with the same field names as its sibling.** The engine parses a tool's
+  stdout and offers it as `.json`, so a JSON answer is switchable where prose is not. And
+  a normalised vocabulary is what lets a flow swap `arctic/github/pr/status` for
+  `arctic/bitbucket/pr/status` and change nothing else. Where a forge cannot answer a
+  field, return `null`; do not invent one and do not drop the key.
+
+Adding a pack means adding to `tests/integration/`. The mechanism is covered once, in
+`tests/unit/paths/test_packs.py` and `tests/integration/test_packs.py`; what a new pack
+owes is its own tools, run through the CLI against the real thing. For a network pack that
+means a real loopback server (`tests/support/forge.py`), routed by method and path exactly
+as the tools request them, so a wrong verb or a dropped filter fails rather than passing
+against a double that was happy with anything.
 
 ## Gates
 

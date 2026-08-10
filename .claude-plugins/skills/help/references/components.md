@@ -15,7 +15,8 @@ its own directory.
 Roots are searched in precedence order and the first match wins:
 
 ```
-$ATF_PATH  →  ./.arctic  →  the workspace root  →  ~/.arctic  →  what ships with the engine
+$ATF_PATH  →  ./.arctic  →  the workspace root  →  ~/.arctic  →  sources  →  enabled packs
+           →  what ships with the engine
 ```
 
 Under any root, components live in `tools/`, `agents/` and `flows/`.
@@ -30,8 +31,8 @@ component; any other directory is a namespace. There is nothing to declare.
 ```
 tools/
    arctic/read_file/       ->  tool: arctic/read_file
-   git/commit/             ->  tool: git/commit
-   git/worktree/add/       ->  tool: git/worktree/add
+   deploy/notify/          ->  tool: deploy/notify
+   deploy/release/tag/     ->  tool: deploy/release/tag
 ```
 
 The name is the whole path. `arctic/read_file` and a bare `read_file` are two tools, and
@@ -43,6 +44,50 @@ atf list          # every name that resolves, and what shadows what
 
 A shadowed definition is why an edit can appear to do nothing. A name that does not resolve
 reports every path it was looked for.
+
+## Packs
+
+A pack is a set of first-party components that ships in the binary and resolves only once
+`~/.arctic/config.yaml` names it:
+
+```yaml
+packs:
+  - git
+```
+
+`atf list` shows every pack and whether it is on. A pack names its components under
+`arctic/`, which a `source` may not do, because a pack ships with the engine and a source
+is a directory somebody cloned. So `tool: arctic/git/commit` in a flow is the tool that
+shipped under that name.
+
+Three ship:
+
+| Pack | Holds |
+| --- | --- |
+| `git` | `arctic/git/` status, log, diff, show, branch (read); add, commit, checkout (write) |
+| `github` | `arctic/github/pr/` open, status, comment |
+| `bitbucket` | the same three under `arctic/bitbucket/pr/`, for Bitbucket Cloud |
+
+Every tool in all three refuses to act when the git repository's root is above the
+workspace. Nothing in `git` reaches the network.
+
+The two forge packs answer in **JSON with the same field names**, so a flow can swap one
+for the other and change only the tool name. A field a forge cannot answer is `null`:
+Bitbucket has no `mergeable`, so gate on `checks` and `reviews`.
+
+Every forge tool declares `secrets`, so a step running one declares it too:
+
+```yaml
+- id: report
+  tool: arctic/github/pr/comment
+  secrets: [GITHUB_TOKEN]
+  input:
+    body: "{{ steps.review.text }}"
+```
+
+**None of them can be granted to an agent.** The engine refuses to grant a tool that
+declares `secrets`, so commenting on a pull request is always a step, never a model's
+mid-turn decision.
 
 ## Tool spec.json
 

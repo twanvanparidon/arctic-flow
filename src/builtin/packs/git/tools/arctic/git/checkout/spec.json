@@ -1,0 +1,57 @@
+{
+  "name": "checkout",
+  "version": 1,
+  "description": "Switch to an existing branch, or with create true make a new one and switch to it. This moves between branches and nothing else: it will not restore or discard files, and it will not force a switch over uncommitted changes. Check what exists with git/branch first.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 60
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "branch": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The branch to switch to, or with create true the name of the branch to make."
+      },
+      "create": {
+        "type": "boolean",
+        "default": false,
+        "description": "Create the branch rather than expecting it to exist. Fails if a branch of that name is already there, which is deliberate: it means the name was not the one you thought."
+      },
+      "start_point": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Where a created branch starts, as a branch, tag or commit. Defaults to the current commit. Only valid with create true."
+      }
+    },
+    "required": ["branch"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One line: \"on <branch>, was <branch>\", or \"already on <branch>\" when the call changed nothing. Asking to switch to the branch already checked out is a success, so a flow that ensures it is on a branch does not have to check first."
+  },
+
+  "exit_codes": {
+    "0": "success (the branch is checked out)",
+    "2": "invalid input (stdin was not a JSON object, branch is missing, or start_point was given without create)",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)",
+    "6": "refused (no such branch, the name is already taken, or the working tree has changes the switch would overwrite)"
+  },
+
+  "permissions": {
+    "filesystem": "write",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq", "mktemp"]
+}

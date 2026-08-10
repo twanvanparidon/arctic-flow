@@ -5,7 +5,7 @@ the ambient knowledge of one run: which workspace, which environment, which home
 directory. A setting read out of the home directory is the same kind of fact, and the
 engine reads `paths.config` exactly as it reads `paths.workspace`.
 
-Two settings, and they are deliberately few:
+Three settings, and they are deliberately few:
 
   run.max_minutes   a ceiling on a whole run. A safeguard, not a tuning knob, which is
                     why no flow can raise it. `engine.executor.execute` enforces it.
@@ -16,6 +16,14 @@ Two settings, and they are deliberately few:
                     built-ins, so a sourced library never replaces what the project or
                     your own home directory defines. It cannot replace a shipped
                     component either: see `ENGINE_NAMESPACE` in the resolver.
+  packs             which of the shipped tool packs are switched on. A pack is the
+                    engine's own, so unlike a source it may define names under
+                    `arctic/`, and unlike a source it arrives with the binary rather
+                    than being cloned. See `PACKS_DIR` in the resolver.
+
+A name here is checked, not just parsed: `Paths` refuses a pack that does not ship. That
+check is in the resolver rather than here, because it needs to read the built-in root and
+this module deliberately knows nothing about where that is.
 
 Anything a flow should decide belongs in the flow, and anything a component should decide
 belongs in its spec. What is left is the per-machine policy neither of those can hold.
@@ -57,6 +65,14 @@ CONFIG_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
         },
+        # No enum of the packs that ship. The list is a directory on disk, and repeating
+        # it here would be a second copy to keep in step with a `mkdir`. `Paths` checks
+        # the name against what is actually there and names the alternatives when it is
+        # not, which is the better error anyway.
+        "packs": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+        },
     },
 }
 
@@ -80,6 +96,10 @@ class Config:
 
     max_run_minutes: float | None = None
     sources: tuple[Path, ...] = ()
+    # Names rather than paths, and not de-duplicated or sorted: `Paths` turns each one
+    # into a root under the built-ins, and listing a pack twice costs a root that is
+    # dropped as a duplicate there.
+    packs: tuple[str, ...] = ()
 
 
 def load(directory: Path) -> Config:
@@ -103,6 +123,7 @@ def load(directory: Path) -> Config:
     return Config(
         max_run_minutes=(document.get("run") or {}).get("max_minutes"),
         sources=tuple(_source(entry, path) for entry in document.get("sources") or []),
+        packs=tuple(document.get("packs") or []),
     )
 
 

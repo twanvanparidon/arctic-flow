@@ -1,0 +1,86 @@
+{
+  "name": "open",
+  "version": 1,
+  "description": "Open a GitHub pull request. Defaults to the branch the workspace is on, against the repository's own default branch. The branch must already be pushed: nothing in these packs pushes for you.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 60
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The pull request title."
+      },
+      "body": {
+        "type": "string",
+        "description": "The description, as markdown. Optional, but a pull request opened by a flow should say what produced it."
+      },
+      "source": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The branch to merge from. Omit to use the branch the workspace is on."
+      },
+      "target": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The branch to merge into. Omit to use the repository's own default branch, which is read from the API rather than assumed to be \"main\"."
+      },
+      "draft": {
+        "type": "boolean",
+        "default": false,
+        "description": "Open it as a draft. Worth doing when a flow opened it and a person has not read it yet."
+      },
+      "repo": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The repository as \"owner/name\". Omit to read it from the workspace's origin remote."
+      }
+    },
+    "required": ["title"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "object",
+    "description": "The pull request that was opened. `number` and `url` are what a later step needs; the rest is what was actually recorded, which is not always what was asked for.",
+    "properties": {
+      "repo": { "type": "string" },
+      "number": { "type": "integer" },
+      "state": { "enum": ["open"] },
+      "title": { "type": "string" },
+      "source": { "type": "string" },
+      "target": { "type": "string" },
+      "author": { "type": "string" },
+      "url": { "type": "string" },
+      "draft": { "type": "boolean" }
+    }
+  },
+
+  "exit_codes": {
+    "0": "success (the new pull request is on stdout as JSON)",
+    "2": "invalid input (title is missing, a parameter is wrong, or source and target are the same branch)",
+    "3": "not found (no such repository)",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "unreachable (DNS failure, connection refused, TLS failure, or the transfer timed out)",
+    "6": "http error (the API refused: the branch is not pushed, a pull request is already open for it, or the token was refused)",
+    "7": "no credential (GITHUB_TOKEN is not in this step's environment)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": true
+  },
+
+  "secrets": ["GITHUB_TOKEN"],
+
+  "requires": ["bash", "jq", "curl", "git"]
+}

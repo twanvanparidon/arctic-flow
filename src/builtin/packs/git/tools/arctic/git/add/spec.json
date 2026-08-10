@@ -1,0 +1,50 @@
+{
+  "name": "add",
+  "version": 1,
+  "description": "Stage named paths for the next commit. Every path must be named: there is no way to stage everything, because that is how an unrelated file ends up in a commit. Run git/status first to see what there is to stage.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+        ],
+        "description": "One path, or an array of them, relative to the workspace root. A directory stages everything under it. Every path is checked before anything is staged, so one bad path changes nothing."
+      }
+    },
+    "required": ["path"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "Every path staged for the next commit after the call, one per line. That is the whole index, not only what this call added, so it is what the next commit would record. Paths that were already staged and matched the index leave the index empty and return a \"[git/add] nothing staged\" notice."
+  },
+
+  "exit_codes": {
+    "0": "success (the staged paths are on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or path is missing or the wrong type)",
+    "3": "not found (a path's parent directory does not exist)",
+    "4": "not permitted (the git repository is above the workspace root, or a path leaves it)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)",
+    "6": "refused (git would not stage a path: it is ignored, or it does not exist)"
+  },
+
+  "permissions": {
+    "filesystem": "write",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq", "realpath", "mktemp"]
+}

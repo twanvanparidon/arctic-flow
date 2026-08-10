@@ -1,0 +1,4 @@
+{
+  "description": "Read and change the git repository a flow is running in",
+  "requires": ["git", "jq"]
+}

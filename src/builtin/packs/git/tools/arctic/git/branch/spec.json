@@ -1,0 +1,51 @@
+{
+  "name": "branch",
+  "version": 1,
+  "description": "List the branches in the repository, most recently committed to first, with the checked-out one marked. Use to find out what work is in flight, or to check whether a branch already exists before creating it. This only lists: switching or creating a branch is git/checkout.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 20
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "remote": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include remote-tracking branches (origin/...) as well as local ones."
+      },
+      "max_branches": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 100,
+        "description": "Maximum number of branches to list. The output says so when it truncates. They are sorted by last commit, so the cap drops the stalest."
+      }
+    },
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One branch per line: \"* \" for the checked-out branch and \"  \" for the rest, then the name, the date of its last commit, and that commit's subject. Sorted newest first. A repository with no commits yet is the single line \"[git/branch] no branches yet\" and still succeeds."
+  },
+
+  "exit_codes": {
+    "0": "success (the branches are on stdout, including when there are none)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is the wrong type)",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq", "awk", "mktemp"]
+}

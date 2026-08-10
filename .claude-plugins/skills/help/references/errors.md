@@ -140,6 +140,18 @@ Common causes, in the order to check them:
 `check_name` refuses a name whose segments would leave the root: `..`, an absolute path, or
 an empty segment. That check covers `run`, a grant and `mcp-serve` alike.
 
+A tool that is in a **pack** reports that instead, because every root really was searched
+and the fix is a config file rather than a directory:
+
+```
+tool 'arctic/git/log' is in the 'git' pack, which is not enabled.
+Add it to $HOME/.arctic/config.yaml:  packs: [git]
+```
+
+`lint` says the same thing, so this arrives before a flow spends anything. A `packs:` entry
+that is not a pack that shipped is refused by name, and the refusal lists the ones there
+are.
+
 ## Not an error
 
 - **A step reported as skipped.** A branch that is not taken has its edges marked skipped,

@@ -1,0 +1,68 @@
+{
+  "name": "comment",
+  "version": 1,
+  "description": "Leave a comment on a GitHub pull request's conversation. With no number it finds the open pull request for the branch the workspace is on. This comments; it does not approve or request changes, which are verdicts a flow should not cast.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 60
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "body": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The comment, as markdown. Whitespace-only is refused: GitHub would accept it and post an empty remark."
+      },
+      "number": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "The pull request number. Omit to use the open pull request whose source branch is the one the workspace is on, which fails if there is not exactly one."
+      },
+      "repo": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The repository as \"owner/name\". Omit to read it from the workspace's origin remote."
+      }
+    },
+    "required": ["body"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "object",
+    "description": "The comment that was posted. `url` links straight to it, which is what a flow reports back to whoever asked for the run.",
+    "properties": {
+      "repo": { "type": "string" },
+      "number": { "type": "integer" },
+      "id": { "type": "integer" },
+      "url": { "type": "string" },
+      "author": { "type": "string" }
+    }
+  },
+
+  "exit_codes": {
+    "0": "success (the comment is on stdout as JSON)",
+    "2": "invalid input (body is missing or only whitespace, or no number was given and the branch does not identify exactly one open pull request)",
+    "3": "not found (no such pull request or repository, or no open pull request for the branch)",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "unreachable (DNS failure, connection refused, TLS failure, or the transfer timed out)",
+    "6": "http error (the API answered with a status that is not success, including a refused token)",
+    "7": "no credential (GITHUB_TOKEN is not in this step's environment)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": true
+  },
+
+  "secrets": ["GITHUB_TOKEN"],
+
+  "requires": ["bash", "jq", "curl", "git"]
+}
