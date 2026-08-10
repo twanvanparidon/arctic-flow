@@ -1,7 +1,8 @@
 {
-  "name": "arctic-flow",
+  "name": "atf",
+  "displayName": "Arctic Flow",
   "version": "0.1.0",
-  "description": "Write, debug and extend Arctic Flow workflows. /atf-create scaffolds a flow, an agent or a tool and fills it in; /atf-help diagnoses one that will not lint, will not run, or costs more than it should.",
+  "description": "Write, debug and extend Arctic Flow workflows. /atf:create scaffolds a flow, an agent or a tool and fills it in; /atf:help diagnoses one that will not lint, will not run, or costs more than it should.",
   "author": {
     "name": "Twan van Paridon",
     "url": "https://github.com/twanvanparidon"

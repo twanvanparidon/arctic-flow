@@ -1,5 +1,5 @@
 ---
-name: atf-help
+name: help
 description: Debug and improve an existing Arctic Flow workflow run by the `atf` engine. Use this whenever an `atf lint` or `atf run` fails or is refused, a flow hangs, a step is skipped or never runs, a branch takes the wrong case, a gate or a loop runs out of attempts, a template reference is rejected, a tool or agent name will not resolve, a secret is refused, an agent's granted tool does not work, or the user asks why a flow behaves as it does or how to make it cheaper, faster or more reliable. Use it for any question about flow YAML, a `spec.json`, `agent.md`, `run.sh` or the `atf` CLI itself.
 ---
 
