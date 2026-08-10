@@ -42,15 +42,15 @@ cannot see, and fails at lint time with a message about a key nobody typed.
 ```sh
 atf create flow review          # flows/review.yaml
 atf create agent reviewer       # agents/reviewer/: spec.json, agent.md
-atf create tool git/commit      # tools/git/commit/: spec.json, tool.md, run.sh
+atf create tool deploy/notify   # tools/deploy/notify/: spec.json, tool.md, run.sh
 ```
 
 It writes into `./.arctic` when the project keeps that directory, and the project root
 otherwise: the top of the lookup, so what is created is what then resolves. Nothing is
 overwritten; a name that already exists is an error rather than a clobber.
 
-A name may carry a namespace at any depth, for all three kinds. `git/commit` is
-`tools/git/commit/`. A flow takes no `.yaml` on the end.
+A name may carry a namespace at any depth, for all three kinds. `deploy/notify` is
+`tools/deploy/notify/`. A flow takes no `.yaml` on the end.
 
 Then **edit what it wrote**. The scaffold's comments explain each key; read them before
 deleting them, and delete them once the file says what it does on its own.

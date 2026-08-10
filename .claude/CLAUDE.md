@@ -121,7 +121,7 @@ src/commands/    one function per command, no terminal attached; returns results
 src/engine/      executor.py runs a flow; specs.py checks components before it does
 src/paths/       layered component lookup, and `~/.arctic/config.yaml` (`config.py`)
 src/adapters/    model runtimes as Python modules, registered in code
-src/builtin/     components that ship with the engine, and `create`'s scaffolds (data, not code)
+src/builtin/     components that ship with the engine, `packs/` (opt-in), and `create`'s scaffolds
 src/util/        ways of reading a flow without running it (graph text, Mermaid)
 ```
 
@@ -206,7 +206,8 @@ load the bundle's OpenSSL and fail in frozen builds only.
 ### Components are directories with a contract, found by name
 
 `paths/resolver.py` searches roots in precedence order and the first match wins:
-`$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `sources` → `../src/builtin`. Under any
+`$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `sources` → enabled `packs` →
+`../src/builtin`. Under any
 root, components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and total: a
 project-level `deploy` replaces an inherited one and inherits nothing from it. Where a
 component is *found* never changes where it *runs*: tools execute with cwd set to the
@@ -230,6 +231,20 @@ anything under `arctic/` at all.
 The same file carries `run.max_minutes`, a ceiling on a whole run that `execute` enforces
 and no flow may raise; an unknown key in it is refused rather than ignored. `Paths` loads
 it eagerly, so a broken config stops every command rather than one.
+
+**A pack is components that ship switched off** (`PACKS_DIR`, `src/builtin/packs/<name>/`).
+It is an ordinary root, `tools/`/`agents/`/`flows/` with a `pack.json` beside them, spliced
+in above the built-ins when `config.yaml`'s `packs:` names it. It sits **inside**
+`builtin_root()`, and that is the whole design: `arctic/` resolves inside the built-in root
+or nowhere, so a pack may define `arctic/git/commit` where a source never can, and the
+reservation, the intruder refusal and the listing rules all cover it with no exception
+added. The opt-in is consent rather than installation, since the code is already in the
+binary: a pack holds tools that write, and an install nobody configured has none of them.
+An unknown pack name is refused in `Paths._check_packs`, because a typo would otherwise
+build a root that does not exist, which is silently dropped. `find` names the pack and the
+line to add when a tool is only in one that is off (`_disabled_pack`), so `lint` and `run`
+both say what to do rather than "unknown tool". One ships: `git`, eight tools, and its
+README says what it deliberately refuses to do.
 
 **`ENGINE_NAMESPACE` (`arctic/`) is the engine's, and that is a security property.** A
 flow reading `tool: arctic/read_file` has to mean the shipped tool, or the name tells a
@@ -284,7 +299,7 @@ by building the payload and validating it against the adapter's own `INPUT_SCHEM
 
 Copy the nearest existing component rather than starting fresh: `../src/builtin/tools/arctic/read_file`,
 `../src/adapters/claude_code.py`, `../examples/file-review/agents/summarizer`,
-`../examples/sign-release/flows/sign_release.yaml`.
+`../examples/sign-release/flows/sign_release.yaml`, and `../src/builtin/packs/git` for a pack.
 
 ### Secrets
 

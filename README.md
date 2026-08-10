@@ -120,6 +120,51 @@ template in it run offline and for free. Useful while you are still writing the 
 prompt can say `!fail` to see what a refusal does to the graph, or `!json {"verdict": …}`
 to send a `switch` down the branch you want to look at.
 
+### Packs: more tools, switched off
+
+A pack is a set of first-party tools that ships in the binary and does nothing until you
+say so. One ships today:
+
+```yaml
+# ~/.arctic/config.yaml
+packs:
+  - git
+```
+
+| Tool | | Does |
+| --- | --- | --- |
+| `arctic/git/status` | read | Branch, staged, unstaged, untracked. `clean` when there is nothing. |
+| `arctic/git/log` | read | Recent commits, by ref or by path. |
+| `arctic/git/diff` | read | The worktree, the index, or the difference from a ref. |
+| `arctic/git/show` | read | One commit: its message and what it changed. |
+| `arctic/git/branch` | read | Which branches exist, newest first. |
+| `arctic/git/add` | write | Stages named paths. |
+| `arctic/git/commit` | write | Records what is staged. |
+| `arctic/git/checkout` | write | Switches branches, or creates one. |
+
+`atf list` shows every pack and whether it is on. A flow naming a tool from a pack that is
+off fails with the line to add, at `lint` time as well as at `run` time.
+
+**Why switch it off at all, when it is already in the binary?** Because three of these
+write. A pack is consent rather than installation: an engine nobody configured cannot be
+talked into a commit by a flow that was merely run. Granting one of the three to an agent
+needs `unattended: true` on top, which is the engine's ordinary gate for a tool that writes.
+
+**What is deliberately not in it** is as much the point as what is. Nothing that leaves the
+machine, so no `push`, `pull` or `fetch`, and `permissions.network` is `false` for the whole
+pack. Nothing that destroys work, so no `reset`, `rebase`, `clean` or `--force`, and
+`checkout` moves between branches without ever restoring a file. No `add -A`, because paths
+being named is how an unrelated file stays out of a commit nobody reviewed. And no
+`--no-verify`: a repository's hooks are the checks its owner decided a commit must pass.
+
+Every tool acts on the repository whose root **is** the workspace. A flow run in
+`myrepo/subproject` is refused rather than quietly reporting on the whole of `myrepo`. To
+work on the outer repository, point the engine at it: `atf --workspace myrepo run …`.
+
+A pack is not a `source`. A source is a directory you cloned, so it sits below `~/.arctic`
+and may not define anything under `arctic/`. A pack ships with the engine, so it can, and
+`arctic/git/commit` in a flow means the tool that shipped under that name.
+
 ---
 
 ## Examples
@@ -174,7 +219,7 @@ non-zero, which is the shape a pipeline wants: one run, every answer.
 ```sh
 atf create flow review          # flows/review.yaml
 atf create agent reviewer       # agents/reviewer/: spec.json, agent.md
-atf create tool git/commit      # tools/git/commit/: spec.json, tool.md, run.sh
+atf create tool deploy/notify   # tools/deploy/notify/: spec.json, tool.md, run.sh
 ```
 
 It lands where the lookup reads first: `./.arctic` when the project keeps one, the project
@@ -194,7 +239,7 @@ A tool you put in `~/.arctic/tools/` resolves from any directory, and a project 
 overrides it by defining the same name. Run `init` again after an upgrade and it adds
 whatever is missing, leaving what is there alone.
 
-`config.yaml` beside them holds the two things neither a flow nor a spec should:
+`config.yaml` beside them holds the three things neither a flow nor a spec should:
 
 ```yaml
 run:
@@ -202,6 +247,9 @@ run:
 
 sources:                    # more directories to search, laid out the same way
   - ~/work/arctic-components
+
+packs:                      # shipped tool packs to switch on
+  - git
 ```
 
 `max_minutes` is a safeguard rather than a tuning knob, so no flow can raise it. When it
@@ -209,8 +257,10 @@ fires the run fails and its tools are stopped; an agent turn already in flight i
 by its own `timeout_seconds` instead, so the real stop can be one turn later than this.
 
 `sources` sit below `~/.arctic` and above the built-ins, so a shared library can replace a
-shipped tool but never one you or the project defined. An unknown key in this file is
-refused rather than ignored.
+shipped tool but never one you or the project defined.
+
+`packs` names what is already in the binary, so nothing is downloaded and there is no
+version to keep in step. A name that is not a pack is refused, and so is an unknown key.
 
 ### Grouping components
 
@@ -224,8 +274,8 @@ tools/
       read_file/        ->  tool: arctic/read_file
       grep/
    git/
-      commit/           ->  tool: git/commit
-      worktree/add/     ->  tool: git/worktree/add
+      notify/           ->  tool: deploy/notify
+      release/tag/      ->  tool: deploy/release/tag
 ```
 
 `agents/` and `flows/` group the same way, so `atf run release/sign_release` runs
