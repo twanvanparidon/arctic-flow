@@ -1,0 +1,62 @@
+{
+  "name": "edit_file",
+  "version": 1,
+  "description": "Replace an exact string in a text file in the workspace, leaving the rest of it untouched. Use for a small change to a file already on disk, instead of writing the whole file back.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 10
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Path to edit, relative to the workspace root (e.g. \"src/app.py\"). Absolute paths are accepted but must still resolve inside the workspace root. The file has to exist already; use write_file to create one."
+      },
+      "old_string": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The exact text to replace, matched literally and never as a pattern. Copy it from the file, whitespace and indentation included. Unless replace_all is set it has to appear exactly once, so include the surrounding lines when a short string would match in several places."
+      },
+      "new_string": {
+        "type": "string",
+        "description": "The text to put in its place, inserted verbatim. An empty string deletes the matched text. It must differ from old_string."
+      },
+      "replace_all": {
+        "type": "boolean",
+        "default": false,
+        "description": "Replace every occurrence rather than a single one. Left false, a string appearing more than once is refused rather than one of them being picked."
+      }
+    },
+    "required": ["path", "old_string", "new_string"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One line of the form \"replaced N occurrence(s) in <path>\", with no trailing newline."
+  },
+
+  "exit_codes": {
+    "0": "success (the file was edited)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing, the wrong type, or an empty old_string, or old_string and new_string are identical)",
+    "3": "no such file (nothing at the path; this tool edits a file that exists and does not create one)",
+    "4": "not permitted (the path resolves outside the workspace root, is not a regular file, or is not readable and writable)",
+    "5": "not a text file (the file could not be read as text, or its bytes do not survive being read back unchanged, so an edit would corrupt the rest of it)",
+    "6": "no match (old_string does not appear in the file)",
+    "7": "several matches (old_string appears more than once and replace_all was not set)"
+  },
+
+  "permissions": {
+    "filesystem": "write",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "realpath", "mktemp", "cmp"]
+}
