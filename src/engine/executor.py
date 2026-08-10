@@ -57,7 +57,7 @@ from jsonschema import Draft202012Validator
 
 import adapters
 from engine import specs
-from paths.resolver import LookupError_, Paths, flat_name
+from paths.resolver import REFUSED_SEGMENTS, SEPARATOR, LookupError_, Paths, flat_name
 from vault.vault import Vault, VaultError
 
 TEMPLATE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
@@ -89,6 +89,11 @@ DEFAULT_GATE_ATTEMPTS = 3
 # bare `ATF_`.
 VARIABLE_PREFIX = "ATF_VAR_"
 
+# Where a step's `prompt_file` is read from, relative to the flow file that names it, and
+# what such a file is called. Markdown because a prompt is prose and the two other files
+# the engine reads as prose are `agent.md` and a tool's doc; nothing parses the markup.
+PROMPTS_DIR = "prompts"
+PROMPT_SUFFIX = ".md"
 
 # How often a running component looks at its cancel event. Invisible to a model, and a
 # component given no event does not poll at all: it waits in one call, as it always has.
@@ -662,7 +667,68 @@ def load_flow(path: Path) -> dict[str, Any]:
     flow = yaml.safe_load(path.read_text())
     if not isinstance(flow, dict):
         raise FlowError(f"{path}: flow file must contain a YAML mapping")
+    inline_prompts(flow, path.parent)
     return flow
+
+
+def inline_prompts(flow: dict[str, Any], directory: Path) -> None:
+    """Read every step's `prompt_file` into its `prompt`.
+
+    Here rather than in `run_agent`, so there is one kind of prompt by the time anything
+    looks at a step: `validate`, `template_refs`, `inspect` and the engine are unchanged,
+    and a prompt file that is missing or unreadable fails `lint` instead of waiting for the
+    step to run. The price is that a template error names the step rather than the file,
+    and the step is what a reader opens to find the file anyway.
+    """
+    steps = flow.get("steps")
+    if not isinstance(steps, list):
+        # The shape is validate()'s to report. Guessing at it here would produce a second
+        # sentence about the same mistake, ahead of the one that explains it.
+        return
+    for step in steps:
+        if not isinstance(step, dict) or "prompt_file" not in step:
+            continue
+        sid = step.get("id") or "?"
+        reference = step["prompt_file"]
+        if not isinstance(reference, str) or not reference.strip():
+            raise FlowError(f"step '{sid}' prompt_file must be a name, as in 'prompt_file: review'")
+        if "prompt" in step:
+            raise FlowError(
+                f"step '{sid}' sets both 'prompt' and 'prompt_file'. One of them would be "
+                "the prompt and the other would be dead text, so say which"
+            )
+        step["prompt"] = _read_prompt(sid, reference, directory)
+
+
+def _read_prompt(sid: str, reference: str, directory: Path) -> str:
+    """A prompt file's text, from `prompts/` beside the flow that named it.
+
+    Beside the flow file and not under a search root, because a prompt belongs to the flow
+    that names it rather than being a component other flows look up. That is also what
+    makes `flows/review/review.yaml` worth having: the bundle gives the prompts a directory
+    of their own, where a flat flow shares `flows/prompts/` with its siblings.
+
+    The name is checked the way a component name is, and for the same reason: `directory`
+    joined with `../../etc/passwd` resolves, and a flow can arrive by clone.
+    """
+    if Path(reference).is_absolute() or any(
+        part in REFUSED_SEGMENTS for part in reference.split(SEPARATOR)
+    ):
+        raise FlowError(
+            f"step '{sid}' prompt_file '{reference}' is not a name. A prompt is read from "
+            f"{PROMPTS_DIR}/ beside the flow, so an absolute path, an empty part, '.' and "
+            "'..' are refused"
+        )
+    target = directory / PROMPTS_DIR / f"{reference}{PROMPT_SUFFIX}"
+    try:
+        return target.read_text()
+    except OSError as exc:
+        # Names the path as the flow spells it. The absolute one is inside whatever
+        # directory the flow was resolved out of, which is not what anyone would edit.
+        raise FlowError(
+            f"step '{sid}' prompt_file '{reference}' cannot be read: expected "
+            f"{PROMPTS_DIR}/{reference}{PROMPT_SUFFIX} beside the flow"
+        ) from exc
 
 
 def check_gate_shape(sid: str, step: dict[str, Any]) -> None:
