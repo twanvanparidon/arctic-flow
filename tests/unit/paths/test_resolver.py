@@ -316,7 +316,7 @@ class TestTheEngineNamespace:
     def test_a_name_the_engine_does_not_ship_is_reserved_all_the_same(
         self, workspace: Path, home: Path
     ) -> None:
-        """Reserving the namespace rather than the five names means a new built-in can
+        """Reserving the namespace rather than the names that ship means a new built-in can
         never collide with something somebody already had."""
         make.write_tool(workspace, "arctic/mine")
         with pytest.raises(LookupError_, match="belongs to the engine"):
