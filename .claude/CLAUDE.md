@@ -37,7 +37,7 @@ CI runs exactly these; run them before pushing (`pip install ".[lint]"` for `ruf
 ```sh
 ruff check src packaging tests
 ruff format --check src packaging tests
-shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
+shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 pytest
 
 for project in examples/*/; do

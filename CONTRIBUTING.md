@@ -197,7 +197,7 @@ The pipeline runs these, so run them first:
 ```sh
 ruff check src packaging tests
 ruff format --check src packaging tests
-shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
+shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 pytest
 
 # the engine validates flows better than any generic linter. A bare `lint` checks every

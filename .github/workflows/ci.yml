@@ -43,7 +43,12 @@ jobs:
       # shellcheck matters as much as ruff here: the tools and adapters this engine runs are
       # shell scripts. dist/, build/ and var/ are gitignored so absent in CI, and excluded
       # anyway so running this locally checks the same set. shellcheck ships with the runner.
-      - run: shellcheck $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
+      #
+      # -x because a pack's tools source a helper beside them, and without it every one of
+      # them is an SC1091, which is an info-level finding and still exits non-zero. It also
+      # checks the sourced file in context rather than skipping it, so it is the better run
+      # of the two regardless.
+      - run: shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 
       # Cycles, unreachable steps, template references, secrets templated into an agent
       # prompt. One project per loop, not one flow: a bare `lint` checks every flow in
