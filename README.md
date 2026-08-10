@@ -253,20 +253,21 @@ loud.
 
 ### Writing them with Claude Code
 
-Two skills, installed as a plugin from this repository:
+Two skills, installed as a plugin:
 
 ```
-/plugin marketplace add twanvanparidon/arctic-flow
-/plugin install arctic-flow@arctic-flow
+/plugin marketplace add twanvanparidon/claude
+/plugin install atf@twanvanparidon
 ```
 
-`/atf-create` scaffolds a flow, an agent or a tool and fills it in, and does not report the
-work done until `atf lint` passes. `/atf-help` diagnoses one that will not lint or will not
+`/atf:create` scaffolds a flow, an agent or a tool and fills it in, and does not report the
+work done until `atf lint` passes. `/atf:help` diagnoses one that will not lint or will not
 run: it asks the engine before it reads the YAML, and carries references for the parts no
 command prints.
 
-Both drive the `atf` you already have, so neither is a second copy of the engine.
-[claude-plugins](claude-plugins) has the rest.
+Both drive the `atf` you already have, so neither is a second copy of the engine. The plugin
+is [.claude-plugins](.claude-plugins) here; the marketplace serving it is
+[twanvanparidon/claude](https://github.com/twanvanparidon/claude).
 
 ---
 

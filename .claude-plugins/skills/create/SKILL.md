@@ -1,5 +1,5 @@
 ---
-name: atf-create
+name: create
 description: Create Arctic Flow components for the `atf` engine, meaning flows, agents and tools. Use this whenever the user wants to build, add or scaffold an Arctic Flow flow, agent or tool, turn a task or a script into an `atf` workflow, wire steps together with push, switch, cases, a gate or a loop, grant an agent a tool, or mentions `atf create`, `flows/*.yaml`, `agents/*/agent.md`, `tools/*/run.sh` or a `spec.json`. Use it for small asks too, like "add a step to this flow", "make this agent loop until it passes", or "let the agent read files for itself".
 ---
 
@@ -119,7 +119,7 @@ output:
 **Templates** are `{{ dotted.path }}` over five namespaces: `inputs`, `steps`, `secrets`,
 `this` and `gate`. A step reads `{{ steps.x.text }}` only when `x` is transitively
 upstream of it. An unresolvable path is an error, never an empty string. Details are in
-`../atf-help/references/templates.md`.
+`../help/references/templates.md`.
 
 ### Choosing the shape
 
@@ -280,7 +280,7 @@ Progress goes to stderr and the flow's output goes to stdout, so `atf run f > ou
 gives the result byte for byte. Add `--trace` for a per-step JSON summary.
 
 If `lint` refuses something, the message names the step and says what to do. When it does
-not land, use the `atf-help` skill: `../atf-help/references/errors.md` maps each refusal to
+not land, use the `help` skill: `../help/references/errors.md` maps each refusal to
 its cause.
 
 ## What the engine refuses, so write it right the first time
