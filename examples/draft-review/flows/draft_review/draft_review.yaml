@@ -32,6 +32,9 @@
 # has an agent, a cost line and a row in `atf inspect flow`, and what it said is in `steps`
 # for the next pass to read.
 #
+# This flow is a *bundle*: a directory holding `draft_review.yaml` and the prompts it
+# names, so `prompt_file: write` reads `prompts/write.md` from beside the flow.
+#
 # `brief.md` ships with this project, so the example runs with nothing to prepare.
 #
 #   atf --workspace examples/draft-review run draft_review --input path=brief.md
@@ -72,38 +75,23 @@ steps:
   # each pass into an edit instead of a rewrite, which is the difference between a loop that
   # converges and one that runs out.
   #
-  # Both resolve to `(not run)` on the first pass, the same literal a skipped step gives.
+  # Neither has run on the first pass, so `prompts/write.md` guards both with one
+  # `{% if steps.write %}` and tells the writer it is starting fresh in the `{% else %}`.
+  # A step that did not run is false, so the guard is the whole test.
   #
-  # `.text` and not `.json.notes` on purpose. The reference is legal before `review` has
-  # run, but there is nothing to reach into until it has, so a first pass would fail on the
-  # path rather than read the placeholder.
+  # That guard is also what makes a deeper path safe. `{{ steps.review.json.notes }}` is
+  # legal before `review` has run but has nothing to reach into, so on a first pass it
+  # would fail on the path. Inside a branch that is not taken it is never rendered.
   - id: write
     agent: writer
-    prompt: |
-      Write the section the brief asks for.
-
-      Brief:
-      {{ steps.read_brief.text }}
-
-      Your previous draft, or "(not run)" if you have not written one yet:
-      {{ steps.write.text }}
-
-      The review of that draft, as JSON, or "(not run)" if nobody has reviewed one yet:
-      {{ steps.review.text }}
+    prompt_file: write
     push: [review]
 
   # The switch reads `this`, which is always the answer this step just gave, so a schema
   # is safe here in a way it is not on the edge back to `write`.
   - id: review
     agent: reviewer
-    prompt: |
-      Review this draft against the brief. Approve it or send it back.
-
-      Brief:
-      {{ steps.read_brief.text }}
-
-      Draft:
-      {{ steps.write.text }}
+    prompt_file: review
     switch: "{{ this.json.verdict }}"
     max_loops: 3
     cases:

@@ -191,7 +191,7 @@ class TestAgentExamples:
             "run",
             "review_file",
             "--input",
-            "path=flows/review_file.yaml",
+            "path=flows/review_file/review_file.yaml",
             env={"FAKE_CLAUDE_PREFER": "clean"},
         )
         assert result.code == 0, result.err
@@ -204,13 +204,15 @@ class TestAgentExamples:
             "run",
             "review_file",
             "--input",
-            "path=flows/review_file.yaml",
+            "path=flows/review_file/review_file.yaml",
             env={"FAKE_CLAUDE_PREFER": "clean"},
         )
         assert "⤼ risk_scan" in result.err
         assert "✓ report" in result.err
-        # A skipped step still resolves, so the report was handed the gap rather than a hole.
-        assert result.out.strip().splitlines()[-1] == "(not run)"
+        # The skip reached the prompt as the branch that was not taken, so the report was
+        # handed what happened rather than a heading with nothing under it.
+        assert "No risk review was run" in result.out
+        assert "Risk findings:" not in result.out
 
     def test_what_the_run_cost_is_reported(self, examples: Path, atf: Runner) -> None:
         result = atf(
@@ -219,7 +221,7 @@ class TestAgentExamples:
             "run",
             "review_file",
             "--input",
-            "path=flows/review_file.yaml",
+            "path=flows/review_file/review_file.yaml",
             env={"FAKE_CLAUDE_PREFER": "clean"},
         )
         assert "$0." in result.err

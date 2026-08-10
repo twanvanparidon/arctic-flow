@@ -177,11 +177,13 @@ class TestDraftReview:
     def test_the_first_pass_is_told_there_is_no_review_yet(
         self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`write` reads `steps.review`, which is downstream of it and has not run. The fake
-        answers with the prompt it was given, so what the flow emits is that prompt with the
-        placeholder still in it."""
+        """`write` reads `steps.review`, which is downstream of it and has not run. The
+        prompt guards both references with one `{% if steps.write %}`, and the fake answers
+        with the prompt it was given, so which branch was rendered is in the output."""
         monkeypatch.setenv("FAKE_CLAUDE_PREFER", "approved")
-        assert "(not run)" in self.run_it(atf, project).out
+        out = self.run_it(atf, project).out
+        assert "there is no review yet" in out
+        assert "Your previous draft" not in out
 
     def test_a_reviewer_that_never_approves_runs_out_of_passes(
         self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
@@ -214,7 +216,7 @@ class TestFileReview:
             "run",
             "review_file",
             "--input",
-            "path=flows/review_file.yaml",
+            "path=flows/review_file/review_file.yaml",
         )
         assert result.code == 0, result.err
         return result.out, result.err
@@ -235,8 +237,10 @@ class TestFileReview:
         out, err = self.run_it(atf, project)
         assert "⤼ risk_scan" in err
         assert "✓ report" in err
-        # A skipped step still resolves, so the report was handed the gap rather than a hole.
-        assert out.strip().splitlines()[-1] == "(not run)"
+        # The skip reached the prompt as the branch that was not taken, so the report was
+        # handed what happened rather than a heading with nothing under it.
+        assert "No risk review was run" in out
+        assert "Risk findings:" not in out
 
     def test_the_two_steps_after_the_read_both_run(
         self, project: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
