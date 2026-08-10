@@ -9,11 +9,17 @@
 # unconditional hand-off, `switch` to pick one branch from its own output. Nothing
 # reaches backwards to ask what it depends on.
 #
-# When triage says `clean`, the risk_scan branch is never entered. The engine
-# marks it skipped and skipping propagates, so `report` stops waiting on it instead
-# of hanging. A step that was skipped still resolves in templates, as the literal
-# text "(not run)", so a prompt can mention the gap rather than silently omitting
-# it.
+# When triage says `clean`, the risk_scan branch is never entered. The engine marks it
+# skipped and skipping propagates, so `report` stops waiting on it instead of hanging.
+# A step that did not run is *false* in a conditional, which is how `report` handles the
+# gap: its prompt wraps the risk section in `{% if steps.risk_scan %}` and says what
+# happened in the `{% else %}`. The branch that is not taken is never rendered, so nothing
+# reaches the model but the case that actually occurred.
+#
+# This flow is a *bundle*: a directory holding `review_file.yaml` and the prompts it
+# names. `prompt_file: report` reads `prompts/report.md` from beside the flow. The flow is
+# then the graph and nothing else, which is the point: the prompts are the long part, and
+# they are the part you edit without wanting to read the graph again.
 #
 # This example project holds only the flow and the four agents it needs. The
 # arctic/read_file tool and the claude_code adapter are inherited from the engine's own src/,
@@ -24,7 +30,7 @@
 #
 #   # reviewing this example project's own files
 #   python3 src/main.py --workspace examples/file-review \
-#       run review_file --input path=flows/review_file.yaml
+#       run review_file --input path=flows/review_file/review_file.yaml
 #
 #   # reviewing the repository, with the showcase added to the lookup path
 #   ATF_PATH=examples/file-review python3 src/main.py \
@@ -55,24 +61,14 @@ steps:
 
   - id: summarize
     agent: summarizer
-    prompt: |
-      Summarise this file in at most five sentences.
-
-      Path: {{ inputs.path }}
-      ---
-      {{ steps.read_target.text }}
+    prompt_file: summarize
     push: [report]
 
   # The A/B decision. `switch` is evaluated against this step's own result, where
   # `this` is the step that just ran, and exactly one branch is entered.
   - id: triage
     agent: triager
-    prompt: |
-      Does this file need a full risk review?
-
-      Path: {{ inputs.path }}
-      ---
-      {{ steps.read_target.text }}
+    prompt_file: triage
     switch: "{{ this.json.verdict }}"
     cases:
       risky: [risk_scan]
@@ -80,29 +76,14 @@ steps:
 
   - id: risk_scan
     agent: risk_scanner
-    prompt: |
-      Review this file and report the risks you can actually see in it.
-
-      Path: {{ inputs.path }}
-      ---
-      {{ steps.read_target.text }}
+    prompt_file: risk_scan
     push: [report]
 
   # Reached on both paths. It runs once every inbound edge has either delivered or
   # been skipped, so it never waits on a branch the flow didn't take.
   - id: report
     agent: reporter
-    prompt: |
-      Write the review for `{{ inputs.path }}`.
-
-      Summary:
-      {{ steps.summarize.text }}
-
-      Triage decision: {{ steps.triage.json.verdict }}
-      Triage reason: {{ steps.triage.json.reason }}
-
-      Risk findings (may be "(not run)" if triage judged the file clean):
-      {{ steps.risk_scan.text }}
+    prompt_file: report
 
 output:
   template: |

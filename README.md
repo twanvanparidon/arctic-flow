@@ -281,6 +281,63 @@ root otherwise. What it writes runs as it is. A scaffolded flow reads a file thr
 built-in tool, so `lint` passes and `run` works before any agent exists to name, and the
 agent step is commented out beside it, waiting for one. Nothing is overwritten.
 
+### Prompts in their own files
+
+A prompt is the long part of a flow, and inlining it buries the graph. Give the flow a
+directory of its own name and the prompts sit beside it:
+
+```txt
+flows/
+   review/
+      review.yaml           ->  atf run review
+      prompts/
+         triage.md
+         report.md
+```
+
+`flows/review/review.yaml` **is** the flow `review`: the directory is not part of the name.
+A step then names a file instead of carrying the text.
+
+```yaml
+- id: report
+  agent: reporter
+  prompt_file: report       # reads prompts/report.md
+```
+
+The rule is `prompts/` beside the flow file, so a flat `flows/review.yaml` still works and
+reads from `flows/prompts/`. Naming both `prompt` and `prompt_file` on one step is refused,
+and a file that is not there fails `atf lint` rather than the run.
+
+### Prompts that leave out what did not run
+
+A skipped branch and a loop's first pass are the same problem: the template reads a step that
+has no result. Guard the section and it is left out.
+
+```yaml
+prompt: |
+  Summary:
+  {{ steps.summarize.text }}
+
+  {% if steps.risk_scan %}
+  Risk findings:
+  {{ steps.risk_scan.text }}
+  {% else %}
+  No risk review was run.
+  {% endif %}
+```
+
+**A step that did not run is false**, so that is the whole test. `{% if not … %}` inverts it,
+`{% else %}` is optional, and they nest. Null, false, `0`, an empty string, an empty list and
+an empty object are false too.
+
+The branch that is not taken is never rendered, which is what makes a deeper reference safe:
+`{{ steps.risk_scan.json.severity }}` has nothing to reach into until the step has run. A tag
+alone on its line takes the line with it, so the prompt has no holes where the tags were.
+
+Without a guard a skipped step still resolves, as the literal `(not run)`. That is still
+there, but it means telling the model what the placeholder means. `examples/file-review`
+carries the conditional version, and `examples/draft-review` uses one for a loop's first pass.
+
 ### Components you keep across projects
 
 `atf init` creates `~/.arctic`, which is a search layer under every project:

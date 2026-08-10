@@ -290,9 +290,35 @@ def _in_root(kind: str, name: str, root: Path) -> list[Path]:
     for subdir in COMPONENT_DIRS[kind]:
         if kind == "flow":
             found += [root / subdir / f"{name}{suffix}" for suffix in FLOW_SUFFIXES]
+            # The bundle spelling: `flows/review/review.yaml` is the flow `review`, which
+            # gives its prompts a directory that belongs to it. The file carries the leaf
+            # and not the whole name, the way a namespaced spec.json does, so
+            # `release/sign` is `flows/release/sign/sign.yaml`.
+            #
+            # After the flat candidates, not before, and `_collect` reads files before
+            # directories to agree with it. A flow that is both spellings at once resolves
+            # to the one that already worked, and `find_all` reports the other as
+            # shadowing, exactly as it does for a `.yaml` and a `.yml` side by side.
+            leaf = name.split(SEPARATOR)[-1]
+            found += [root / subdir / name / f"{leaf}{suffix}" for suffix in FLOW_SUFFIXES]
         else:
             found.append(root / subdir / name)
     return found
+
+
+def _bundle_file(directory: Path) -> Path | None:
+    """The flow a directory is named for, when it holds one.
+
+    What makes a directory under `flows/` a bundle is that it contains a flow of its own
+    name. Any other one is a namespace, as it always was, and a bundle is *also* one:
+    `flows/review/helper.yaml` stays `review/helper`, so nothing that resolved before
+    stops resolving.
+    """
+    for suffix in FLOW_SUFFIXES:
+        candidate = directory / f"{directory.name}{suffix}"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _under(path: Path, base: Path, prefix: str) -> str | None:
@@ -543,6 +569,7 @@ class Paths:
         prefix: str,
         available: dict[str, Path],
         *,
+        skip: Path | None = None,
         skip_reserved: bool = False,
     ) -> None:
         """Add every component under `base`, descending into namespaces.
@@ -554,9 +581,15 @@ class Paths:
 
         A dotted entry is not a namespace. It is a `.git`, an editor's cache or a
         `.DS_Store`, and descending into one lists whatever happens to be inside it.
+
+        `skip` is a bundle's own flow file, which the caller has already listed under the
+        bundle's name. Without it `flows/review/review.yaml` would be listed twice, once as
+        `review` and once as `review/review`, and only one of those is a name anyone wrote.
         """
-        for entry in sorted(base.iterdir()):
-            if entry.name.startswith("."):
+        # Files before directories, so a flat flow beats a bundle of the same name and this
+        # listing agrees with what `find` returns. See the candidate order in `_in_root`.
+        for entry in sorted(base.iterdir(), key=lambda item: (item.is_dir(), item.name)):
+            if entry.name.startswith(".") or entry == skip:
                 continue
             if self._exists(kind, entry):
                 name = f"{prefix}{entry.stem if kind == 'flow' else entry.name}"
@@ -564,11 +597,17 @@ class Paths:
                 if not (skip_reserved and reserved(name)):
                     available.setdefault(name, entry)
             if entry.is_dir():
+                bundle = _bundle_file(entry) if kind == "flow" else None
+                if bundle is not None:
+                    name = f"{prefix}{entry.name}"
+                    if not (skip_reserved and reserved(name)):
+                        available.setdefault(name, bundle)
                 self._collect(
                     kind,
                     entry,
                     f"{prefix}{entry.name}{SEPARATOR}",
                     available,
+                    skip=bundle,
                     skip_reserved=skip_reserved,
                 )
 

@@ -193,6 +193,27 @@ unresolvable path is an error, never an empty string. `validate()` rejects readi
 step that is not transitively upstream, an undeclared cycle, unreachable steps, self-pushes,
 and both `push` and `switch` on one step.
 
+**A template also has conditionals**, four tags parsed by `parse_template`:
+`{% if path %}`, `{% if not path %}`, `{% else %}`, `{% endif %}`. They nest. **A step that
+did not run is false** (`truthy` checks `skipped` before emptiness, because a skipped
+result is a non-empty mapping), which is what a skipped branch and a loop's first pass both
+need. The branch not taken is never rendered, so `{{ steps.x.json.field }}` is safe inside a
+guard where it would fail outside one. `template_refs` parses and returns the refs from the
+condition and *both* branches, so `check_refs` still sees everything and a guard is not a way
+past validation. Unlike `{{ }}`, whose pattern is narrow so `{{ a-b }}` survives as prose,
+**any `{% ... %}` must be one of the four tags**, and half a tag is refused too: `{ % if x %}`
+would otherwise render its body unconditionally. So `{%` and `%}` are reserved in a template,
+which is the one backward-incompatible part of it. A tag alone on its line takes the line
+with it, or every conditional leaves a blank line behind.
+
+**A step's `prompt_file` names a file in `prompts/` beside the flow**, read by
+`inline_prompts` inside `load_flow`. Done there rather than in `run_agent` so everything
+downstream sees one kind of prompt and a missing file fails `lint`; the cost is that a
+template error names the step, not the file. `prompt` and `prompt_file` on one step is
+refused, and the name is checked against `REFUSED_SEGMENTS` so it cannot leave the directory.
+A gate's `feedback` and `output.template` have the same shape and deliberately do not have it
+yet.
+
 An input comes from the caller's mapping or from `$ATF_VAR_<NAME>`, merged in
 `commands.prepare` with the mapping winning. The prefix is `ATF_VAR_` and not a bare `ATF_`
 because `$ATF_PATH` and `$ATF_VAULT_PASSWORD` are the engine's own, so an input named `path`
@@ -216,7 +237,12 @@ workspace root.
 A name may carry a namespace, at any depth and for all three kinds: `arctic/read_file` is
 `tools/arctic/read_file`, `release/sign` is `flows/release/sign.yaml`. A directory holding
 a `spec.json` is a component and any other directory is a namespace, so there is nothing to
-declare. The first segment is a *vendor* segment in the `vendor/package` sense.
+declare. **A flow has a second spelling**: `flows/review/review.yaml` is the flow `review`,
+a *bundle*, which is what gives `prompt_file` somewhere to read from. `_bundle_file` decides
+it, the file carries the leaf inside a namespace (`flows/release/sign/sign.yaml`), and a
+bundle is still a namespace so `review/helper` keeps working. Written both ways at once the
+flat spelling wins, `find_all` reports the other as shadowing, and `_collect` reads files
+before directories so `list` agrees with `find` rather than agreeing by luck. The first segment is a *vendor* segment in the `vendor/package` sense.
 `arctic/read_file` and a bare `read_file` neither override nor fall back
 to each other, and `spec.json` still carries only the leaf. `check_name`
 refuses a name whose segments would leave the root (`..`, an absolute path, an empty
@@ -293,7 +319,7 @@ means updating the scaffold too**.
 | --- | --- | --- |
 | tool | directory | `spec.json`, a markdown doc, executable `run.sh`; one JSON object on stdin, result on stdout, errors one line on stderr with a code listed in its own `exit_codes` |
 | agent | directory | `spec.json` plus `agent.md`, which **is** the system prompt, read verbatim |
-| flow | one YAML file | names the graph and nothing else |
+| flow | one YAML file, or a directory holding one of its own name | names the graph and nothing else; `prompts/*.md` beside it hold what `prompt_file` reads |
 | adapter | Python module | in `../src/adapters`, plus an entry in `ADAPTERS`; declares `NAME`, `DESCRIPTION`, `INPUT_SCHEMA`, `run(payload, env)` |
 
 Adapters are the deliberate exception to name-based lookup: there is no
@@ -316,7 +342,8 @@ by building the payload and validating it against the adapter's own `INPUT_SCHEM
 
 Copy the nearest existing component rather than starting fresh: `../src/builtin/tools/arctic/read_file`,
 `../src/adapters/claude_code.py`, `../examples/file-review/agents/summarizer`,
-`../examples/sign-release/flows/sign_release.yaml`, and `../src/builtin/packs/git` for a pack.
+`../examples/sign-release/flows/sign_release.yaml`, `../examples/file-review/flows/review_file/`
+for a flow whose prompts are files, and `../src/builtin/packs/git` for a pack.
 
 ### Secrets
 

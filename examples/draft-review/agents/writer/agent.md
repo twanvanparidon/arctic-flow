@@ -13,5 +13,3 @@ already earned.
 Act on every note. Where they ask for an exact line or an exact format, reproduce it
 exactly, even if the brief says nothing about it: the reviewer holds you to standing rules
 the brief does not repeat.
-
-If both read `(not run)`, there is no draft and no review yet. Write a first one.
