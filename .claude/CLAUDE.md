@@ -212,11 +212,11 @@ project-level `deploy` replaces an inherited one and inherits nothing from it. W
 component is *found* never changes where it *runs*: tools execute with cwd set to the
 workspace root.
 
-A name may carry a namespace, at any depth and for all three kinds: `common/read_file` is
-`tools/common/read_file`, `release/sign` is `flows/release/sign.yaml`. A directory holding
+A name may carry a namespace, at any depth and for all three kinds: `arctic/read_file` is
+`tools/arctic/read_file`, `release/sign` is `flows/release/sign.yaml`. A directory holding
 a `spec.json` is a component and any other directory is a namespace, so there is nothing to
 declare. The first segment is a *vendor* segment in the `vendor/package` sense.
-`common/read_file` and a bare `read_file` neither override nor fall back
+`arctic/read_file` and a bare `read_file` neither override nor fall back
 to each other, and `spec.json` still carries only the leaf. `check_name`
 refuses a name whose segments would leave the root (`..`, an absolute path, an empty
 segment), which is why the check sits in the resolver and not in `lint`: one place covers
@@ -226,18 +226,18 @@ the separator is `__`, because `mcp__atf__<tool>` cannot carry a slash.
 `sources` are extra roots named by `~/.arctic/config.yaml`, which `atf init` writes and
 `paths/config.py` reads. They sit below your own home layer and above the built-ins, so a
 shared library never replaces one the project or `~/.arctic` defines, and cannot define
-anything under `common/` at all.
+anything under `arctic/` at all.
 The same file carries `run.max_minutes`, a ceiling on a whole run that `execute` enforces
 and no flow may raise; an unknown key in it is refused rather than ignored. `Paths` loads
 it eagerly, so a broken config stops every command rather than one.
 
-**`ENGINE_NAMESPACE` (`common/`) is the engine's, and that is a security property.** A
-flow reading `tool: common/read_file` has to mean the shipped tool, or the name tells a
+**`ENGINE_NAMESPACE` (`arctic/`) is the engine's, and that is a security property.** A
+flow reading `tool: arctic/read_file` has to mean the shipped tool, or the name tells a
 reader nothing: any higher root, a cloned repository included, could put anything there.
 So `find` **refuses** a reserved name that anything outside `builtin/` also defines, rather
 than quietly preferring the built-in, which would leave someone editing a directory that
 does nothing. `create` refuses the name too, before a directory exists. The whole namespace
-is reserved and not just the five names that ship, so a near miss like `common/read_files`
+is reserved and not just the five names that ship, so a near miss like `arctic/read_files`
 cannot read as shipped and a new built-in can never collide with a name somebody had.
 
 `find_all` deliberately does not raise, because `commands.inventory` calls it for every
@@ -282,7 +282,7 @@ it also verifies `run.command` exists and is executable, that declared schemas a
 schemas, and that an agent's settings are ones its adapter accepts. That last check works
 by building the payload and validating it against the adapter's own `INPUT_SCHEMA`.
 
-Copy the nearest existing component rather than starting fresh: `../src/builtin/tools/common/read_file`,
+Copy the nearest existing component rather than starting fresh: `../src/builtin/tools/arctic/read_file`,
 `../src/adapters/claude_code.py`, `../examples/file-review/agents/summarizer`,
 `../examples/sign-release/flows/sign_release.yaml`.
 
@@ -306,8 +306,8 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
   spec. The tool's *name* there is the one it was looked up by, not `spec["name"]`, which
   for a namespaced tool is only the leaf. Naming a runtime's own built-ins instead would
   tie one agent spec to one adapter.
-- **A granted tool's MCP name is `flat_name` of its lookup name.** `common/read_file` is
-  offered as `common__read_file`, because a client builds `mcp__atf__<tool>` and a slash is
+- **A granted tool's MCP name is `flat_name` of its lookup name.** `arctic/read_file` is
+  offered as `arctic__read_file`, because a client builds `mcp__atf__<tool>` and a slash is
   not legal in a tool name. `cli.mcp_server` decides it and `adapters.claude_code` writes
   the same string into `--allowedTools`; drift and every tool in the turn is unpermitted,
   which reaches a user as a model saying they do not work. Never undo it by string surgery:

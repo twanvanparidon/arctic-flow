@@ -57,7 +57,7 @@ start: read_brief
 
 steps:
   - id: read_brief
-    tool: common/read_file
+    tool: arctic/read_file
     input:
       path: "{{ inputs.path }}"
       max_lines: 200

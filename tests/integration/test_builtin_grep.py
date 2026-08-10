@@ -32,7 +32,7 @@ def search(atf: Runner, project: Path, **input_values: Any) -> Any:
     definition = {
         "flow": "find",
         "start": "look",
-        "steps": [{"id": "look", "tool": "common/grep", "input": input_values}],
+        "steps": [{"id": "look", "tool": "arctic/grep", "input": input_values}],
         "output": {"template": "{{ steps.look.text }}"},
     }
     (project / "flows").mkdir(exist_ok=True)

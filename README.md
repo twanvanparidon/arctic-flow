@@ -14,7 +14,7 @@ reads forwards, in the order it happens.
 
 ```yaml
 - id: read
-  tool: common/read_file
+  tool: arctic/read_file
   input:
     path: "{{ inputs.path }}"
   push: [explain]        # <- where this result goes
@@ -72,11 +72,11 @@ through the lookup, from the `--workspace` on the line. bash for now.
 
 | For | You need |
 | --- | --- |
-| `common/read_file` | `bash`, `jq`, `awk`, `realpath` |
-| `common/write_file` | `bash`, `jq`, `realpath`, `wc` |
-| `common/grep` | `bash`, `jq`, `find`, `grep`, `sed` |
-| `common/glob` | `bash`, `jq`, `find`, `sed`, `sort` |
-| `common/fetch_url` | `bash`, `jq`, `curl`, and a network |
+| `arctic/read_file` | `bash`, `jq`, `awk`, `realpath` |
+| `arctic/write_file` | `bash`, `jq`, `realpath`, `wc` |
+| `arctic/grep` | `bash`, `jq`, `find`, `grep`, `sed` |
+| `arctic/glob` | `bash`, `jq`, `find`, `sed`, `sort` |
+| `arctic/fetch_url` | `bash`, `jq`, `curl`, and a network |
 | Any **agent** step | a supported adapter's provider, installed and authenticated |
 | Tool-only flows | nothing else: no key, no network |
 
@@ -92,15 +92,15 @@ atf list             # every name that resolves, and where each was found:
 
 ### The tools that ship
 
-Five, all under the `common/` namespace, all contained to the workspace:
+Five, all under the `arctic/` namespace, all contained to the workspace:
 
 | Tool | Does |
 | --- | --- |
-| `common/read_file` | Returns one file verbatim, or several with a header each. |
-| `common/write_file` | Writes a file. Refuses to clobber unless told to. |
-| `common/glob` | Lists the paths matching a shell pattern. |
-| `common/grep` | Finds a pattern across the tree, as `path:line:text`. |
-| `common/fetch_url` | Fetches an `http(s)` URL and returns the body undecorated. |
+| `arctic/read_file` | Returns one file verbatim, or several with a header each. |
+| `arctic/write_file` | Writes a file. Refuses to clobber unless told to. |
+| `arctic/glob` | Lists the paths matching a shell pattern. |
+| `arctic/grep` | Finds a pattern across the tree, as `path:line:text`. |
+| `arctic/fetch_url` | Fetches an `http(s)` URL and returns the body undecorated. |
 
 `glob` finds files, `grep` finds text in them, `read_file` returns them: that is the
 usual order, and doing it in that order is much cheaper than reading a tree to find
@@ -135,8 +135,8 @@ Five projects that run as they are. Read them forwards, the way the engine does:
 - **[`examples/draft-review`](examples/draft-review)** is a loop. A reviewer sends the draft
   back to the writer until it passes or runs out of passes, and the writer is handed what
   the reviewer said. Read it against `gated-summary` for when to use which.
-- **[`examples/agent-tools`](examples/agent-tools)** grants an agent `common/read_file`
-  and `common/write_file`, so it decides for itself when to read and when to write. One step
+- **[`examples/agent-tools`](examples/agent-tools)** grants an agent `arctic/read_file`
+  and `arctic/write_file`, so it decides for itself when to read and when to write. One step
   where the same job as three would also work, and the flow header says when to prefer which.
 
 ```sh
@@ -161,7 +161,7 @@ anything: `list` says which definition of a name wins, `inspect` says what is in
 atf --workspace examples/file-review lint                       # every flow in the project
 atf --workspace examples/file-review inspect flow review_file -o md > review.md
 atf --workspace examples/file-review inspect agent summarizer   # its system prompt
-atf inspect tool common/read_file                               # what it may touch
+atf inspect tool arctic/read_file                               # what it may touch
 ```
 
 `lint` with no flow checks every flow in scope and reports all of them before exiting
@@ -220,8 +220,8 @@ namespace.
 
 ```txt
 tools/
-   common/             <- the engine's own. Yours may not go here
-      read_file/        ->  tool: common/read_file
+   arctic/             <- the engine's own. Yours may not go here
+      read_file/        ->  tool: arctic/read_file
       grep/
    git/
       commit/           ->  tool: git/commit
@@ -229,20 +229,20 @@ tools/
 ```
 
 `agents/` and `flows/` group the same way, so `atf run release/sign_release` runs
-`flows/release/sign_release.yaml`. The name is the whole path, so `common/read_file` and a
+`flows/release/sign_release.yaml`. The name is the whole path, so `arctic/read_file` and a
 `read_file` of your own are two tools and overriding one does not touch the other.
 `atf list` prints every name qualified.
 
 The first segment says who a component came from, the way `vendor/package` does in
-Composer. **`common/` is the engine's, and nothing else may define a name inside it:**
+Composer. **`arctic/` is the engine's, and nothing else may define a name inside it:**
 
 ```sh
-atf create tool common/read_file
-# engine: 'common/' belongs to the engine, so 'common/read_file' is not a name to
+atf create tool arctic/read_file
+# engine: 'arctic/' belongs to the engine, so 'arctic/read_file' is not a name to
 #         create. Put yours in a namespace of your own: 'tool <yours>/read_file'
 ```
 
-That is a security property rather than tidiness. `tool: common/read_file` in a flow has to
+That is a security property rather than tidiness. `tool: arctic/read_file` in a flow has to
 mean the contained, no-network tool that ships, and if any higher root could define that
 name then reading the flow would tell you nothing about what runs. A repository you cloned
 is a higher root. So a directory in that namespace is refused rather than used, by name and

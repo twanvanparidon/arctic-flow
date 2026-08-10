@@ -23,18 +23,18 @@ the same reason: see `ENGINE_NAMESPACE` below.
 beside every name: `./x` for the project, `$HOME/.arctic/x` for yours, `$ATF_ROOT/x` for
 the engine's own.
 
-A name may carry a namespace: `common/read_file` is `tools/common/read_file` under
+A name may carry a namespace: `arctic/read_file` is `tools/arctic/read_file` under
 whichever root wins. There is no depth limit and no declaration anywhere. A directory
 holding a `spec.json` is a component, and any other directory is a namespace, so grouping
 tools by purpose is done by moving the directories.
 
 Overriding is per *name*, not per directory: a project-level `read_file` replaces the
-built-in and inherits nothing from it. `common/read_file` and `read_file` are two names, so
+built-in and inherits nothing from it. `arctic/read_file` and `read_file` are two names, so
 neither one overrides or falls back to the other.
 
 **One namespace is not overridable, and that is a security property rather than a
-convenience.** The engine owns `common/`, and nothing outside `builtin/` may define a name
-inside it. Without that, a flow reading `tool: common/read_file` says nothing about what
+convenience.** The engine owns `arctic/`, and nothing outside `builtin/` may define a name
+inside it. Without that, a flow reading `tool: arctic/read_file` says nothing about what
 runs: whoever controls a higher root, including a repository you cloned, could put anything
 there under a name that reads as the contained, no-network tool that ships. See
 `ENGINE_NAMESPACE` and `Paths.intruders`.
@@ -95,23 +95,25 @@ FLAT_SEPARATOR = "__"
 REFUSED_SEGMENTS = ("", ".", "..")
 
 # The namespace the engine owns. A name whose first segment is this one resolves inside
-# `builtin/` or nowhere, so `tool: common/read_file` in a flow is the shipped tool and
+# `builtin/` or nowhere, so `tool: arctic/read_file` in a flow is the shipped tool and
 # cannot be anything else.
 #
 # It is a *vendor* segment, in the sense Composer's `vendor/package` and Java's reverse
 # domain root are: the first segment says who a component came from, and who it came from
-# is who may define it. The whole namespace is reserved rather than only the five names
-# that ship today, for two reasons. A near miss like `common/read_files` would otherwise
-# read as shipped while being anyone's, and reserving only what ships would mean each new
-# built-in could collide with a name somebody already had.
-ENGINE_NAMESPACE = "common"
+# is who may define it. So it is the project's own name and not a word about what is inside
+# it: `common/` is what someone reaches for to group their own tools, and reserving that
+# would take a word they had a use for. The whole namespace is reserved
+# rather than only the five names that ship today, for two reasons. A near miss like
+# `arctic/read_files` would otherwise read as shipped while being anyone's, and reserving
+# only what ships would mean each new built-in could collide with a name somebody had.
+ENGINE_NAMESPACE = "arctic"
 
 
 def reserved(name: str) -> bool:
     """Whether this name is the engine's to define.
 
     The first segment, so the whole namespace is covered at any depth. A bare name never
-    is: `read_file` of your own is a different name from `common/read_file` and always was.
+    is: `read_file` of your own is a different name from `arctic/read_file` and always was.
     """
     return name.split(SEPARATOR)[0] == ENGINE_NAMESPACE
 
@@ -364,7 +366,7 @@ class Paths:
         """Every available name of this kind, mapped to the definition that wins.
 
         Namespaced names are qualified, so a listing reads the way a flow spells them:
-        `common/read_file`, not `read_file` in some directory the listing does not name.
+        `arctic/read_file`, not `read_file` in some directory the listing does not name.
         """
         available: dict[str, Path] = {}
         for root in self.roots:

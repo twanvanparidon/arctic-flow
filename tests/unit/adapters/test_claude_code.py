@@ -77,9 +77,9 @@ class TestBuildArgs:
         """A slash is not legal in a tool name here, and the server does not offer one, so
         allowing the slashed spelling would permit nothing the server listed."""
         args = claude_code.build_args(
-            {"prompt": "p", "tools": ["common/read_file"], "tool_server": ["atf"]}
+            {"prompt": "p", "tools": ["arctic/read_file"], "tool_server": ["atf"]}
         )
-        assert args[args.index("--allowedTools") + 1] == "mcp__atf__common__read_file"
+        assert args[args.index("--allowedTools") + 1] == "mcp__atf__arctic__read_file"
 
     def test_a_deep_namespace_is_flattened_all_the_way(self) -> None:
         args = claude_code.build_args(

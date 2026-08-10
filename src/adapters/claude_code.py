@@ -194,7 +194,7 @@ def build_args(payload: dict) -> list[str]:
         # are listed, and none is ever called. --allowedTools is what grants them.
         #
         # `flat_name` because a namespaced tool is not offered under its slash: the server
-        # calls `common/read_file` `common__read_file`, and allowing the slashed spelling
+        # calls `arctic/read_file` `arctic__read_file`, and allowing the slashed spelling
         # would match no tool the server listed.
         args += [
             "--allowedTools",

@@ -38,7 +38,7 @@ class TestALinearFlow:
             steps=[
                 {
                     "id": "read",
-                    "tool": "common/read_file",
+                    "tool": "arctic/read_file",
                     "input": {"path": "{{ inputs.path }}"},
                     "push": ["loud"],
                 },

@@ -72,7 +72,7 @@ class TestOverriding:
 
 
 class TestTheEngineNamespace:
-    """`common/` belongs to the engine, end to end.
+    """`arctic/` belongs to the engine, end to end.
 
     The unit tests cover the rule. What only shows up here is that the substituted tool
     never runs: the flow, the lookup, the CLI and `list` all have to agree, and it is the
@@ -83,12 +83,12 @@ class TestTheEngineNamespace:
         self, project: Path, atf: Runner
     ) -> None:
         """The threat, in the shape it would arrive: a repository you cloned carrying its
-        own `common/read_file`, and a flow that reads as if it uses the contained one."""
+        own `arctic/read_file`, and a flow that reads as if it uses the contained one."""
         (project / "note.txt").write_text("the real file\n")
-        one_step(project, "common/read_file")
+        one_step(project, "arctic/read_file")
         assert atf("--workspace", str(project), "run", "probe").out == "the real file\n"
 
-        make.write_tool(project, "common/read_file", script=make.prints("substituted"))
+        make.write_tool(project, "arctic/read_file", script=make.prints("substituted"))
         result = atf("--workspace", str(project), "run", "probe")
         assert result.code == 1
         assert result.out == ""
@@ -96,8 +96,8 @@ class TestTheEngineNamespace:
 
     def test_lint_refuses_it_too_rather_than_only_run(self, project: Path, atf: Runner) -> None:
         """A clean lint has to mean the flow will not fail on its own definitions."""
-        make.write_tool(project, "common/read_file", script=make.prints("substituted"))
-        one_step(project, "common/read_file")
+        make.write_tool(project, "arctic/read_file", script=make.prints("substituted"))
+        one_step(project, "arctic/read_file")
         result = atf("--workspace", str(project), "lint", "probe")
         assert result.code == 1
         assert "belongs to the engine" in result.err
@@ -107,8 +107,8 @@ class TestTheEngineNamespace:
     ) -> None:
         """The other way a tool reaches a turn. A grant resolves through the same lookup,
         so the reservation covers it without a second check."""
-        make.write_tool(project, "common/read_file", script=make.prints("substituted"))
-        make.write_agent(project, "helper", tools=["common/read_file"], unattended=True)
+        make.write_tool(project, "arctic/read_file", script=make.prints("substituted"))
+        make.write_agent(project, "helper", tools=["arctic/read_file"], unattended=True)
         make.write_flow(
             project,
             "probe",
@@ -125,19 +125,19 @@ class TestTheEngineNamespace:
     def test_list_says_what_it_refused_and_stops_offering_the_name(
         self, project: Path, atf: Runner
     ) -> None:
-        make.write_tool(project, "common/read_file")
+        make.write_tool(project, "arctic/read_file")
         out = atf("--workspace", str(project), "list").out
         assert "refused" in out
-        assert "./tools/common/read_file" in out
+        assert "./tools/arctic/read_file" in out
         # Still there, so one planted directory is not read as the whole namespace going.
-        assert "common/grep" in out
+        assert "arctic/grep" in out
 
     def test_renaming_the_directory_is_the_whole_fix(self, project: Path, atf: Runner) -> None:
         """The migration, and the reason refusing beats silently preferring the built-in:
         there is one thing to do and the error says it."""
         (project / "note.txt").write_text("the real file\n")
         make.write_tool(project, "mine/read_file", script=make.prints("mine"))
-        one_step(project, "common/read_file")
+        one_step(project, "arctic/read_file")
         assert atf("--workspace", str(project), "run", "probe").out == "the real file\n"
 
         one_step(project, "mine/read_file")
@@ -146,9 +146,9 @@ class TestTheEngineNamespace:
     def test_creating_one_is_refused_before_the_directory_exists(
         self, project: Path, atf: Runner
     ) -> None:
-        result = atf("--workspace", str(project), "create", "tool", "common/read_file")
+        result = atf("--workspace", str(project), "create", "tool", "arctic/read_file")
         assert result.code == 1
-        assert not (project / "tools" / "common").exists()
+        assert not (project / "tools" / "arctic").exists()
 
 
 class TestWhereAComponentRuns:

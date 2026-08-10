@@ -20,7 +20,7 @@ $ATF_PATH  →  ./.arctic  →  the workspace root  →  ~/.arctic  →  what sh
 
 Under any root, components live in `tools/`, `agents/` and `flows/`.
 
-Overriding is per name and total. A project's `common/read_file` replaces the built-in and
+Overriding is per name and total. A project's `arctic/read_file` replaces the built-in and
 inherits nothing from it. Where a component is *found* never changes where it *runs*: a
 tool executes with its working directory set to the workspace root.
 
@@ -29,13 +29,13 @@ component; any other directory is a namespace. There is nothing to declare.
 
 ```
 tools/
-   common/read_file/       ->  tool: common/read_file
+   arctic/read_file/       ->  tool: arctic/read_file
    git/commit/             ->  tool: git/commit
    git/worktree/add/       ->  tool: git/worktree/add
 ```
 
-The name is the whole path. `common/read_file` and a bare `read_file` are two tools, and
-overriding one does not touch the other. Everything the engine ships is under `common/`.
+The name is the whole path. `arctic/read_file` and a bare `read_file` are two tools, and
+overriding one does not touch the other. Everything the engine ships is under `arctic/`.
 
 ```sh
 atf list          # every name that resolves, and what shadows what
@@ -115,11 +115,11 @@ echo '{"text":"hello"}' | ./tools/greet/run.sh
 
 | Tool | Does |
 | --- | --- |
-| `common/read_file` | one file verbatim, or several with a header each |
-| `common/write_file` | writes a file; refuses to clobber unless told to |
-| `common/glob` | the paths matching a shell pattern |
-| `common/grep` | a pattern across the tree, as `path:line:text` |
-| `common/fetch_url` | an `http(s)` body, undecorated |
+| `arctic/read_file` | one file verbatim, or several with a header each |
+| `arctic/write_file` | writes a file; refuses to clobber unless told to |
+| `arctic/glob` | the paths matching a shell pattern |
+| `arctic/grep` | a pattern across the tree, as `path:line:text` |
+| `arctic/fetch_url` | an `http(s)` body, undecorated |
 
 The first four cannot reach outside the workspace root: a path is canonicalised before use,
 so `..` and a symlink pointing out are both refused. `fetch_url` touches the network and
@@ -201,7 +201,7 @@ the schema check and the timeout are unchanged. A tool spec is already an MCP to
 definition; there is no second spec to write.
 
 ```json
-"tools": ["common/read_file", "common/write_file"],
+"tools": ["arctic/read_file", "arctic/write_file"],
 "unattended": true
 ```
 
@@ -213,7 +213,7 @@ Four rules, all refused at lint time:
   is a step that declares `secrets` and runs a tool-granted agent.
 - Two grants that flatten onto one name are refused. A granted tool reaches the model as
   its name with `__` for the separator, because `mcp__atf__<tool>` cannot carry a slash, so
-  `common/read_file` is offered as `common__read_file`.
+  `arctic/read_file` is offered as `arctic__read_file`.
 - The grant is on the agent, not the step. A flow names the graph and nothing else.
 
 In-turn calls are reported: each one prints its own line under the step, so a turn that

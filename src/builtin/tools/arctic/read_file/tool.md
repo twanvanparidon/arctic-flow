@@ -44,7 +44,7 @@ Input (one JSON object on stdin):
 Run it directly, the same way the engine does:
 
 ```sh
-echo '{"path":"src/app.py","max_lines":50}' | src/builtin/tools/common/read_file/run.sh
+echo '{"path":"src/app.py","max_lines":50}' | src/builtin/tools/arctic/read_file/run.sh
 ```
 
 Output on stdout, the file verbatim:
@@ -72,7 +72,7 @@ Pass an array. Each file gets a header saying which it is, and a blank line
 separates them:
 
 ```sh
-echo '{"path":["src/app.py","src/db.py"]}' | src/builtin/tools/common/read_file/run.sh
+echo '{"path":["src/app.py","src/db.py"]}' | src/builtin/tools/arctic/read_file/run.sh
 ```
 
 ```
@@ -99,7 +99,7 @@ Failures write one line to stderr and set an exit code from `spec.json`'s
 the workspace root, not a regular file, or unreadable).
 
 ```
-$ echo '{"path":"/etc/passwd"}' | src/builtin/tools/common/read_file/run.sh
+$ echo '{"path":"/etc/passwd"}' | src/builtin/tools/arctic/read_file/run.sh
 read_file: path resolves outside the workspace root: /etc/passwd
 $ echo $?
 4

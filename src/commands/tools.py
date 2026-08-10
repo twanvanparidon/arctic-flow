@@ -42,8 +42,8 @@ def describe_tools(names: list[str], paths: Paths) -> list[ToolDescription]:
             ToolDescription(
                 # The name it was looked up by, not the spec's own. They are the same for
                 # a flat tool, and for a namespaced one the spec carries only the leaf:
-                # `tools/common/read_file` says "read_file". A caller granted
-                # `common/read_file` and calls it back by that, so that is the name.
+                # `tools/arctic/read_file` says "read_file". A caller granted
+                # `arctic/read_file` and calls it back by that, so that is the name.
                 name=name,
                 description=_description(base, spec),
                 input_schema=spec["input_schema"],

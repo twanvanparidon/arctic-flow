@@ -70,11 +70,11 @@ Check what already exists before creating anything:
 
 ```sh
 atf list                        # every name that resolves, and what shadows what
-atf inspect tool common/read_file
+atf inspect tool arctic/read_file
 atf inspect agent <name>
 ```
 
-Five tools ship under `common/`: `read_file`, `write_file`, `glob`, `grep`, `fetch_url`.
+Five tools ship under `arctic/`: `read_file`, `write_file`, `glob`, `grep`, `fetch_url`.
 The first four cannot reach outside the workspace root. Use them rather than writing a
 fifth way to read a file.
 
@@ -97,7 +97,7 @@ start: read_target              # exactly one entry
 
 steps:
   - id: read_target
-    tool: common/read_file
+    tool: arctic/read_file
     input:
       path: "{{ inputs.path }}"
       max_lines: 400
@@ -212,7 +212,7 @@ and run through the same code a tool step uses, so the sandbox, the schema check
 timeout are unchanged.
 
 ```json
-"tools": ["common/read_file", "common/write_file"],
+"tools": ["arctic/read_file", "arctic/write_file"],
 "unattended": true
 ```
 
@@ -222,8 +222,8 @@ Three rules, all refused at lint time:
   Nothing approves a call an agent makes for itself.
 - A granted tool gets no secrets. Granting one that declares `secrets` is refused, and so
   is a step that declares `secrets` and runs a tool-granted agent.
-- Two grants that flatten onto one name are refused. `common/read_file` reaches the model
-  as `common__read_file`, because a slash is not legal in a tool name.
+- Two grants that flatten onto one name are refused. `arctic/read_file` reaches the model
+  as `arctic__read_file`, because a slash is not legal in a tool name.
 
 Grant tools when the number of files is genuinely not knowable in advance. Wire steps when
 it is: three steps put three rows in the trace and the paths are decided by whoever wrote
@@ -254,8 +254,8 @@ Four things the spec must get right:
 - Do not print a trailing newline after a single-value result. A digest gets templated
   mid-line, and a stray newline breaks the line it lands in.
 
-Copy the nearest shipped tool rather than starting fresh: `common/read_file` to read,
-`common/write_file` to write, `common/grep` to search, `common/fetch_url` to reach the
+Copy the nearest shipped tool rather than starting fresh: `arctic/read_file` to read,
+`arctic/write_file` to write, `arctic/grep` to search, `arctic/fetch_url` to reach the
 network.
 
 ## 7. Verify before reporting it done

@@ -3,7 +3,7 @@
 #   start: annotate ──> (output)
 #
 # One step. The reading and the writing happen inside the turn, because the agent's
-# spec.json grants it `common/read_file` and `common/write_file`, served over MCP
+# spec.json grants it `arctic/read_file` and `arctic/write_file`, served over MCP
 # for the duration of the turn.
 #
 # The same job as three steps looks like this, and is a better fit for most work:
@@ -17,12 +17,12 @@
 #
 # What a grant costs, and why the engine makes you say it out loud:
 #
-#   - `common/write_file` declares `permissions.filesystem: "write"`, so the agent spec has to
+#   - `arctic/write_file` declares `permissions.filesystem: "write"`, so the agent spec has to
 #     carry `"unattended": true`. Nothing approves a call the agent makes for itself.
 #   - a step that runs a tool-granted agent may not declare `secrets`. Nothing scopes a
 #     secret to one in-turn call, so none is put where a tool could read it.
 #   - the tools are the engine's, not the runtime's. The same spec means the same thing
-#     under a different adapter, and `common/read_file`'s workspace sandbox still applies.
+#     under a different adapter, and `arctic/read_file`'s workspace sandbox still applies.
 #
 # `notes/incident.md` ships with this project, so the example runs with nothing to
 # prepare. It calls a model and costs a few cents.
