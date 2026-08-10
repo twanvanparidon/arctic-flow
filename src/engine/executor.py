@@ -62,6 +62,21 @@ from vault.vault import Vault, VaultError
 
 TEMPLATE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 
+# A conditional tag. Everything between the braces is captured and then matched against the
+# four forms below, so `{% iff x %}` is refused rather than left in the prompt as prose.
+# That is the opposite of TEMPLATE's rule, which lets `{{ a-b }}` through untouched, and
+# the difference is deliberate: `{{ a-b }}` is plausible English and `{% ... %}` is not, so
+# the narrow pattern that protects prose there would only hide a typo here.
+TAG = re.compile(r"\{%(.*?)%\}")
+
+IF_TAG = re.compile(r"^if\s+(not\s+)?([a-zA-Z0-9_.]+)$")
+
+# A tag alone on its line takes the whole line with it, indentation and trailing newline
+# included. Without this every conditional leaves a blank line in the prompt it was added
+# to tidy up. A tag with anything else on its line is left where it is, so a value can
+# still be guarded mid-sentence.
+STANDALONE_TAG = re.compile(r"^[ \t]*(\{%.*?%\})[ \t]*\n?", re.MULTILINE)
+
 # The virtual source of the flow's first push.
 START = "__start__"
 
@@ -73,6 +88,7 @@ DEFAULT_GATE_ATTEMPTS = 3
 # What an input's environment variable is called. See variable_name() for why it is not
 # bare `ATF_`.
 VARIABLE_PREFIX = "ATF_VAR_"
+
 
 # How often a running component looks at its cancel event. Invisible to a model, and a
 # component given no event does not poll at all: it waits in one call, as it always has.
@@ -101,34 +117,192 @@ class Cancelled(FlowError):
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class Conditional:
+    """One `{% if %}` and the two branches it chooses between.
+
+    `otherwise` is empty when the template had no `{% else %}`, which renders as nothing.
+    """
+
+    path: str
+    negated: bool
+    then: tuple[Node, ...]
+    otherwise: tuple[Node, ...]
+
+
+# A template is a sequence of literal text and conditionals, and a conditional's branches
+# are the same thing again, so a nested `{% if %}` needs no separate case.
+Node = str | Conditional
+
+
+@dataclass
+class _Frame:
+    """A `{% if %}` whose `{% endif %}` has not been reached yet."""
+
+    path: str
+    negated: bool
+    then: list[Node]
+    otherwise: list[Node]
+    in_else: bool = False
+
+    @property
+    def branch(self) -> list[Node]:
+        return self.otherwise if self.in_else else self.then
+
+
+def parse_template(text: str) -> tuple[Node, ...]:
+    """Split a template into literal text and conditionals, refusing a malformed tag.
+
+    Called by `render` and by `template_refs`, which is what makes an unclosed `{% if %}`
+    or an unknown tag a `lint` failure rather than something that waits for the step to
+    run and costs a turn to discover.
+    """
+    body = STANDALONE_TAG.sub(r"\1", text)
+    root: list[Node] = []
+    stack: list[_Frame] = []
+
+    def add(node: Node) -> None:
+        (stack[-1].branch if stack else root).append(node)
+
+    cursor = 0
+    for match in TAG.finditer(body):
+        literal = body[cursor : match.start()]
+        if literal:
+            _check_no_stray_tag(literal)
+            add(literal)
+        cursor = match.end()
+        tag = match.group(1).strip()
+        opening = IF_TAG.match(tag)
+        if opening:
+            stack.append(_Frame(opening.group(2), bool(opening.group(1)), [], []))
+        elif tag == "else":
+            if not stack:
+                raise FlowError("template has an '{% else %}' with no '{% if %}' above it")
+            if stack[-1].in_else:
+                raise FlowError(
+                    f"template has two '{{% else %}}' inside one '{{% if {stack[-1].path} %}}'"
+                )
+            stack[-1].in_else = True
+        elif tag == "endif":
+            if not stack:
+                raise FlowError("template has an '{% endif %}' with no '{% if %}' above it")
+            done = stack.pop()
+            add(Conditional(done.path, done.negated, tuple(done.then), tuple(done.otherwise)))
+        else:
+            raise FlowError(
+                f"template has an unknown tag '{{% {tag} %}}'. The tags are "
+                "'{% if path %}', '{% if not path %}', '{% else %}' and '{% endif %}'"
+            )
+
+    trailing = body[cursor:]
+    if trailing:
+        _check_no_stray_tag(trailing)
+        add(trailing)
+    if stack:
+        raise FlowError(f"template has an '{{% if {stack[-1].path} %}}' with no '{{% endif %}}'")
+    return tuple(root)
+
+
+def _check_no_stray_tag(literal: str) -> None:
+    """Refuse half a tag, which `TAG` cannot match and would otherwise reach a model.
+
+    A tag has to open and close on one line. So `{% if steps.a` is not an unknown tag, it
+    is text, and without this it would be sent as part of the prompt with the body it was
+    meant to guard rendered unconditionally underneath it.
+
+    `%}` on its own is refused for the same reason and not for symmetry: `{ % if x %}` is
+    the typo that produces one, and it fails exactly this way round.
+    """
+    for stray in ("{%", "%}"):
+        if stray in literal:
+            raise FlowError(
+                f"template has a '{stray}' that is not part of a tag. A conditional tag "
+                "opens and closes on one line, as '{% if path %}' ... '{% endif %}'"
+            )
+
+
+def truthy(value: Any) -> bool:
+    """Whether a conditional's path counts as present.
+
+    A step that did not run is false. That is the case conditionals exist for: a branch the
+    flow skipped, and the first pass of a loop. Its result is a mapping, so it would be
+    true on emptiness alone, which is why the marker is checked rather than the shape.
+
+    Everything else is Python's own emptiness, which is also JSON's: null, false, 0, "",
+    [] and {} are false. A string is never parsed, so the *text* "false" is true. Read
+    `.json.<field>` where that distinction matters.
+    """
+    if isinstance(value, dict) and value.get("skipped") is True:
+        return False
+    return bool(value)
+
+
 def render(text: str, context: dict[str, Any]) -> str:
-    """Substitute {{ dotted.path }} against context.
+    """Substitute {{ dotted.path }} against context, and take the {% if %} branches.
 
     Non-string values are inserted as indented JSON, so a template can reference a
     typed step result directly. An unresolvable path is an error rather than an
     empty string, because a silently blank prompt is far more expensive to debug.
     """
+    return _render_nodes(parse_template(text), context)
 
-    def substitute(match: re.Match[str]) -> str:
-        cursor: Any = context
-        for part in match.group(1).split("."):
-            if not isinstance(cursor, dict) or part not in cursor:
-                raise FlowError(f"template references unknown value {{{{ {match.group(1)} }}}}")
-            cursor = cursor[part]
-        return cursor if isinstance(cursor, str) else json.dumps(cursor, indent=2)
 
-    return TEMPLATE.sub(substitute, text)
+def _render_nodes(nodes: tuple[Node, ...], context: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for node in nodes:
+        if isinstance(node, str):
+            parts.append(TEMPLATE.sub(lambda match: _substitute(match, context), node))
+            continue
+        # Only the branch that is taken is rendered, so a reference that is unresolvable
+        # until the step has run is safe inside a guard: `{% if steps.scan %}` around
+        # `{{ steps.scan.json.severity }}` is the point of the whole feature.
+        form = f"{{% if {'not ' if node.negated else ''}{node.path} %}}"
+        taken = truthy(_lookup(node.path, context, form)) != node.negated
+        parts.append(_render_nodes(node.then if taken else node.otherwise, context))
+    return "".join(parts)
+
+
+def _substitute(match: re.Match[str], context: dict[str, Any]) -> str:
+    value = _lookup(match.group(1), context, f"{{{{ {match.group(1)} }}}}")
+    return value if isinstance(value, str) else json.dumps(value, indent=2)
+
+
+def _lookup(path: str, context: dict[str, Any], form: str) -> Any:
+    """Walk a dotted path, naming the reference as it was written when it does not resolve."""
+    cursor: Any = context
+    for part in path.split("."):
+        if not isinstance(cursor, dict) or part not in cursor:
+            raise FlowError(f"template references unknown value {form}")
+        cursor = cursor[part]
+    return cursor
 
 
 def template_refs(value: Any) -> list[str]:
-    """Every {{ path }} appearing anywhere in a nested structure."""
+    """Every path a nested structure references, from both sides of every conditional.
+
+    Both sides, because `validate` decides whether a reference is *allowed*, not which
+    branch will run. A reference that would only be legal when its branch is skipped is
+    not legal, and a guard is not a way to read a step that is not upstream.
+    """
     if isinstance(value, str):
-        return TEMPLATE.findall(value)
+        return _node_refs(parse_template(value))
     if isinstance(value, dict):
         return [ref for item in value.values() for ref in template_refs(item)]
     if isinstance(value, list):
         return [ref for item in value for ref in template_refs(item)]
     return []
+
+
+def _node_refs(nodes: tuple[Node, ...]) -> list[str]:
+    refs: list[str] = []
+    for node in nodes:
+        if isinstance(node, str):
+            refs += TEMPLATE.findall(node)
+        else:
+            refs.append(node.path)
+            refs += _node_refs(node.then)
+            refs += _node_refs(node.otherwise)
+    return refs
 
 
 # --------------------------------------------------------------------------- #
