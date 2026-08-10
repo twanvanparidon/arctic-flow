@@ -133,7 +133,7 @@ Common causes, in the order to check them:
 
 1. The component is in the wrong directory. Tools go in `tools/`, agents in `agents/`,
    flows in `flows/`, under the workspace root or under `./.arctic`.
-2. The namespace is part of the name. `common/read_file` and `read_file` are two tools.
+2. The namespace is part of the name. `arctic/read_file` and `read_file` are two tools.
 3. Something higher in the search order is shadowing it. `list` marks that.
 4. The workspace is not what you think. `--workspace DIR` goes before the subcommand.
 

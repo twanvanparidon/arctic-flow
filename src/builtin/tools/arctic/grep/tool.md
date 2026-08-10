@@ -56,7 +56,7 @@ too.
 
 ```sh
 echo '{"pattern":"def [a-z_]+_file","glob":"*.py"}' \
-  | src/builtin/tools/common/grep/run.sh
+  | src/builtin/tools/arctic/grep/run.sh
 ```
 
 ```
@@ -68,7 +68,7 @@ Bounded to the files a name pattern picks out, which is the common shape:
 
 ```sh
 echo '{"pattern":"die\\(","glob":"*Controller.php"}' \
-  | src/builtin/tools/common/grep/run.sh
+  | src/builtin/tools/arctic/grep/run.sh
 ```
 
 `glob` here filters the file *name* only, and it is a convenience, not a
@@ -98,7 +98,7 @@ Failures write one line to stderr and set an exit code from `spec.json`'s
 permitted.
 
 ```
-$ echo '{"pattern":"root","path":"/etc"}' | src/builtin/tools/common/grep/run.sh
+$ echo '{"pattern":"root","path":"/etc"}' | src/builtin/tools/arctic/grep/run.sh
 grep: path resolves outside the workspace root: /etc
 $ echo $?
 4

@@ -80,7 +80,7 @@ RUN pyinstaller --clean --noconfirm --distpath /out --workpath /tmp/pyi packagin
 # exact failure that made this packaging work necessary.
 #
 # Each tool by its **qualified** name. A bare `read_file` matches both `read_file` and
-# `common/read_file`, so this check passed unchanged while the built-ins moved under a
+# `arctic/read_file`, so this check passed unchanged while the built-ins moved under a
 # namespace, and a bundle with the old layout looked healthy until the e2e suite ran.
 #
 # The version is checked here rather than trusted. Moving the stamp after `pip install`
@@ -90,11 +90,11 @@ RUN pyinstaller --clean --noconfirm --distpath /out --workpath /tmp/pyi packagin
 RUN /out/atf/atf --version \
  && { [ -z "$VERSION" ] || /out/atf/atf --version | grep -Fqx "Arctic Flow v${VERSION#v}"; } \
  && /out/atf/atf list | tee /tmp/list.txt \
- && grep -qF common/read_file  /tmp/list.txt \
- && grep -qF common/write_file /tmp/list.txt \
- && grep -qF common/glob       /tmp/list.txt \
- && grep -qF common/grep       /tmp/list.txt \
- && grep -qF common/fetch_url  /tmp/list.txt \
+ && grep -qF arctic/read_file  /tmp/list.txt \
+ && grep -qF arctic/write_file /tmp/list.txt \
+ && grep -qF arctic/glob       /tmp/list.txt \
+ && grep -qF arctic/grep       /tmp/list.txt \
+ && grep -qF arctic/fetch_url  /tmp/list.txt \
  && grep -q  claude_code       /tmp/list.txt \
  && grep -qw echo              /tmp/list.txt \
  && /out/atf/atf --workspace examples/sign-release lint sign_release \

@@ -60,8 +60,8 @@ class TestInventory:
 
     def test_the_built_in_tools_are_in_the_listing(self, paths: Paths) -> None:
         assert (
-            _entry(paths, "tool", "common/read_file").path
-            == builtin_root() / "tools" / "common" / "read_file"
+            _entry(paths, "tool", "arctic/read_file").path
+            == builtin_root() / "tools" / "arctic" / "read_file"
         )
 
     def test_nothing_is_refused_in_the_ordinary_case(self, paths: Paths, workspace: Path) -> None:
@@ -73,18 +73,18 @@ class TestInventory:
     ) -> None:
         """Otherwise it is silent: the directory is there, `list` would not mention it, and
         the name it claims fails somewhere else entirely."""
-        base = make.write_tool(workspace, "common/read_file")
+        base = make.write_tool(workspace, "arctic/read_file")
         [item] = commands.inventory(paths).refused
-        assert (item.kind, item.name, item.path) == ("tool", "common/read_file", base)
-        assert item.display == "./tools/common/read_file"
+        assert (item.kind, item.name, item.path) == ("tool", "arctic/read_file", base)
+        assert item.display == "./tools/arctic/read_file"
 
     def test_a_refused_name_is_not_also_offered_as_available(
         self, paths: Paths, workspace: Path
     ) -> None:
-        make.write_tool(workspace, "common/read_file")
+        make.write_tool(workspace, "arctic/read_file")
         listing = next(k for k in commands.inventory(paths).kinds if k.kind == "tool")
-        assert "common/read_file" not in [entry.name for entry in listing.entries]
-        assert "common/grep" in [entry.name for entry in listing.entries]
+        assert "arctic/read_file" not in [entry.name for entry in listing.entries]
+        assert "arctic/grep" in [entry.name for entry in listing.entries]
 
 
 def _entry(paths: Paths, kind: str, name: str) -> commands.ComponentEntry:

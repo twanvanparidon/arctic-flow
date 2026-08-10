@@ -111,7 +111,7 @@ These are contracts. Other people's flows, specs, and vaults are written against
   It refuses unknown keys, so adding one is safe and removing or renaming one breaks a
   file already on someone's disk.
 - `ENGINE_NAMESPACE` in `paths/resolver.py`. Widening it takes names away from people who
-  already use them, and narrowing it lets a flow's `common/read_file` be something else,
+  already use them, and narrowing it lets a flow's `arctic/read_file` be something else,
   which is the thing it exists to prevent. Renaming it means moving every shipped
   component and every reference to one.
 - The flow YAML keys read by `engine.executor.validate`.

@@ -32,8 +32,8 @@ the framing is gone. And a worker carries its own guard, because an exception in
 future is captured by the future: nothing would be sent, and the model would wait for a
 reply that is never coming.
 
-**A namespaced tool loses its slash here.** `common/read_file` is offered as
-`common__read_file`, because a client builds `mcp__atf__<tool>` out of the name and a slash
+**A namespaced tool loses its slash here.** `arctic/read_file` is offered as
+`arctic__read_file`, because a client builds `mcp__atf__<tool>` out of the name and a slash
 is not legal in one. `serve` keeps the mapping and looks a call up in it rather than undoing
 the spelling, since `git__commit` is a name a tool directory can have of its own.
 
@@ -175,7 +175,7 @@ def _tools_call(
     cancel: threading.Event,
 ) -> dict[str, Any]:
     requested = params.get("name")
-    # Through the mapping, never by unflattening the string: `common__read_file` is what a
+    # Through the mapping, never by unflattening the string: `arctic__read_file` is what a
     # namespaced grant is called here, and it is also what a tool directory of that literal
     # name would be called.
     name = exposed.get(requested) if isinstance(requested, str) else None

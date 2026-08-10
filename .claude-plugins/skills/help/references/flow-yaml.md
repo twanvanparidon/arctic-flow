@@ -62,7 +62,7 @@ switching step adds `cases:`, and may add `default:` and `max_loops:`.
 
 ```yaml
 - id: read_target
-  tool: common/read_file
+  tool: arctic/read_file
   input:
     path: "{{ inputs.path }}"
     max_lines: 400

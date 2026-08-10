@@ -41,17 +41,17 @@ extra roots to search, and a ceiling on how long a run may take. Anything a flow
 decide belongs in the flow, so the bar for adding a key here is that no component and no
 flow could own it. An unknown key is refused rather than ignored.
 
-**A name may carry a namespace.** `common/read_file` is `tools/common/read_file` under
+**A name may carry a namespace.** `arctic/read_file` is `tools/arctic/read_file` under
 whichever root wins, at any depth, with nothing to declare: a directory holding a
 `spec.json` is a component and any other directory is a namespace. The name is the whole
 path, so grouping a tool moves it rather than aliasing it and a bare `read_file` neither
 overrides nor falls back to it. The first segment says who a component came from, the way
 `vendor/package` does in Composer.
 
-**And one namespace is not overridable.** Everything the engine ships sits under `common/`,
+**And one namespace is not overridable.** Everything the engine ships sits under `arctic/`,
 and nothing outside `builtin/` may define a name inside it: the resolver refuses rather than
 choosing, wherever the other definition came from. This is a security property, not tidiness.
-`tool: common/read_file` in a flow has to mean the tool that ships, or reading a flow says
+`tool: arctic/read_file` in a flow has to mean the tool that ships, or reading a flow says
 nothing about what it runs, and a cloned repository is a search root. See `ENGINE_NAMESPACE`
 and `Paths.intruders`.
 
@@ -268,11 +268,11 @@ existing one: a tool that writes, one that reaches the network, an adapter.
 
 | Adding | Copy | Needs |
 | ------ | ---- | ----- |
-| A tool | `src/builtin/tools/common/read_file` | `spec.json`, `tool.md`, executable `run.sh` |
-| A tool that writes | `src/builtin/tools/common/write_file` | the same, plus `permissions.filesystem: "write"` |
-| A tool that searches | `src/builtin/tools/common/grep` | the same, and only POSIX options, for the reason in its doc |
-| A tool that lists paths | `src/builtin/tools/common/glob` | the same, and a sorted result so truncation is stable |
-| A tool that reaches the network | `src/builtin/tools/common/fetch_url` | the same, plus `permissions.network: true` |
+| A tool | `src/builtin/tools/arctic/read_file` | `spec.json`, `tool.md`, executable `run.sh` |
+| A tool that writes | `src/builtin/tools/arctic/write_file` | the same, plus `permissions.filesystem: "write"` |
+| A tool that searches | `src/builtin/tools/arctic/grep` | the same, and only POSIX options, for the reason in its doc |
+| A tool that lists paths | `src/builtin/tools/arctic/glob` | the same, and a sorted result so truncation is stable |
+| A tool that reaches the network | `src/builtin/tools/arctic/fetch_url` | the same, plus `permissions.network: true` |
 | An adapter | `src/adapters/claude_code.py` | one Python module, plus an entry in `ADAPTERS` |
 | An agent | `examples/file-review/agents/summarizer` | `spec.json`, `agent.md` |
 | A flow | `examples/sign-release/flows/sign_release.yaml` | one YAML file |
@@ -304,8 +304,8 @@ Conventions that are load-bearing rather than stylistic:
   already an MCP tool definition, so nothing in it is written twice. Naming a runtime's own
   built-in tools instead would tie one agent spec to one adapter.
 - **A granted namespaced tool loses its slash on the way to the model.** A client builds
-  `mcp__atf__<tool>` out of the name and a slash is not legal in one, so `common/read_file`
-  is offered as `common__read_file`. Granting two names that flatten onto one is refused by
+  `mcp__atf__<tool>` out of the name and a slash is not legal in one, so `arctic/read_file`
+  is offered as `arctic__read_file`. Granting two names that flatten onto one is refused by
   `lint`, since the model would see a single tool where there are two.
 - **A model asking for several tools at once gets them at once.** `mcp-serve` runs calls
   on a pool, so a turn takes the longest rather than the sum. Replies come back as calls

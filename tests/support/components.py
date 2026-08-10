@@ -163,7 +163,7 @@ def rendezvous(mine: Path, theirs: Path, timeout: float = 20.0) -> str:
 def leaf(name: str) -> str:
     """What a namespaced component calls itself in its own spec.
 
-    `tools/common/greet/spec.json` says "greet": the namespace is where the directory sits,
+    `tools/group/greet/spec.json` says "greet": the namespace is where the directory sits,
     which the spec has no way of knowing and no reason to repeat. Written into the builders
     so a namespaced test component is the shape a real one has, which is what makes it worth
     testing that the *lookup* name is the one the engine hands around.

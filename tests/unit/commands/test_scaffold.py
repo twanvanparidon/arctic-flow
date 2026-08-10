@@ -156,18 +156,18 @@ class TestRefusals:
         """Refused here as well as in the resolver, so the answer comes before the directory
         exists rather than the first time something tries to run it."""
         with pytest.raises(LookupError_, match="belongs to the engine"):
-            commands.create(kind, "common/mine", paths)
+            commands.create(kind, "arctic/mine", paths)
 
     def test_refusing_it_suggests_a_namespace_of_your_own(self, paths: Paths) -> None:
         with pytest.raises(LookupError_, match="tool <yours>/read_file"):
-            commands.create("tool", "common/read_file", paths)
+            commands.create("tool", "arctic/read_file", paths)
 
     def test_a_name_beside_the_reserved_one_is_fine(self, paths: Paths, workspace: Path) -> None:
         """The migration for anyone who was overriding a built-in: rename and say so."""
         created = commands.create("tool", "mine/read_file", paths)
         assert created.path == workspace / "tools" / "mine" / "read_file"
 
-    @pytest.mark.parametrize("name", ["../escape", "", "common/mine"])
+    @pytest.mark.parametrize("name", ["../escape", "", "arctic/mine"])
     def test_a_refused_name_writes_nothing_at_all(
         self, name: str, paths: Paths, workspace: Path
     ) -> None:

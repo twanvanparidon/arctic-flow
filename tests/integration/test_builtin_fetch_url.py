@@ -32,7 +32,7 @@ def fetch(atf: Runner, project: Path, **input_values: Any) -> Any:
     definition = {
         "flow": "get",
         "start": "fetch",
-        "steps": [{"id": "fetch", "tool": "common/fetch_url", "input": input_values}],
+        "steps": [{"id": "fetch", "tool": "arctic/fetch_url", "input": input_values}],
         "output": {"template": "{{ steps.fetch.text }}"},
     }
     (project / "flows").mkdir(exist_ok=True)

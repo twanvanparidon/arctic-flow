@@ -34,7 +34,7 @@ def find_paths(atf: Runner, project: Path, **input_values: Any) -> Any:
     definition = {
         "flow": "list",
         "start": "look",
-        "steps": [{"id": "look", "tool": "common/glob", "input": input_values}],
+        "steps": [{"id": "look", "tool": "arctic/glob", "input": input_values}],
         "output": {"template": "{{ steps.look.text }}"},
     }
     (project / "flows").mkdir(exist_ok=True)

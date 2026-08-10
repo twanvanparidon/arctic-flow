@@ -36,7 +36,7 @@ where it pushes its result next, so the engine reads forwards.
 Flows, tools, agents and adapters are named, not pathed. Names resolve
 working-directory-first, so a project overrides what it inherits. `list` shows every
 name that resolves and which definition won. A name may carry a namespace:
-`common/read_file` is the directory `tools/common/read_file`.
+`arctic/read_file` is the directory `tools/arctic/read_file`.
 """
 
 PROG = branding.COMMAND

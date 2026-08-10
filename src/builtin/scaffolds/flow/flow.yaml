@@ -31,7 +31,7 @@ steps:
   # A tool step: deterministic, no model involved, and free. Cheaper and more reliable
   # than asking an agent to go and read something.
   - id: read_target
-    tool: common/read_file
+    tool: arctic/read_file
     input:
       path: "{{ inputs.path }}"
       max_lines: 400

@@ -66,8 +66,8 @@ can appear to do nothing.
 
 Roots are searched in this order, first match wins: `$ATF_PATH`, then `./.arctic`, then the
 workspace root, then `~/.arctic`, then what ships with the engine. Overriding is per name
-and total: a project's `common/read_file` replaces the built-in and inherits nothing from
-it. `common/read_file` and a bare `read_file` are two different tools.
+and total: a project's `arctic/read_file` replaces the built-in and inherits nothing from
+it. `arctic/read_file` and a bare `read_file` are two different tools.
 
 A name that does not resolve reports every path it was looked for, so read that list rather
 than guessing which directory was meant.

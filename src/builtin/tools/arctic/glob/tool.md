@@ -43,7 +43,7 @@ answers the other's question, and the usual order is this one first.
 **No slash matches the file name**, at any depth:
 
 ```sh
-echo '{"pattern":"*.py"}' | src/builtin/tools/common/glob/run.sh
+echo '{"pattern":"*.py"}' | src/builtin/tools/arctic/glob/run.sh
 ```
 
 ```
@@ -56,7 +56,7 @@ tests/test_app.py
 pattern reaches any depth:
 
 ```sh
-echo '{"pattern":"src/*_test.py"}' | src/builtin/tools/common/glob/run.sh
+echo '{"pattern":"src/*_test.py"}' | src/builtin/tools/arctic/glob/run.sh
 ```
 
 ```
@@ -105,7 +105,7 @@ Failures write one line to stderr and set an exit code from `spec.json`'s
 permitted.
 
 ```
-$ echo '{"pattern":"*","path":"/etc"}' | src/builtin/tools/common/glob/run.sh
+$ echo '{"pattern":"*","path":"/etc"}' | src/builtin/tools/arctic/glob/run.sh
 glob: path resolves outside the workspace root: /etc
 $ echo $?
 4

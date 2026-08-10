@@ -35,7 +35,7 @@ def read(atf: Runner, project: Path, **input_values: Any) -> Any:
     definition = {
         "flow": "read",
         "start": "get",
-        "steps": [{"id": "get", "tool": "common/read_file", "input": input_values}],
+        "steps": [{"id": "get", "tool": "arctic/read_file", "input": input_values}],
         # Named, so stdout is the tool's own output rather than the results mapping.
         "output": {"template": "{{ steps.get.text }}"},
     }

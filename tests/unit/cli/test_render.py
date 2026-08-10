@@ -174,14 +174,14 @@ class TestInventory:
             refused=(
                 RefusedComponent(
                     kind="tool",
-                    name="common/read_file",
+                    name="arctic/read_file",
                     path=Path("t"),
-                    display="./tools/common/read_file",
+                    display="./tools/arctic/read_file",
                 ),
             ),
         )
         text = render.inventory(listing)
-        assert "common/read_file" in text and "./tools/common/read_file" in text
+        assert "arctic/read_file" in text and "./tools/arctic/read_file" in text
         assert text.index("refused") > text.index("flows:")
 
 
@@ -201,9 +201,9 @@ AGENT = AgentDetail(
 )
 
 TOOL = ToolDetail(
-    name="common/read_file",
+    name="arctic/read_file",
     path=Path("t"),
-    display="./tools/common/read_file",
+    display="./tools/arctic/read_file",
     spec={
         "name": "read_file",
         "description": "Read a file.",
@@ -266,7 +266,7 @@ class TestAgentDetail:
 class TestToolDetail:
     def test_it_names_the_tool_as_it_was_looked_up(self) -> None:
         """Not `spec["name"]`, which for a namespaced tool carries only the leaf."""
-        assert render.tool_detail(TOOL).startswith("common/read_file  ./tools/common/")
+        assert render.tool_detail(TOOL).startswith("arctic/read_file  ./tools/arctic/")
 
     def test_the_two_fields_that_decide_a_grant_are_shown(self) -> None:
         """`filesystem` gates whether granting it needs `unattended`, and a tool declaring

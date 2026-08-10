@@ -36,7 +36,7 @@ than in what was true when the model was trained.
 
 ```sh
 echo '{"url":"https://example.com/api/version","accept":"application/json"}' \
-  | src/builtin/tools/common/fetch_url/run.sh
+  | src/builtin/tools/arctic/fetch_url/run.sh
 ```
 
 The body arrives verbatim and undecorated, so a JSON response is still JSON:
@@ -83,7 +83,7 @@ Failures write one line to stderr and set an exit code from `spec.json`'s
 `exit_codes`: `2` invalid input, `5` unreachable, `6` an HTTP error status.
 
 ```
-$ echo '{"url":"https://example.com/nope"}' | src/builtin/tools/common/fetch_url/run.sh
+$ echo '{"url":"https://example.com/nope"}' | src/builtin/tools/arctic/fetch_url/run.sh
 fetch_url: https://example.com/nope returned HTTP 404. Not Found
 $ echo $?
 6
