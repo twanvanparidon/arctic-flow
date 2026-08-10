@@ -40,11 +40,11 @@ from commands.results import (
 from paths.config import CONFIG_FILE
 from paths.resolver import ENGINE_NAMESPACE, SEPARATOR
 
-# Wide enough for the longest built-in name with a gap after it, so a listing's second
-# column lines up without being measured per run. That name is currently
-# `arctic/git/checkout`, out of the git pack: a pack's names carry the namespace twice, so
-# a new one is the thing most likely to need this raised.
-NAME_WIDTH = 20
+# The narrowest a listing's name column gets. Wide enough for everything that ships
+# without a pack enabled, so the ordinary listing is laid out the way it always was.
+# `_column` widens it when something longer is on the list rather than this being raised
+# each time a pack lands with deeper names.
+NAME_WIDTH = 18
 
 # The same, for the settings tables in the two detail views. Wide enough for the longest
 # label either of them shows, `timeout_seconds`, with a gap after it.
@@ -132,21 +132,23 @@ def inventory(result: Inventory) -> str:
     what shipped with the engine. `display` names the layer rather than spelling out a
     path, so the column stays short enough to sit beside the name.
     """
+    width = _column(result)
+
     lines = ["adapters:"]
-    lines += [f"  {_entry(entry)}" for entry in result.adapters]
+    lines += [f"  {_entry(entry, width)}" for entry in result.adapters]
     lines.append("")
 
     for listing in result.kinds:
         # "agents: none" on one line rather than a heading over nothing.
         lines.append(f"{listing.kind}s:" if listing.entries else f"{listing.kind}s: none")
-        lines += [f"  {_entry(entry)}" for entry in listing.entries]
+        lines += [f"  {_entry(entry, width)}" for entry in listing.entries]
         lines.append("")
 
     # After the names and before the refusals. It explains an absence in the lists above,
     # so it has to be read after them, and it is ordinary rather than something to act on.
     if result.packs:
         lines.append("packs:")
-        lines += [f"  {_pack(pack)}" for pack in result.packs]
+        lines += [f"  {_pack(pack, width)}" for pack in result.packs]
         lines.append("")
 
     # Last, and only when there is one. It is the section someone has to act on, and a
@@ -154,7 +156,7 @@ def inventory(result: Inventory) -> str:
     if result.refused:
         lines.append(f"refused ('{ENGINE_NAMESPACE}{SEPARATOR}' belongs to the engine):")
         lines += [
-            f"  {item.name:<{NAME_WIDTH}} {item.display}  ({item.kind}, unreachable by name)"
+            f"  {item.name:<{width}} {item.display}  ({item.kind}, unreachable by name)"
             for item in result.refused
         ]
         lines.append("")
@@ -162,13 +164,31 @@ def inventory(result: Inventory) -> str:
     return "\n".join(lines)
 
 
-def _entry(entry: ComponentEntry) -> str:
+def _column(result: Inventory) -> int:
+    """How wide the name column has to be for this listing.
+
+    Measured rather than fixed, and floored at `NAME_WIDTH` so an ordinary install looks
+    exactly as it did. A pack name carries its namespace twice, so `arctic/bitbucket/pr/
+    comment` is 27 characters where the longest built-in is 17. Pinning the constant at
+    the longest name that could ever exist would pad every line of every listing for the
+    sake of a pack most people do not enable.
+    """
+    names = [
+        *(entry.name for entry in result.adapters),
+        *(entry.name for listing in result.kinds for entry in listing.entries),
+        *(item.name for item in result.refused),
+        *(pack.name for pack in result.packs),
+    ]
+    return max(NAME_WIDTH, max((len(name) for name in names), default=0) + 1)
+
+
+def _entry(entry: ComponentEntry, width: int) -> str:
     """One available name, where it was found, and what it is hiding behind it."""
     note = f"  (shadows {', '.join(entry.shadows)})" if entry.shadows else ""
-    return f"{entry.name:<{NAME_WIDTH}} {entry.display}{note}"
+    return f"{entry.name:<{width}} {entry.display}{note}"
 
 
-def _pack(pack: PackEntry) -> str:
+def _pack(pack: PackEntry, width: int) -> str:
     """One pack: whether it is on, what it is for, and what it needs installed.
 
     The description rather than the path, which is the one column a pack has nothing to
@@ -177,7 +197,7 @@ def _pack(pack: PackEntry) -> str:
     """
     state = "on " if pack.enabled else "off"
     needs = f"  (needs {', '.join(pack.requires)})" if pack.requires else ""
-    return f"{pack.name:<{NAME_WIDTH}} {state}  {pack.description}{needs}"
+    return f"{pack.name:<{width}} {state}  {pack.description}{needs}"
 
 
 def adapter_detail(result: AdapterDetail) -> str:
