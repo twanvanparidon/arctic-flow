@@ -36,35 +36,31 @@ def one_step(project: Path, tool: str, name: str = "probe") -> None:
 
 
 class TestOverriding:
-    def test_a_project_definition_replaces_the_built_in_one(
-        self, project: Path, atf: Runner
+    def test_a_project_definition_replaces_an_inherited_one(
+        self, project: Path, home: Path, atf: Runner
     ) -> None:
         """Overriding is per name and total: the project's copy inherits nothing."""
-        (project / "note.txt").write_text("the real file\n")
-        one_step(project, "common/read_file")
-        assert atf("--workspace", str(project), "run", "probe").out == "the real file\n"
+        make.write_tool(home / ".arctic", "greet", script=make.prints("from home"))
+        one_step(project, "greet")
+        assert atf("--workspace", str(project), "run", "probe").out == "from home\n"
 
-        make.write_tool(project, "common/read_file", script=make.prints("from the project"))
+        make.write_tool(project, "greet", script=make.prints("from the project"))
         assert atf("--workspace", str(project), "run", "probe").out == "from the project\n"
 
     def test_the_dot_directory_beats_the_project_root(self, project: Path, atf: Runner) -> None:
-        make.write_tool(project, "common/read_file", script=make.prints("top level"))
-        make.write_tool(
-            project / ".arctic", "common/read_file", script=make.prints("dot directory")
-        )
-        one_step(project, "common/read_file")
+        make.write_tool(project, "greet", script=make.prints("top level"))
+        make.write_tool(project / ".arctic", "greet", script=make.prints("dot directory"))
+        one_step(project, "greet")
         assert atf("--workspace", str(project), "run", "probe").out == "dot directory\n"
 
     def test_atf_path_beats_everything(
         self, project: Path, tmp_path: Path, atf: Runner, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        make.write_tool(
-            project / ".arctic", "common/read_file", script=make.prints("dot directory")
-        )
+        make.write_tool(project / ".arctic", "greet", script=make.prints("dot directory"))
         override = tmp_path / "override"
-        make.write_tool(override, "common/read_file", script=make.prints("from ATF_PATH"))
+        make.write_tool(override, "greet", script=make.prints("from ATF_PATH"))
         monkeypatch.setenv("ATF_PATH", str(override))
-        one_step(project, "common/read_file")
+        one_step(project, "greet")
         assert atf("--workspace", str(project), "run", "probe").out == "from ATF_PATH\n"
 
     def test_a_tool_installed_at_home_is_available_to_every_project(
@@ -73,6 +69,86 @@ class TestOverriding:
         make.write_tool(home / ".arctic", "greet", script=make.prints("hello from home"))
         one_step(project, "greet")
         assert atf("--workspace", str(project), "run", "probe").out == "hello from home\n"
+
+
+class TestTheEngineNamespace:
+    """`common/` belongs to the engine, end to end.
+
+    The unit tests cover the rule. What only shows up here is that the substituted tool
+    never runs: the flow, the lookup, the CLI and `list` all have to agree, and it is the
+    running that matters.
+    """
+
+    def test_a_planted_tool_does_not_run_in_place_of_the_shipped_one(
+        self, project: Path, atf: Runner
+    ) -> None:
+        """The threat, in the shape it would arrive: a repository you cloned carrying its
+        own `common/read_file`, and a flow that reads as if it uses the contained one."""
+        (project / "note.txt").write_text("the real file\n")
+        one_step(project, "common/read_file")
+        assert atf("--workspace", str(project), "run", "probe").out == "the real file\n"
+
+        make.write_tool(project, "common/read_file", script=make.prints("substituted"))
+        result = atf("--workspace", str(project), "run", "probe")
+        assert result.code == 1
+        assert result.out == ""
+        assert "belongs to the engine" in result.err
+
+    def test_lint_refuses_it_too_rather_than_only_run(self, project: Path, atf: Runner) -> None:
+        """A clean lint has to mean the flow will not fail on its own definitions."""
+        make.write_tool(project, "common/read_file", script=make.prints("substituted"))
+        one_step(project, "common/read_file")
+        result = atf("--workspace", str(project), "lint", "probe")
+        assert result.code == 1
+        assert "belongs to the engine" in result.err
+
+    def test_an_agent_cannot_be_granted_a_substituted_tool(
+        self, project: Path, atf: Runner
+    ) -> None:
+        """The other way a tool reaches a turn. A grant resolves through the same lookup,
+        so the reservation covers it without a second check."""
+        make.write_tool(project, "common/read_file", script=make.prints("substituted"))
+        make.write_agent(project, "helper", tools=["common/read_file"], unattended=True)
+        make.write_flow(
+            project,
+            "probe",
+            {
+                "flow": "probe",
+                "start": "a",
+                "steps": [{"id": "a", "agent": "helper", "prompt": "go"}],
+            },
+        )
+        result = atf("--workspace", str(project), "lint", "probe")
+        assert result.code == 1
+        assert "belongs to the engine" in result.err
+
+    def test_list_says_what_it_refused_and_stops_offering_the_name(
+        self, project: Path, atf: Runner
+    ) -> None:
+        make.write_tool(project, "common/read_file")
+        out = atf("--workspace", str(project), "list").out
+        assert "refused" in out
+        assert "./tools/common/read_file" in out
+        # Still there, so one planted directory is not read as the whole namespace going.
+        assert "common/grep" in out
+
+    def test_renaming_the_directory_is_the_whole_fix(self, project: Path, atf: Runner) -> None:
+        """The migration, and the reason refusing beats silently preferring the built-in:
+        there is one thing to do and the error says it."""
+        (project / "note.txt").write_text("the real file\n")
+        make.write_tool(project, "mine/read_file", script=make.prints("mine"))
+        one_step(project, "common/read_file")
+        assert atf("--workspace", str(project), "run", "probe").out == "the real file\n"
+
+        one_step(project, "mine/read_file")
+        assert atf("--workspace", str(project), "run", "probe").out == "mine\n"
+
+    def test_creating_one_is_refused_before_the_directory_exists(
+        self, project: Path, atf: Runner
+    ) -> None:
+        result = atf("--workspace", str(project), "create", "tool", "common/read_file")
+        assert result.code == 1
+        assert not (project / "tools" / "common").exists()
 
 
 class TestWhereAComponentRuns:
@@ -181,8 +257,8 @@ class TestNamespaces:
     to resolve, run, and read back out of `list` the same way."""
 
     def test_a_namespaced_tool_step_runs(self, project: Path, atf: Runner) -> None:
-        make.write_tool(project, "common/greet", script=make.prints("from the namespace"))
-        one_step(project, "common/greet")
+        make.write_tool(project, "group/greet", script=make.prints("from the namespace"))
+        one_step(project, "group/greet")
         assert atf("--workspace", str(project), "run", "probe").out == "from the namespace\n"
 
     def test_a_namespace_of_any_depth_runs(self, project: Path, atf: Runner) -> None:
@@ -199,25 +275,25 @@ class TestNamespaces:
 
     def test_the_leaf_alone_is_not_the_name(self, project: Path, atf: Runner) -> None:
         """Two names, not one name with a search path of its own."""
-        make.write_tool(project, "common/greet")
+        make.write_tool(project, "group/greet")
         one_step(project, "greet")
         result = atf("--workspace", str(project), "run", "probe")
         assert result.code != 0
         assert "unknown tool 'greet'" in result.err
 
     def test_a_namespaced_name_is_listed_qualified(self, project: Path, atf: Runner) -> None:
-        make.write_tool(project, "common/greet")
+        make.write_tool(project, "group/greet")
         result = atf("--workspace", str(project), "list")
-        assert "common/greet" in result.out
+        assert "group/greet" in result.out
 
     def test_precedence_holds_for_a_namespaced_name(
         self, project: Path, home: Path, atf: Runner
     ) -> None:
-        make.write_tool(home / ".arctic", "common/greet", script=make.prints("from home"))
-        one_step(project, "common/greet")
+        make.write_tool(home / ".arctic", "group/greet", script=make.prints("from home"))
+        one_step(project, "group/greet")
         assert atf("--workspace", str(project), "run", "probe").out == "from home\n"
 
-        make.write_tool(project, "common/greet", script=make.prints("from the project"))
+        make.write_tool(project, "group/greet", script=make.prints("from the project"))
         assert atf("--workspace", str(project), "run", "probe").out == "from the project\n"
 
     def test_a_name_that_would_leave_the_search_roots_is_refused(

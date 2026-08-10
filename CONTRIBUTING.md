@@ -31,14 +31,29 @@ disk restating what the module already says, and a layer of shell quoting in bet
 
 **Components are found by name, not by path.** `paths/resolver.py` searches roots in
 precedence order and the first match wins: working directory first, then `~/.arctic`, then
-what ships with the engine. A project overrides anything it inherits by defining
-the same name. Adapters are not part of this: see above.
+any `sources` that directory's `config.yaml` names, then what ships with the engine. A
+project overrides anything it inherits by defining the same name. Adapters are not part of
+this: see above.
+
+**There is one config file, and it is small.** `~/.arctic/config.yaml`, written by
+`atf init` and read by `paths/config.py`. It holds what neither a flow nor a spec can:
+extra roots to search, and a ceiling on how long a run may take. Anything a flow should
+decide belongs in the flow, so the bar for adding a key here is that no component and no
+flow could own it. An unknown key is refused rather than ignored.
 
 **A name may carry a namespace.** `common/read_file` is `tools/common/read_file` under
 whichever root wins, at any depth, with nothing to declare: a directory holding a
 `spec.json` is a component and any other directory is a namespace. The name is the whole
 path, so grouping a tool moves it rather than aliasing it and a bare `read_file` neither
-overrides nor falls back to it. Everything the engine ships sits under `common/`.
+overrides nor falls back to it. The first segment says who a component came from, the way
+`vendor/package` does in Composer.
+
+**And one namespace is not overridable.** Everything the engine ships sits under `common/`,
+and nothing outside `builtin/` may define a name inside it: the resolver refuses rather than
+choosing, wherever the other definition came from. This is a security property, not tidiness.
+`tool: common/read_file` in a flow has to mean the tool that ships, or reading a flow says
+nothing about what it runs, and a cloned repository is a search root. See `ENGINE_NAMESPACE`
+and `Paths.intruders`.
 
 **A branch that is not taken skips its subtree.** `switch` picks one case; the edges to the
 others are marked skipped, and skipping propagates. That is what lets a join downstream of

@@ -49,6 +49,7 @@ COMMANDS = (
     ("create", "flow"),
     ("create", "agent"),
     ("create", "tool"),
+    ("init",),
     ("completion",),
     ("vault",),
     ("mcp-serve",),
@@ -117,6 +118,16 @@ class TestWhatTheBundleCarries:
         result = atf("--workspace", str(tmp_path), "create", kind, name)
         assert result.code == 0, result.err
         assert (tmp_path / written).is_file()
+
+    def test_the_home_config_came_along(self, atf: Runner, tmp_path: Path) -> None:
+        """`init` copies one more piece of package data, and it is the first thing a new
+        user types. Dropped from the bundle it fails there, and nothing before this looks.
+
+        `$HOME` is pointed at `tmp_path` rather than trusted, because this writes a real
+        home layer and the one it would otherwise write into is the developer's own."""
+        result = atf("init", env={"HOME": str(tmp_path)})
+        assert result.code == 0, result.err
+        assert (tmp_path / ".arctic" / "config.yaml").is_file()
 
     def test_a_scaffolded_tool_arrives_executable(self, atf: Runner, tmp_path: Path) -> None:
         """The mode is set on the way out rather than carried from the bundle, which is the

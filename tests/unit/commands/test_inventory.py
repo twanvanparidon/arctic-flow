@@ -64,6 +64,28 @@ class TestInventory:
             == builtin_root() / "tools" / "common" / "read_file"
         )
 
+    def test_nothing_is_refused_in_the_ordinary_case(self, paths: Paths, workspace: Path) -> None:
+        make.write_tool(workspace, "greet")
+        assert commands.inventory(paths).refused == ()
+
+    def test_a_definition_in_the_engines_namespace_is_reported_as_refused(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """Otherwise it is silent: the directory is there, `list` would not mention it, and
+        the name it claims fails somewhere else entirely."""
+        base = make.write_tool(workspace, "common/read_file")
+        [item] = commands.inventory(paths).refused
+        assert (item.kind, item.name, item.path) == ("tool", "common/read_file", base)
+        assert item.display == "./tools/common/read_file"
+
+    def test_a_refused_name_is_not_also_offered_as_available(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        make.write_tool(workspace, "common/read_file")
+        listing = next(k for k in commands.inventory(paths).kinds if k.kind == "tool")
+        assert "common/read_file" not in [entry.name for entry in listing.entries]
+        assert "common/grep" in [entry.name for entry in listing.entries]
+
 
 def _entry(paths: Paths, kind: str, name: str) -> commands.ComponentEntry:
     listing = next(k for k in commands.inventory(paths).kinds if k.kind == kind)
@@ -139,9 +161,9 @@ class TestToolDetail:
 
     def test_the_name_is_the_one_it_was_looked_up_by(self, paths: Paths, workspace: Path) -> None:
         """A namespaced tool's spec carries only the leaf, and a caller asked for the path."""
-        make.write_tool(workspace, "common/greet")
-        detail = commands.tool_detail("common/greet", paths)
-        assert detail.name == "common/greet"
+        make.write_tool(workspace, "group/greet")
+        detail = commands.tool_detail("group/greet", paths)
+        assert detail.name == "group/greet"
         assert detail.spec["name"] == "greet"
 
     def test_a_tool_that_is_not_there_says_where_it_looked(self, paths: Paths) -> None:

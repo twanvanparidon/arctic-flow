@@ -255,6 +255,7 @@ def spawn(
     paths: Paths,
     secrets: dict[str, str] | None = None,
     cancel: threading.Event | None = None,
+    grouped: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Validate the payload against the component's own schema, then run it.
 
@@ -265,9 +266,16 @@ def spawn(
     `secrets` go into the child's environment and nowhere else, and only the names the
     step declared are present. A component cannot read a secret it was not granted.
 
-    `cancel` is how a caller that stopped waiting stops the work: set it and the tool's
-    process tree is signalled and `Cancelled` is raised. A step passes none and behaves
-    exactly as it always has.
+    `cancel` is how a caller that stopped waiting stops the work: set it and the tool is
+    signalled and `Cancelled` is raised. Both callers pass one. An in-turn call passes the
+    client's cancellation; a step passes the run's ceiling.
+
+    `grouped` is a separate question from `cancel`, and conflating the two is a bug worth
+    naming. It asks whether this call has a terminal to answer to. An in-turn call has
+    none, so it gets its own session and the whole process tree is signalled at once. A
+    step stays in the caller's session, because a new session has no controlling terminal
+    and Ctrl-C on `atf run` would stop reaching the tool. The price of that is the one in
+    `_stop`: a step's tool that backgrounded something can leave it behind.
     """
     check_payload(spec["input_schema"], payload, f"{spec['name']}/spec.json")
 
@@ -280,10 +288,6 @@ def spawn(
     if cancel is not None and cancel.is_set():
         raise Cancelled(f"{spec['name']} was cancelled")
 
-    # A cancellable tool gets its own session so the whole tree can be signalled at once. A
-    # step deliberately does not: a new session has no controlling terminal, so Ctrl-C on
-    # `atf run` would stop reaching the tool and the run would then wait out its timeout.
-    grouped = cancel is not None
     with subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
@@ -314,9 +318,10 @@ def invoke(
     paths: Paths,
     secrets: dict[str, str] | None = None,
     cancel: threading.Event | None = None,
+    grouped: bool = False,
 ) -> str:
     """Run a component and return its stdout. Any exit but 0 fails the step."""
-    proc = spawn(base, spec, payload, paths, secrets, cancel)
+    proc = spawn(base, spec, payload, paths, secrets, cancel, grouped)
     if proc.returncode != 0:
         raise FlowError(exit_summary(spec, proc))
     return proc.stdout
@@ -1008,6 +1013,7 @@ def check_gate(
     context: dict[str, Any],
     paths: Paths,
     secrets: dict[str, str],
+    cancel: threading.Event | None = None,
 ) -> GateOutcome:
     """Run a step's gate against the result the step just produced.
 
@@ -1025,7 +1031,7 @@ def check_gate(
         key: render(value, gate_context) if isinstance(value, str) else value
         for key, value in (gate.get("input") or {}).items()
     }
-    proc = spawn(base, spec, payload, paths, secrets=secrets)
+    proc = spawn(base, spec, payload, paths, secrets=secrets, cancel=cancel)
     parsed = maybe_json(proc.stdout)
     if proc.returncode == 0:
         return GateOutcome(ok=True, text=proc.stdout, json=parsed)
@@ -1040,6 +1046,7 @@ def run_step(
     paths: Paths,
     vault: Vault | None = None,
     notify: Callable[[dict[str, Any]], None] | None = None,
+    cancel: threading.Event | None = None,
 ) -> dict[str, Any]:
     granted: dict[str, str] = {}
     if step.get("secrets"):
@@ -1059,10 +1066,10 @@ def run_step(
             key: render(value, step_context) if isinstance(value, str) else value
             for key, value in (step.get("input") or {}).items()
         }
-        stdout = invoke(base, spec, payload, paths, secrets=granted)
+        stdout = invoke(base, spec, payload, paths, secrets=granted, cancel=cancel)
         return {"text": stdout, "json": maybe_json(stdout)}
 
-    return run_agent(step, context, paths, granted, notify or (lambda _event: None))
+    return run_agent(step, context, paths, granted, notify or (lambda _event: None), cancel)
 
 
 def run_agent(
@@ -1071,6 +1078,7 @@ def run_agent(
     paths: Paths,
     secrets: dict[str, str],
     notify: Callable[[dict[str, Any]], None],
+    cancel: threading.Event | None = None,
 ) -> dict[str, Any]:
     """An agent turn, repeated while the step's gate rejects the answer.
 
@@ -1078,6 +1086,10 @@ def run_agent(
     is not an error: the next turn gets the original prompt plus the gate's `feedback`,
     which is where `{{ gate.text }}` and the rejected `{{ this.text }}` go. The prompt has
     to carry that itself, because each turn is a fresh session with no memory of the last.
+
+    `cancel` is checked before each turn rather than only between steps. A turn costs
+    money, and an adapter cannot be interrupted once it has started, so the last chance to
+    not spend it is here.
     """
     agent, system = load_agent(paths, step["agent"])
     try:
@@ -1096,6 +1108,8 @@ def run_agent(
     # Yields None when the agent was granted nothing, which is the no-tools turn.
     with tool_calls_reported(paths, agent.get("tools") or [], notify, step["id"]) as server:
         while True:
+            if cancel is not None and cancel.is_set():
+                raise Cancelled("the run stopped before this turn started")
             attempt += 1
             result = agent_turn(adapter, agent, system, prompt, secrets, server)
             if gate is None:
@@ -1109,7 +1123,7 @@ def run_agent(
             result["cost_usd"] = spent
             result["attempts"] = attempt
 
-            outcome = check_gate(gate, result, context, paths, secrets)
+            outcome = check_gate(gate, result, context, paths, secrets, cancel)
             notify(
                 {
                     "kind": "gated",
@@ -1192,6 +1206,28 @@ def chosen_targets(
     )
 
 
+def _check_ceiling(
+    limit: float | None, deadline: float | None, stop: threading.Event | None
+) -> None:
+    """Fail the run once `run.max_minutes` has passed, and stop what it can on the way out.
+
+    What it stops is worth knowing before relying on it. Setting `stop` reaches a tool
+    subprocess within `CANCEL_POLL_SECONDS`, whether it is a step's tool or a gate. It
+    cannot reach an agent turn: `adapter.run` is a synchronous call with no way in, so a
+    turn already started runs until its own `timeout_seconds`, and the pool's shutdown
+    waits for it. The ceiling is therefore a ceiling plus at most one agent turn.
+
+    That gap is deliberate. Closing it means putting cancellation into the adapter
+    contract, which every adapter would then have to implement, and it buys minutes on a
+    limit measured in hours.
+    """
+    if deadline is None or time.monotonic() < deadline:
+        return
+    if stop is not None:
+        stop.set()
+    raise FlowError(f"the run exceeded its {limit} minute ceiling (run.max_minutes)")
+
+
 def execute(
     flow: dict[str, Any],
     steps: list[dict[str, Any]],
@@ -1205,6 +1241,9 @@ def execute(
     The observer emits facts and `cli/progress.py` renders them, so this module never
     decides what progress looks like. Events arrive from worker threads, so an observer
     has to be safe to call concurrently.
+
+    `run.max_minutes` in the user's config is a ceiling on the whole of this, enforced by
+    the wait below. See `_ceiling` for what it can and cannot stop.
     """
     notify = on_event or (lambda _event: None)
     by_id = {step["id"]: step for step in steps}
@@ -1272,9 +1311,18 @@ def execute(
                     notify({"kind": "skipped", "step": sid})
                     changed = True
 
+    # `limit` stays in minutes, the unit the config was written in, so the failure names
+    # the number someone typed. The one conversion is here.
+    limit = paths.config.max_run_minutes
+    deadline = time.monotonic() + limit * 60 if limit else None
+    # No ceiling means no cancel at all, so a step takes exactly the path it took before
+    # there was one: a single blocking `communicate`, with nothing polling beside it.
+    stop = threading.Event() if limit else None
+
     with ThreadPoolExecutor(max_workers=max(1, len(steps))) as pool:
         running: dict[Any, tuple[str, float]] = {}
         while True:
+            _check_ceiling(limit, deadline, stop)
             propagate_skips()
             for sid in by_id:
                 if state[sid] != "waiting":
@@ -1299,7 +1347,7 @@ def execute(
                 # Snapshot at submit time: everything upstream has already resolved,
                 # so a step never observes a partial result.
                 context = {"inputs": inputs, "steps": dict(results)}
-                running[pool.submit(run_step, by_id[sid], context, paths, vault, notify)] = (
+                running[pool.submit(run_step, by_id[sid], context, paths, vault, notify, stop)] = (
                     sid,
                     time.monotonic(),
                 )
@@ -1307,7 +1355,15 @@ def execute(
             if not running:
                 break
 
-            done, _ = wait(running, return_when=FIRST_COMPLETED)
+            # Waiting with no deadline is the whole of what the ceiling changes here: a
+            # run that has one cannot block in `wait` past it, or nothing would notice
+            # until a step happened to finish.
+            left = None if deadline is None else max(0.0, deadline - time.monotonic())
+            done, _ = wait(running, return_when=FIRST_COMPLETED, timeout=left)
+            if not done:
+                # The only way `wait` returns nothing: the timeout was reached, and a
+                # timeout only exists when there is a ceiling to reach.
+                _check_ceiling(limit, deadline, stop)
             for future in done:
                 sid, started = running.pop(future)
                 elapsed = round((time.monotonic() - started) * 1000)

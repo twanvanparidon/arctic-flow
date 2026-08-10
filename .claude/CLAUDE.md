@@ -15,6 +15,7 @@ hands over to `cli/`, so every `atf …` in the docs works as `python3 src/main.
 ```sh
 python3 src/main.py --help
 python3 src/main.py list                     # every name that resolves, and what shadows what
+python3 src/main.py init                     # writes ~/.arctic: careful, this is your real home
 
 # the examples are the test corpus until tests/ is filled in
 python3 src/main.py --workspace examples/sign-release lint sign_release
@@ -118,7 +119,7 @@ src/main.py      dev entry point: src/ on sys.path, hand to cli/
 src/cli/         the terminal: app.py (args/help) → dispatch.py (call+print) → render.py (pure)
 src/commands/    one function per command, no terminal attached; returns results.py dataclasses
 src/engine/      executor.py runs a flow; specs.py checks components before it does
-src/paths/       layered component lookup
+src/paths/       layered component lookup, and `~/.arctic/config.yaml` (`config.py`)
 src/adapters/    model runtimes as Python modules, registered in code
 src/builtin/     components that ship with the engine, and `create`'s scaffolds (data, not code)
 src/util/        ways of reading a flow without running it (graph text, Mermaid)
@@ -175,6 +176,17 @@ edges `pending` rather than `skipped`: marking the exit branch skipped propagate
 everything after the loop, so the run ends with no output. Anything derived from an
 ordering (waves, guarantees, the cycle check) reads `without_back_edges` instead.
 
+`run.max_minutes` from the user's config is a ceiling on the whole of `execute`, and the
+one limit a flow cannot raise, because it is a safeguard rather than a setting. It is the
+timeout on the pool's `wait`, so nothing blocks past it, and firing sets a run-wide cancel
+event that reaches every tool subprocess: a step's, and a gate's. It cannot reach an agent
+turn, because `adapter.run` is a synchronous call with no way in, so a turn already
+started runs to its own `timeout_seconds` and the pool's shutdown waits for it. The
+ceiling is therefore a ceiling plus at most one turn. Closing that gap means putting
+cancellation into the adapter contract, which is why it is left open. `run_agent` checks
+the event before each turn, so the gap costs time and never a second paid turn. No
+ceiling means no event at all, so a run without a config takes the path it always did.
+
 Templates are `{{ dotted.path }}` over five namespaces: `inputs`, `steps`, `secrets`,
 `this` (the step's own result, in a switch or a gate) and `gate` (gate feedback only). An
 unresolvable path is an error, never an empty string. `validate()` rejects reading from a
@@ -194,22 +206,45 @@ load the bundle's OpenSSL and fail in frozen builds only.
 ### Components are directories with a contract, found by name
 
 `paths/resolver.py` searches roots in precedence order and the first match wins:
-`$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `../src/builtin`. Under any root,
-components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and total: a
-project-level `common/read_file` replaces the built-in and inherits nothing. Where a
+`$ATF_PATH` → `./.arctic` → `..` → `~/.arctic` → `sources` → `../src/builtin`. Under any
+root, components live in `tools/`, `agents/`, `flows/`. Overriding is per *name* and total: a
+project-level `deploy` replaces an inherited one and inherits nothing from it. Where a
 component is *found* never changes where it *runs*: tools execute with cwd set to the
 workspace root.
 
 A name may carry a namespace, at any depth and for all three kinds: `common/read_file` is
 `tools/common/read_file`, `release/sign` is `flows/release/sign.yaml`. A directory holding
 a `spec.json` is a component and any other directory is a namespace, so there is nothing to
-declare. Everything the engine ships is under `common/`, so overriding one means matching
-that whole name. `common/read_file` and a bare `read_file` neither override nor fall back
+declare. The first segment is a *vendor* segment in the `vendor/package` sense.
+`common/read_file` and a bare `read_file` neither override nor fall back
 to each other, and `spec.json` still carries only the leaf. `check_name`
 refuses a name whose segments would leave the root (`..`, an absolute path, an empty
 segment), which is why the check sits in the resolver and not in `lint`: one place covers
 `run`, a grant and `mcp-serve` alike. Granted tools reach a turn under `flat_name`, where
 the separator is `__`, because `mcp__atf__<tool>` cannot carry a slash.
+
+`sources` are extra roots named by `~/.arctic/config.yaml`, which `atf init` writes and
+`paths/config.py` reads. They sit below your own home layer and above the built-ins, so a
+shared library never replaces one the project or `~/.arctic` defines, and cannot define
+anything under `common/` at all.
+The same file carries `run.max_minutes`, a ceiling on a whole run that `execute` enforces
+and no flow may raise; an unknown key in it is refused rather than ignored. `Paths` loads
+it eagerly, so a broken config stops every command rather than one.
+
+**`ENGINE_NAMESPACE` (`common/`) is the engine's, and that is a security property.** A
+flow reading `tool: common/read_file` has to mean the shipped tool, or the name tells a
+reader nothing: any higher root, a cloned repository included, could put anything there.
+So `find` **refuses** a reserved name that anything outside `builtin/` also defines, rather
+than quietly preferring the built-in, which would leave someone editing a directory that
+does nothing. `create` refuses the name too, before a directory exists. The whole namespace
+is reserved and not just the five names that ship, so a near miss like `common/read_files`
+cannot read as shipped and a new built-in can never collide with a name somebody had.
+
+`find_all` deliberately does not raise, because `commands.inventory` calls it for every
+listed name and a listing has to survive the thing it exists to report. `intruders` and
+`all_intruders` are what `find` and `list` read instead: `list` drops a contested name
+rather than claiming it resolves, and reports it under `refused`. The reservation covers
+grants and `mcp-serve` for free, because both go through `find`.
 
 `atf create <kind> <name>` writes one, out of `../src/builtin/scaffolds/<kind>/`, into
 `./.arctic` when the workspace has one and the workspace root otherwise: the top of that
@@ -297,12 +332,15 @@ no `--vault-password` flag; use `--vault-password-file`, `$ATF_VAULT_PASSWORD` o
   kept by the future rather than raised. Replies arrive as calls finish, so anything
   reading them keys by request id.
 - **A cancelled call is stopped, not just unanswered.** `notifications/cancelled` sets
-  the call's event; `spawn` signals its process tree, TERM then KILL, and no reply is
-  sent. That is why a cancellable call gets `start_new_session` and a step deliberately
-  does not: a step's tool stays in the caller's process group so Ctrl-C on `atf run`
-  still reaches it, and the price is that a step's timeout can only signal the direct
-  child. The cancel is handled on the read loop, because pooled it would queue behind
-  the call it cancels.
+  the call's event; `spawn` signals it, TERM then KILL, and no reply is sent. The cancel
+  is handled on the read loop, because pooled it would queue behind the call it cancels.
+- **`cancel` and `grouped` are separate arguments to `spawn`, and conflating them is a
+  bug.** `cancel` is whether the work can be stopped; both callers pass one, an in-turn
+  call from its client and a step from the run ceiling. `grouped` is whether the call has
+  a terminal to answer to. An in-turn call has none, so it gets `start_new_session` and
+  the whole process tree is signalled. A step stays in the caller's process group, so
+  Ctrl-C on `atf run` still reaches its tool, and the price is that only the direct child
+  is signalled: a step's tool that backgrounded something can leave it behind.
 - **The `claude_code` adapter's flags are verified against CLI 2.1.224** and move between
   releases. Check `claude --help` before adding a parameter and move
   `VERIFIED_CLI_VERSION`. `model` is required, because the CLI's configured default is a
