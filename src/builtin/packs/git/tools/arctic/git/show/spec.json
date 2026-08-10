@@ -1,0 +1,63 @@
+{
+  "name": "show",
+  "version": 1,
+  "description": "Show one commit: its author, date, full message and the diff it introduced. Use when git/log gave you a sha and you need to know what that commit actually did.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "default": "HEAD",
+        "description": "The commit to show: a sha, a branch, a tag, or an expression like \"HEAD~2\". Defaults to the current commit."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Show only what this commit did to this path, relative to the workspace root. Must resolve inside it."
+      },
+      "summary": {
+        "type": "boolean",
+        "default": false,
+        "description": "One line per file with a count of added and removed lines, instead of the diff itself."
+      },
+      "max_lines": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 400,
+        "description": "Maximum number of lines to return. The output says so when it truncates."
+      }
+    },
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "A \"commit <full sha>\", \"author <name> <email>\" and \"date <YYYY-MM-DD>\" header, then the message, then the diff. A merge commit carries no diff, because git cannot choose a parent to compare against; the header and message are still returned. Longer than max_lines is followed by a \"[git/show] truncated: ...\" notice."
+  },
+
+  "exit_codes": {
+    "0": "success (the commit is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is the wrong type)",
+    "3": "not found (the ref does not resolve to a commit, or the path does not exist)",
+    "4": "not permitted (the git repository is above the workspace root, or the path leaves it)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq", "realpath", "mktemp"]
+}

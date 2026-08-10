@@ -22,3 +22,16 @@ run:
 sources: []
 #  - ~/work/arctic-components
 #  - /opt/team/arctic
+
+# Which of the tool packs that shipped with the engine are switched on.
+#
+# A pack is the engine's own, so unlike a source it defines names under `arctic/`
+# and you can rely on `arctic/git/commit` meaning the tool that shipped. It costs
+# no download: it is already in the binary, and this line is consent rather than
+# installation. A pack holds tools that write, and an install nobody configured
+# has none of them.
+#
+# `atf list` shows every pack and whether it is on. A name that is not a pack is
+# refused rather than ignored, the same way an unknown key here is.
+packs: []
+#  - git      # status, log, diff, show, branch, add, commit, checkout

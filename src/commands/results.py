@@ -249,6 +249,26 @@ class RefusedComponent:
 
 
 @dataclass(frozen=True)
+class PackEntry:
+    """One pack that shipped, and whether this machine switched it on.
+
+    Both states are reported. A pack that is off contributes nothing to the listing above
+    it, so without this line the tools in it are indistinguishable from tools that do not
+    exist, and the fix is a config file nobody has been told about.
+
+    `requires` is what the pack needs on `PATH`. Nothing checks it, so it is shown rather
+    than enforced: it is the answer to "the pack is on and the tool still fails".
+    """
+
+    name: str
+    path: Path
+    display: str
+    description: str
+    enabled: bool
+    requires: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Inventory:
     """Every name the lookup can resolve, by kind, each with where it was found.
 
@@ -257,11 +277,15 @@ class Inventory:
 
     `refused` is normally empty, and is what makes a definition in the engine's own
     namespace visible rather than merely absent.
+
+    `packs` is the opposite case and is never empty: it is what the listing does *not*
+    hold, and why.
     """
 
     adapters: tuple[ComponentEntry, ...] = ()
     kinds: tuple[KindListing, ...] = ()
     refused: tuple[RefusedComponent, ...] = ()
+    packs: tuple[PackEntry, ...] = ()
 
 
 @dataclass(frozen=True)

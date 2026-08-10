@@ -1,0 +1,51 @@
+{
+  "name": "status",
+  "version": 1,
+  "description": "Report the working tree: the current branch, what is staged for the next commit, what is changed but not staged, and what is untracked. Use before committing, and to decide whether there is anything to commit at all.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 20
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "no_untracked": {
+        "type": "boolean",
+        "default": false,
+        "description": "Leave untracked files out of the report. Useful in a tree with a large build directory that is not ignored."
+      },
+      "max_files": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200,
+        "description": "Maximum number of paths to report, counted across all three groups together. The report says so when it truncates."
+      }
+    },
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "A \"branch <name>\" line, or \"detached at <sha>\", then an \"upstream\" line when the branch has one. A tree with no changes is the single word \"clean\". Otherwise the changes follow under \"staged:\", \"unstaged:\" and \"untracked:\", each path prefixed by what happened to it (modified, added, deleted, renamed, copied, typechange, conflicted). A group with nothing in it is absent rather than empty."
+  },
+
+  "exit_codes": {
+    "0": "success (the report is on stdout, including for a clean tree)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is the wrong type)",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq"]
+}

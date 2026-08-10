@@ -17,11 +17,12 @@ from commands.results import (
     ComponentEntry,
     Inventory,
     KindListing,
+    PackEntry,
     RefusedComponent,
     ToolDetail,
 )
 from engine.executor import load_agent, load_component
-from paths.resolver import COMPONENT_DIRS, Paths
+from paths.resolver import COMPONENT_DIRS, Paths, available_packs
 
 # Flows first, then the component kinds, so a listing reads top-down from what you run to
 # what it is built from.
@@ -49,7 +50,32 @@ def inventory(paths: Paths) -> Inventory:
         )
         kinds.append(KindListing(kind=kind, entries=entries))
 
-    return Inventory(adapters=_adapters(paths), kinds=tuple(kinds), refused=_refused(paths))
+    return Inventory(
+        adapters=_adapters(paths),
+        kinds=tuple(kinds),
+        refused=_refused(paths),
+        packs=_packs(paths),
+    )
+
+
+def _packs(paths: Paths) -> tuple[PackEntry, ...]:
+    """Every pack that shipped, switched on or not.
+
+    The off ones are the reason this is here. Their components are absent from everything
+    above, and a listing that showed only what resolves would leave a person to conclude
+    the engine has no git tools rather than that this machine has not enabled them.
+    """
+    return tuple(
+        PackEntry(
+            name=pack.name,
+            path=pack.path,
+            display=paths.display(pack.path),
+            description=pack.description,
+            enabled=pack.name in paths.config.packs,
+            requires=pack.requires,
+        )
+        for pack in available_packs().values()
+    )
 
 
 def _refused(paths: Paths) -> tuple[RefusedComponent, ...]:

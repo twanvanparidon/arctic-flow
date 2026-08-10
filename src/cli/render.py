@@ -29,6 +29,7 @@ from commands.results import (
     Inventory,
     LintReport,
     LintResult,
+    PackEntry,
     RunResult,
     SecretListing,
     SecretSet,
@@ -40,8 +41,10 @@ from paths.config import CONFIG_FILE
 from paths.resolver import ENGINE_NAMESPACE, SEPARATOR
 
 # Wide enough for the longest built-in name with a gap after it, so a listing's second
-# column lines up without being measured per run.
-NAME_WIDTH = 18
+# column lines up without being measured per run. That name is currently
+# `arctic/git/checkout`, out of the git pack: a pack's names carry the namespace twice, so
+# a new one is the thing most likely to need this raised.
+NAME_WIDTH = 20
 
 # The same, for the settings tables in the two detail views. Wide enough for the longest
 # label either of them shows, `timeout_seconds`, with a gap after it.
@@ -139,6 +142,13 @@ def inventory(result: Inventory) -> str:
         lines += [f"  {_entry(entry)}" for entry in listing.entries]
         lines.append("")
 
+    # After the names and before the refusals. It explains an absence in the lists above,
+    # so it has to be read after them, and it is ordinary rather than something to act on.
+    if result.packs:
+        lines.append("packs:")
+        lines += [f"  {_pack(pack)}" for pack in result.packs]
+        lines.append("")
+
     # Last, and only when there is one. It is the section someone has to act on, and a
     # heading over nothing would suggest this is a thing that routinely happens.
     if result.refused:
@@ -156,6 +166,18 @@ def _entry(entry: ComponentEntry) -> str:
     """One available name, where it was found, and what it is hiding behind it."""
     note = f"  (shadows {', '.join(entry.shadows)})" if entry.shadows else ""
     return f"{entry.name:<{NAME_WIDTH}} {entry.display}{note}"
+
+
+def _pack(pack: PackEntry) -> str:
+    """One pack: whether it is on, what it is for, and what it needs installed.
+
+    The description rather than the path, which is the one column a pack has nothing to
+    say in. Every pack shipped with the engine, so `$ATF_ROOT/packs/<name>` would repeat
+    the name and answer nothing.
+    """
+    state = "on " if pack.enabled else "off"
+    needs = f"  (needs {', '.join(pack.requires)})" if pack.requires else ""
+    return f"{pack.name:<{NAME_WIDTH}} {state}  {pack.description}{needs}"
 
 
 def adapter_detail(result: AdapterDetail) -> str:

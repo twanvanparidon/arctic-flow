@@ -1,0 +1,67 @@
+{
+  "name": "diff",
+  "version": 1,
+  "description": "Show what changed, as a unified diff. By default the unstaged changes in the working tree; with staged true, what the next commit would record; with ref, the difference from another branch or commit. Read this before writing a commit message or reviewing work.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "staged": {
+        "type": "boolean",
+        "default": false,
+        "description": "Diff what is staged instead of what is not. This is what the next commit would record."
+      },
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Diff against this branch, tag or commit rather than the index (e.g. \"main\"). Combines with staged."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Limit the diff to this path, relative to the workspace root. Must resolve inside it."
+      },
+      "summary": {
+        "type": "boolean",
+        "default": false,
+        "description": "One line per file with a count of added and removed lines, instead of the diff itself. Ask for this first when the change might be large."
+      },
+      "max_lines": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 400,
+        "description": "Maximum number of lines to return. The output says so when it truncates. Narrow with path or summary rather than raising this."
+      }
+    },
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "A unified diff as git writes it, or with summary true one line per file followed by a totals line. Nothing to diff is the single line \"[git/diff] no changes\" and still succeeds. A diff longer than max_lines is followed by a \"[git/diff] truncated: ...\" notice."
+  },
+
+  "exit_codes": {
+    "0": "success (the diff is on stdout, including when it is empty)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is the wrong type)",
+    "3": "not found (the ref does not resolve, or the path does not exist)",
+    "4": "not permitted (the git repository is above the workspace root, or the path leaves it)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq", "realpath", "mktemp"]
+}

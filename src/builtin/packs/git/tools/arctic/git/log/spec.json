@@ -1,0 +1,62 @@
+{
+  "name": "log",
+  "version": 1,
+  "description": "List recent commits, newest first, as short sha, date, author and subject. Use to find what changed and when, to build release notes, or to locate the commit that introduced something. Narrow it with path before raising max_commits.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A branch, tag, commit or range to list instead of the current branch (e.g. \"main\", \"v1.0..HEAD\"). Defaults to HEAD."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "List only commits that touched this path, relative to the workspace root. Must resolve inside it."
+      },
+      "body": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include each commit's message body, indented under its subject. Off by default: a subject line is usually the whole of what a summary needs, and bodies multiply the output."
+      },
+      "max_commits": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 20,
+        "description": "Maximum number of commits to list. The output says so when it truncates."
+      }
+    },
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One commit per line, newest first: \"<short sha> <YYYY-MM-DD> <author name>  <subject>\". With body true, the subject and body are indented on the lines after each header instead. A repository with no commits, or a path no commit touched, is a single \"[git/log] ...\" notice and still succeeds."
+  },
+
+  "exit_codes": {
+    "0": "success (the commits are on stdout, including when there are none)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is the wrong type)",
+    "3": "not found (the ref does not resolve, or the path does not exist)",
+    "4": "not permitted (the git repository is above the workspace root, or the path leaves it)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq", "awk", "realpath", "mktemp"]
+}

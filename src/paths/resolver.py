@@ -11,13 +11,18 @@ first match wins, so a project overrides what it inherits without a config file:
   3. ./            this project, at the top level
   4. ~/.arctic     you, across every project
   5. sources       extra roots named by ~/.arctic/config.yaml (see `paths/config.py`)
-  6. builtin/      what ships with the engine
+  6. packs         the shipped packs that config.yaml switched on (see `PACKS_DIR`)
+  7. builtin/      what ships with the engine
 
 A source sits below your own home directory on purpose. A shared library of tools is
 something you opted into, and it may not quietly replace what this project or your own
 `~/.arctic` defines, because then reading a flow would no longer tell you which definition
 it runs. It cannot replace what shipped with the engine either, for the stronger version of
 the same reason: see `ENGINE_NAMESPACE` below.
+
+A pack sits below a source and above the built-ins, and where exactly makes no difference:
+everything in one is named under `arctic/`, which no other root may define, so nothing it
+holds is in competition with anything.
 
 `display()` names a path by the layer it came out of, which is what `atf list` prints
 beside every name: `./x` for the project, `$HOME/.arctic/x` for yours, `$ATF_ROOT/x` for
@@ -46,11 +51,12 @@ still acts on the project in front of it.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from paths.config import Config, load
+from paths.config import CONFIG_FILE, Config, ConfigError, load
 
 # The subdirectory each kind lives in, under any root. One spelling per kind: a root
 # is a project, a home directory, or the engine's own src/, and all three lay their
@@ -65,6 +71,25 @@ FLOW_SUFFIXES = (".yaml", ".yml")
 
 DOT_DIR = ".arctic"
 PATH_ENV = "ATF_PATH"
+
+# Where the packs live under `builtin/`, and the file that makes a directory one of them.
+#
+# A pack is a set of components that ships with the engine and is switched off until
+# `config.yaml` names it. Two things follow from where it sits, and both are the reason it
+# sits there rather than being a source somebody clones.
+#
+# It is inside `builtin_root()`, so `arctic/` is a namespace it may define. That is the
+# whole point: `tool: arctic/git/commit` in a flow has to mean the tool that shipped under
+# that name, and a root outside the engine can never promise that (see `ENGINE_NAMESPACE`).
+# So the pack mechanism costs the resolver nothing: the reservation, the refusal of an
+# intruder, and the listing rules all already say "inside the built-in root or nowhere".
+#
+# And it ships in the binary, so enabling one is a line in a file rather than a download
+# with a version, a checksum and a way to be absent. What "opt in" buys is not distribution
+# but consent: a pack holds tools that write, and an install nobody configured has none of
+# them, so nothing can be talked into a commit by a flow that was merely run.
+PACKS_DIR = "packs"
+PACK_FILE = "pack.json"
 
 # How a shortened path names the layer it came from. `$HOME` is the real variable, so what
 # is printed can be pasted into a shell and resolve.
@@ -194,6 +219,82 @@ def engine_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def packs_root() -> Path:
+    """Where the packs that ship with the engine live, enabled or not."""
+    return builtin_root() / PACKS_DIR
+
+
+@dataclass(frozen=True)
+class Pack:
+    """One opt-in set of components that ships with the engine.
+
+    A pack is an ordinary search root: `tools/`, `agents/`, `flows/`, laid out the way
+    every other root is. What makes it one is a `pack.json` beside them, which is the same
+    rule a component follows with its `spec.json`, so there is nothing to register.
+
+    `name` is the directory name and not a field in the manifest. A name that could
+    disagree with the directory it is written in is a name with two answers, and the
+    directory is the one `config.yaml` has to spell.
+
+    `requires` is what has to be on `PATH` for the pack to work, the way a tool spec's own
+    `requires` is. Nothing enforces it. It is what a listing shows so that "the pack is
+    on and the tool still fails" has somewhere to be answered.
+    """
+
+    name: str
+    path: Path
+    description: str = ""
+    requires: tuple[str, ...] = ()
+
+
+def available_packs() -> dict[str, Pack]:
+    """Every pack that shipped, by name, whether or not it is switched on.
+
+    Read off the filesystem rather than from a list in this module, so adding a pack is
+    adding a directory. A pack whose `pack.json` cannot be read is skipped rather than
+    raised: nothing here is user-written, so a broken one is a build that went wrong, and
+    the failure worth showing is the tool that is then missing rather than a listing that
+    will not print.
+    """
+    base = packs_root()
+    if not base.is_dir():  # pragma: no cover (a build that dropped the data files)
+        return {}
+
+    found: dict[str, Pack] = {}
+    for entry in sorted(base.iterdir()):
+        manifest = entry / PACK_FILE
+        if not manifest.is_file():
+            continue
+        try:
+            document = json.loads(manifest.read_text())
+        except (OSError, json.JSONDecodeError):  # pragma: no cover (a corrupt install)
+            continue
+        found[entry.name] = Pack(
+            name=entry.name,
+            path=entry,
+            description=str(document.get("description", "")),
+            requires=tuple(document.get("requires") or ()),
+        )
+    return found
+
+
+def _in_root(kind: str, name: str, root: Path) -> list[Path]:
+    """Where a component of this kind and name would sit under one root.
+
+    A list rather than a path because a flow is a file and carries a suffix, and two
+    spellings of it are legitimate. Taking a root as an argument rather than reading
+    `Paths.roots` is what lets a pack that is *not* a search root be asked the same
+    question: see `Paths._disabled_pack`.
+    """
+    found: list[Path] = []
+    for subdir in COMPONENT_DIRS[kind]:
+        if kind == "flow":
+            found += [root / subdir / f"{name}{suffix}" for suffix in FLOW_SUFFIXES]
+        else:
+            found.append(root / subdir / name)
+    return found
+
+
 def _under(path: Path, base: Path, prefix: str) -> str | None:
     """`path` written against `base`, or None when it is not inside it."""
     if path == base:
@@ -227,6 +328,27 @@ class Paths:
         # would be a race for no gain, and a config that cannot be parsed should stop the
         # command rather than surface halfway through a run as a missing component.
         self.config = load(self.home / DOT_DIR)
+        self._check_packs()
+
+    def _check_packs(self) -> None:
+        """Refuse a `packs:` entry that is not a pack that shipped.
+
+        `Paths.roots` would otherwise turn a misspelled `gti` into a root that does not
+        exist, which it drops, so the whole of what a typo does is make every tool in the
+        pack quietly missing. That is the failure this exists to prevent, and it is worth
+        stopping every command for: an unknown key in the same file already does.
+
+        Here rather than in `paths/config.py` because knowing which packs exist means
+        reading the built-in root, and that module deliberately imports nothing from here.
+        """
+        available = available_packs()
+        unknown = [name for name in self.config.packs if name not in available]
+        if unknown:
+            offered = ", ".join(available) or "none ship with this build"
+            raise ConfigError(
+                f"{self.home / DOT_DIR / CONFIG_FILE}: no pack named "
+                f"{', '.join(repr(name) for name in unknown)}. Packs: {offered}"
+            )
 
     @property
     def roots(self) -> list[Path]:
@@ -246,6 +368,10 @@ class Paths:
             self.workspace,
             self.home / DOT_DIR,
             *self.config.sources,
+            # Built by name rather than by scanning `packs/`, so the property that is read
+            # from worker threads on every lookup touches the filesystem no more than it
+            # did before. `_check_packs` has already refused a name that is not there.
+            *(packs_root() / name for name in self.config.packs),
             builtin_root(),
         ]
 
@@ -264,15 +390,7 @@ class Paths:
         """Every location a component of this kind and name could occupy."""
         check_kind(kind)
         check_name(name)
-
-        found: list[Path] = []
-        for root in self.roots:
-            for subdir in COMPONENT_DIRS[kind]:
-                if kind == "flow":
-                    found += [root / subdir / f"{name}{suffix}" for suffix in FLOW_SUFFIXES]
-                else:
-                    found.append(root / subdir / name)
-        return found
+        return [place for root in self.roots for place in _in_root(kind, name, root)]
 
     @staticmethod
     def _exists(kind: str, candidate: Path) -> bool:
@@ -359,8 +477,33 @@ class Paths:
         matches = self.find_all(kind, name)
         if matches:
             return matches[0]
+
+        # Before the list of places that were searched, because a pack that is off is not
+        # one of them and the list would therefore be an answer to a question nobody asked.
+        # A pack costs this scan only on a miss, which is already the failing path.
+        if pack := self._disabled_pack(kind, name):
+            config = self._display(self.home / DOT_DIR / CONFIG_FILE)
+            raise LookupError_(
+                f"{kind} '{name}' is in the '{pack.name}' pack, which is not enabled. "
+                f"Add it to {config}:  packs: [{pack.name}]"
+            )
+
         looked = ", ".join(self._display(c) for c in self._eligible(kind, name))
         raise LookupError_(f"unknown {kind} '{name}', looked in {looked}")
+
+    def _disabled_pack(self, kind: str, name: str) -> Pack | None:
+        """The pack that defines this name and is switched off, if one does.
+
+        The reason a shipped tool can be missing and the ordinary message would not say
+        so: every root it names was searched and the tool really is in none of them. What
+        is wrong is one line in a config file, and nothing else was ever going to say that.
+        """
+        for pack in available_packs().values():
+            if pack.name in self.config.packs:
+                continue
+            if any(self._exists(kind, place) for place in _in_root(kind, name, pack.path)):
+                return pack
+        return None
 
     def list(self, kind: str) -> dict[str, Path]:
         """Every available name of this kind, mapped to the definition that wins.

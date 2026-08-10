@@ -1,0 +1,59 @@
+{
+  "name": "commit",
+  "version": 1,
+  "description": "Record what is staged as a commit. Stage first with git/add: this never stages anything itself, and an empty index is refused rather than committed as nothing. Check what you are about to record with git/diff staged=true.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 60
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The commit message. A subject line, then a blank line, then the body. Written verbatim: lines beginning with # are kept, not treated as comments."
+      },
+      "author": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Who wrote the change, as \"Name <email@example.com>\". Records authorship only; the committer is still git's configured identity, which must exist either way. Omit unless you are committing work on someone else's behalf."
+      },
+      "max_files": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 100,
+        "description": "Maximum number of committed paths to list back. The output says so when it truncates."
+      }
+    },
+    "required": ["message"],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "The short sha and subject on the first line, then a blank line, then the paths the commit touched, one per line. Nothing else: the sha is what a later step needs, and the paths are how a flow checks it recorded what it meant to."
+  },
+
+  "exit_codes": {
+    "0": "success (the sha and what it recorded are on stdout)",
+    "2": "invalid input (stdin was not a JSON object, message is missing, or author is not 'Name <email>')",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "no repository (the workspace is not a git repository, or git is not installed)",
+    "6": "refused (nothing is staged, or a commit hook rejected it)",
+    "7": "no identity (git has no user.name and user.email to record the commit under)"
+  },
+
+  "permissions": {
+    "filesystem": "write",
+    "network": false
+  },
+
+  "requires": ["bash", "git", "jq", "mktemp"]
+}
