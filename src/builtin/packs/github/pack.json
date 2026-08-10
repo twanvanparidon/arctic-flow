@@ -1,0 +1,4 @@
+{
+  "description": "Open, read and comment on GitHub pull requests. Also GitHub Enterprise, via $GITHUB_API_URL",
+  "requires": ["curl", "jq", "git"]
+}

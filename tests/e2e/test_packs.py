@@ -28,12 +28,19 @@ from .conftest import requires
 A_PACK_TOOL = "arctic/git/log"
 
 
+# Every pack that ships. Named here rather than read off the source tree, because the
+# subject is the artefact: a pack that exists in `src/` and not in the bundle is precisely
+# the failure this file is for, and a list derived from `src/` could not see it.
+PACKS = ("bitbucket", "git", "github")
+
+
 @pytest.fixture
 def home(tmp_path: Path) -> Path:
-    """A home directory with the git pack switched on."""
+    """A home directory with every shipped pack switched on."""
     root = tmp_path / "home"
     (root / ".arctic").mkdir(parents=True)
-    (root / ".arctic" / "config.yaml").write_text("packs:\n  - git\n")
+    enabled = "".join(f"  - {pack}\n" for pack in PACKS)
+    (root / ".arctic" / "config.yaml").write_text(f"packs:\n{enabled}")
     return root
 
 
@@ -50,10 +57,17 @@ def repo(tmp_path: Path) -> Path:
 
 
 class TestTheBundleCarriesThePacks:
-    def test_the_pack_is_listed(self, atf: Runner, home: Path) -> None:
+    @pytest.mark.parametrize("pack", PACKS)
+    def test_every_pack_is_listed(self, atf: Runner, home: Path, pack: str) -> None:
         """A bundle that dropped `packs/` lists none, which is what a package-data entry
-        that did not cover a new directory produces."""
-        assert "git" in atf("list", env={"HOME": str(home)}).out
+        that did not cover a new directory produces. Per pack rather than in one go, so a
+        failure names the directory that did not ship."""
+        assert pack in atf("list", env={"HOME": str(home)}).out
+
+    def test_enabling_every_pack_at_once_is_accepted(self, atf: Runner, home: Path) -> None:
+        """The config that `home` wrote names all of them, so a pack the binary does not
+        carry is refused by `_check_packs` and this command exits non-zero."""
+        assert atf("list", env={"HOME": str(home)}).code == 0
 
     def test_a_pack_tool_resolves(self, atf: Runner, home: Path) -> None:
         assert A_PACK_TOOL in atf("list", env={"HOME": str(home)}).out

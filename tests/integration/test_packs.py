@@ -37,6 +37,16 @@ def configure(home: Path) -> Configure:
     return write
 
 
+def pack_line(listing: str, name: str) -> str:
+    """One pack's row out of `atf list`, so a claim about it is not a claim about the lot.
+
+    Anchored on the `packs:` heading, because a pack's name also appears in every tool it
+    contributes to the listing above.
+    """
+    section = listing[listing.index("packs:") :].splitlines()[1:]
+    return next(line.strip() for line in section if line.strip().startswith(f"{name} "))
+
+
 @pytest.fixture
 def flow_using_the_pack(project: Path) -> Path:
     definition = {
@@ -57,15 +67,20 @@ class TestListing:
         assert "git" in atf("list").out
 
     def test_an_off_pack_says_off(self, atf: Runner) -> None:
-        listing = atf("list").out
-        packs = listing[listing.index("packs:") :]
-        assert "off" in packs
+        assert pack_line(atf("list").out, "git").split()[1] == "off"
 
     def test_an_on_pack_says_on(self, atf: Runner, configure: Configure) -> None:
         configure("packs:\n  - git\n")
+        assert pack_line(atf("list").out, "git").split()[1] == "on"
+
+    def test_enabling_one_pack_does_not_enable_another(
+        self, atf: Runner, configure: Configure
+    ) -> None:
+        """`packs:` is a list of names, not a switch for the lot. Reading the section as a
+        whole would not have caught this once more than one pack shipped."""
+        configure("packs:\n  - git\n")
         listing = atf("list").out
-        packs = listing[listing.index("packs:") :]
-        assert "off" not in packs
+        assert pack_line(listing, "github").split()[1] == "off"
 
     def test_a_pack_tool_is_absent_while_it_is_off(self, atf: Runner) -> None:
         assert A_PACK_TOOL not in atf("list").out

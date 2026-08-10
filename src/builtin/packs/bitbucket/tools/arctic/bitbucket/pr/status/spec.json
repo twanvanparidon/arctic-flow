@@ -1,0 +1,85 @@
+{
+  "name": "status",
+  "version": 1,
+  "description": "Read one Bitbucket Cloud pull request: its state, branches, approvals and build statuses, as JSON. With no number it finds the open pull request for the branch the workspace is on. Use to decide whether something is ready to merge, or why it is not.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 60
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "number": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "The pull request number, which Bitbucket's own API calls its id. Omit to use the open pull request whose source branch is the one the workspace is on, which fails if there is not exactly one."
+      },
+      "repo": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The repository as \"workspace/repository\", where workspace is Bitbucket's word and has nothing to do with the engine's --workspace. Omit to read it from the origin remote, which requires the engine's workspace to be the repository root."
+      }
+    },
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "object",
+    "description": "The same field names the github pack answers with, so a flow's templates survive a change of forge. `state` is one of open, merged, closed: Bitbucket's DECLINED and SUPERSEDED both map to closed. `mergeable` is always null, because Bitbucket does not report one without a dry-run merge; gate on `checks` and `reviews` instead.",
+    "properties": {
+      "repo": { "type": "string" },
+      "number": { "type": "integer" },
+      "state": { "enum": ["open", "merged", "closed"] },
+      "title": { "type": "string" },
+      "source": { "type": "string" },
+      "target": { "type": "string" },
+      "author": { "type": "string" },
+      "url": { "type": "string" },
+      "draft": { "type": "boolean" },
+      "mergeable": { "type": "null" },
+      "reviews": {
+        "type": "object",
+        "description": "Counted off the pull request's participants, which Bitbucket keeps one of per person, so there is no superseded review to discard the way there is on GitHub.",
+        "properties": {
+          "approved": { "type": "integer" },
+          "changes_requested": { "type": "integer" }
+        }
+      },
+      "checks": {
+        "type": "object",
+        "description": "Bitbucket's build states mapped onto three answers: SUCCESSFUL is success, INPROGRESS is pending, FAILED and STOPPED are both failure. A cancelled build is not one still running, so waiting on it would wait forever.",
+        "properties": {
+          "success": { "type": "integer" },
+          "failure": { "type": "integer" },
+          "pending": { "type": "integer" },
+          "failing": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+
+  "exit_codes": {
+    "0": "success (the pull request is on stdout as JSON)",
+    "2": "invalid input (a parameter is wrong, or no number was given and the branch does not identify exactly one open pull request)",
+    "3": "not found (no such pull request or repository, or no open pull request for the branch)",
+    "4": "not permitted (the git repository is above the workspace root)",
+    "5": "unreachable (DNS failure, connection refused, TLS failure, or the transfer timed out)",
+    "6": "http error (the API answered with a status that is not success, including a refused token)",
+    "7": "no credential (BITBUCKET_TOKEN is not in this step's environment)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": true
+  },
+
+  "secrets": ["BITBUCKET_TOKEN"],
+
+  "requires": ["bash", "jq", "curl", "git"]
+}
