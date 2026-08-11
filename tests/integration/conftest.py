@@ -130,17 +130,15 @@ def project(tmp_path: Path) -> Path:
         ),
         exit_codes={"3": "not found", "4": "not permitted"},
     )
+    # A check, and it exits 0 whether it approves or rejects: answering "no" is the tool
+    # doing its job. The answer goes on stdout as JSON, which is what a flow switches on.
     components.write_tool(
         root,
         "word_limit",
         script=components.python(
-            "words = len(payload['text'].split())\n"
-            "if words > payload['max_words']:\n"
-            "    sys.stderr.write(f\"{words} words, {payload['max_words']} allowed\")\n"
-            "    sys.exit(1)\n"
-            "sys.stdout.write(f'{words} words')\n"
+            "over = max(0, len(payload['text'].split()) - payload['max_words'])\n"
+            "json.dump({'verdict': 'rejected' if over else 'approved', 'over': over}, sys.stdout)\n"
         ),
-        exit_codes={"1": "over the limit"},
     )
     components.write_tool(
         root,

@@ -98,17 +98,16 @@ moved fails loudly.
 
 ## Why a second run does not edit twice
 
-`write_file` is idempotent, and says why that matters: a gated agent step re-runs
-its whole turn, so a tool that appended would append again on every attempt.
+`write_file` is idempotent, and says why that matters: a step in a loop runs again
+on every pass, so a tool that appended would append again each time.
 
 This tool is not idempotent, and it does not need to be. Once the edit has
 landed, `old_string` is gone, so a re-run finds no match and exits `6` without
-writing. The second attempt fails rather than corrupting the file.
+writing. The second pass fails rather than corrupting the file.
 
-Two things follow. A gate cannot be put on a tool step at all, so the case above
-cannot arise here. In a loop, a step that edits the same text on a second pass
-fails, and the flow should read the file again between passes rather than assume
-the first edit is still to be made.
+So in a loop, a step that edits the same text on a second pass fails. Have the
+flow read the file again between passes rather than assume the first edit is
+still to be made.
 
 ## Why a file it cannot read as text is refused
 

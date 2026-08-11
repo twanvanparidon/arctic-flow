@@ -3,15 +3,14 @@
 A template is `{{ dotted.path }}`, resolved when the step runs. An unresolvable path is an
 error, never an empty string.
 
-## The five namespaces
+## The four namespaces
 
 | Namespace | Is | Legal in |
 | --- | --- | --- |
 | `inputs` | what the caller supplied | anywhere |
 | `steps` | a step's result | anywhere, for a step transitively upstream |
-| `secrets` | a granted secret's value | a tool's `input`, and a gate's `input` |
-| `this` | the step's own result | a `switch` expression, and a gate's `input` and `feedback` |
-| `gate` | what the gate said when it rejected | a gate's `feedback` only |
+| `secrets` | a granted secret's value | a tool's `input` |
+| `this` | the step's own result | a `switch` expression |
 
 Anything else is refused as an unknown namespace, so a typo like `{{ input.path }}` is
 caught at lint time rather than at run time.
@@ -65,34 +64,40 @@ of it in the loop has produced an answer.
 It applies to `.text` only. There is nothing to reach into for `.json.field`, so a first
 pass or a skipped branch reads the prose, not a field.
 
-## `this` and `gate`
+## `this`
 
-`this` is the result the step just produced. It exists only where that result already does:
-
-```yaml
-switch: "{{ this.json.verdict }}"
-```
+`this` is the result the step just produced. It exists only where that result already does,
+which is the step's own `switch`:
 
 ```yaml
-gate:
+- id: check
   tool: word_limit
   input:
-    text: "{{ this.text }}"
+    text: "{{ steps.draft.text }}"    # `steps`, because draft is another step
     max_words: 60
-  feedback: |
-    Rejected by word_limit:
-
-    {{ gate.text }}
-
-    It said:
-
-    {{ this.text }}
-
-    Write it again, inside the limit.
+  switch: "{{ this.json.verdict }}"   # `this`, because it is this step's own answer
+  max_loops: 3
+  cases:
+    approved: []
+    rejected: [draft]
 ```
 
-`{{ this.* }}` anywhere else is refused. `{{ gate.* }}` outside gate feedback is refused:
-what the gate said exists only once it has rejected something.
+`{{ this.* }}` anywhere else is refused, a tool's own `input` included: the input is built
+before the tool runs, so there is no result to read yet.
+
+What a check said reaches the next pass through `steps`, like any other step's result:
+
+```
+{% if steps.check %}
+Rejected: {{ steps.check.json.reason }}
+
+It said:
+
+{{ steps.draft.text }}
+
+Write it again, inside the limit.
+{% endif %}
+```
 
 ## Secrets in a template
 
@@ -110,7 +115,8 @@ and only in a tool's input:
 
 Two refusals to expect:
 
-- A secret in an **agent prompt**, or in a gate's `feedback`. Both reach the model.
+- A secret anywhere on an **agent step**, its `prompt` and its `switch` included. It would
+  reach the model and stay in the session.
 - A secret the step did not declare, so what a step can read stays visible where the step
   is defined.
 
@@ -120,10 +126,9 @@ result, so never template one into something that ends up in `output`.
 ## Where templates are resolved
 
 - A tool step's `input`, value by value.
-- An agent step's `prompt`.
-- A `switch` expression.
-- A gate's `input` and `feedback`.
+- An agent step's `prompt`, whether written inline or read from `prompt_file`.
+- A `switch` expression, on a tool step or an agent step.
 - The flow's `output.template`, which may read `inputs` and `steps` only.
 
-The output template is checked separately and more narrowly: `this`, `gate` and `secrets`
-are all unknown namespaces there.
+The output template is checked separately and more narrowly: `this` and `secrets` are both
+unknown namespaces there.

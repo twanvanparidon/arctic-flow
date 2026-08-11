@@ -57,8 +57,8 @@ Every step:
 | `push` or `switch` | at most one | where the result goes |
 | `secrets` | no | a list of names this step may read |
 
-A tool step adds `input:`. An agent step adds `prompt:` (required) and may add `gate:`. A
-switching step adds `cases:`, and may add `default:` and `max_loops:`.
+A tool step adds `input:`. An agent step adds `prompt:` or `prompt_file:` (one is required).
+A switching step adds `cases:`, and may add `default:` and `max_loops:`.
 
 ```yaml
 - id: read_target
@@ -115,48 +115,41 @@ non-string key rather than falling through to `default`.
 Refused: a `switch` with no `cases`, `cases` or `default` with no `switch`, a case whose
 value is not a list of step ids.
 
-### gate
+### Checks
 
-An agent step may name a tool that has to accept its result before the result goes
-anywhere.
+There is no `gate` key. A check is a tool step with a `switch`, and one case naming the step
+that produced the work.
 
 ```yaml
 - id: draft
   agent: brief_writer
-  prompt: |
-    Summarise this file in at most 60 words.
-    ...
-  gate:
-    tool: word_limit
-    input:
-      text: "{{ this.text }}"
-      max_words: 60
-    max_attempts: 3
-    feedback: |
-      Your last answer was rejected by word_limit:
+  prompt_file: draft
+  push: [check]
 
-      {{ gate.text }}
-
-      Write it again, inside the limit.
+- id: check
+  tool: word_limit
+  input:
+    text: "{{ steps.draft.text }}"
+    max_words: 60
+  switch: "{{ this.json.verdict }}"
+  max_loops: 3
+  cases:
+    approved: []
+    rejected: [draft]
 ```
 
-Exit 0 accepts. Any other exit rejects, and the tool's output becomes `{{ gate.text }}` in
-the next prompt, appended to the original one. Every turn is a fresh session, so the retry
-carries its own history or it has none.
+**A check exits 0 whether it approves or rejects**, and answers in JSON on stdout. Saying
+"no" is the tool doing its job, so the verdict is data the flow switches on; a non-zero exit
+means it could not answer, and fails the step. Every shipped tool follows this convention.
 
-When the attempts run out the step fails carrying what the gate last said. Nothing
-downstream ever sees a result the gate refused. The loop is inside the step, so there is no
-edge and `inspect flow` reports the gate rather than drawing one.
+What the check said is in `steps`, so the next pass reads `{{ steps.check.json.reason }}`
+under a `{% if steps.check %}` guard, because on the first pass the check has not run.
 
 | Rule | Why |
 | --- | --- |
-| Gates are for agent steps | a tool given the same input returns the same result |
-| `feedback` is required | a retry that says nothing about what was wrong is the first attempt again |
-| `max_attempts` is 2 or more, 3 by default | one attempt leaves no turn to act on the feedback |
-| `{{ secrets.NAME }}` is allowed in `input`, refused in `feedback` | `input` is a tool's, `feedback` becomes a prompt |
-
-Any tool is a gate, with no second contract to write. The cost is that a broken gate
-reports its own error the way a rejection arrives, and spends the attempts first.
+| The verdict goes on stdout, not in the exit code | a non-zero exit is a broken tool everywhere else in the engine |
+| Answer in JSON | `.verdict` is what the switch matches, `.reason` is what the next pass is told |
+| `max_loops` is required on the check | `rejected: [draft]` names an upstream step, so it is a loop |
 
 ### Loops
 
@@ -203,8 +196,13 @@ Six rules, all enforced by `lint`:
   reads `yes` as `True` and a bool is an int.
 - Everything the loop head reaches must lead back to the closing step, or come after the
   loop. A stranded step would run on the first pass and then sit finished.
-- No nested or overlapping loops. Which one's count a pass resets would be undefined.
+- Two loops may share steps only where one body contains the other. Nested is fine, so a
+  tool check can sit inside an agent review; two bodies that cross are refused, because a
+  step one re-runs and the other does not belongs to neither pass.
 - A cycle nothing enters is refused: nothing opens it, so it can never run.
+
+A count is per step and over the whole run, never reset by a loop around it. Two nested
+bounds of three are six extra passes, not sixteen.
 
 Declaration order decides which edge closes a cycle, because the back-edge walk starts at
 `start` and follows the file.
@@ -235,16 +233,19 @@ call yet.
 
 Refused: a `secrets` that is not a list of names, and a name listed twice.
 
-## Gate or loop
+## A tool or an agent doing the judging
 
-| | Gate | Loop |
+Both are a switch and a loop. What differs is what does the judging.
+
+| | Tool | Agent |
 | --- | --- | --- |
-| Checks | one answer against a fixed rule | the work, with judgement |
-| Is | a tool, retried inside the step | a step of its own, with its own agent |
-| Costs | the step's attempts | a cost line per pass, per step in the body |
-| Drawn by `inspect flow` | reported, not drawn | a real edge |
-| Bound by | `max_attempts` | `max_loops` |
-| Next attempt sees | the original prompt plus `feedback` | everything in `steps` from the last pass |
+| Judges | a fixed rule, exactly | anything, with judgement |
+| Costs | a subprocess | a turn |
+| Is | deterministic: it fails the same way twice | a model answer, so not quite |
+| Can be argued with | no | yes, by the prompt it is reading |
 
-Read `examples/gated-summary` against `examples/draft-review` in the arctic-flow
+Prefer a tool wherever the rule is one a tool can hold. Nest them where both are wanted: the
+tool rejects cheaply and often, the agent rarely and expensively.
+
+Read `examples/checked-summary` against `examples/draft-review` in the arctic-flow
 repository. Both are commented at length and say when to prefer which.

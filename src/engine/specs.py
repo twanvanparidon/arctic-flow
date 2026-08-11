@@ -237,11 +237,6 @@ def check_step_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> 
     _check_input(f"step '{step['id']}'", step.get("input") or {}, spec, where)
 
 
-def check_gate_input(step: dict[str, Any], spec: dict[str, Any], where: str) -> None:
-    """The same, for the tool a step's gate runs."""
-    _check_input(f"step '{step['id']}' gate", step["gate"].get("input") or {}, spec, where)
-
-
 def _check_input(subject: str, supplied: dict[str, Any], spec: dict[str, Any], where: str) -> None:
     """What can be said about a tool's input without running the flow.
 

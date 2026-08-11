@@ -208,80 +208,77 @@ class TestBranching:
         assert "switched on 'ELSEWHERE'" in result.err
 
 
-class TestGates:
-    def test_a_gate_that_accepts_lets_the_step_push(self, project: Path, atf: Runner) -> None:
+class TestACheckStep:
+    """A tool judging an agent's answer, which is a tool step and a loop and nothing else.
+
+    The engine has no notion of a check. What makes one is a `switch` on the tool's own
+    verdict and a case naming the step that produced the work, so these go through the CLI
+    to pin that the ordinary machinery is all it takes.
+    """
+
+    @staticmethod
+    def checked(max_words: int, **extra: object) -> list[dict[str, object]]:
+        return [
+            {"id": "draft", "agent": "writer", "prompt": "three words only", "push": ["check"]},
+            {
+                "id": "check",
+                "tool": "word_limit",
+                "input": {"text": "{{ steps.draft.text }}", "max_words": max_words},
+                "switch": "{{ this.json.verdict }}",
+                "cases": {"approved": [], "rejected": ["draft"]},
+                **extra,
+            },
+        ]
+
+    def test_a_verdict_that_approves_ends_the_flow(self, project: Path, atf: Runner) -> None:
         flow(
             project,
-            "gated",
-            flow="gated",
+            "checked",
+            flow="checked",
             start="draft",
-            steps=[
-                {
-                    "id": "draft",
-                    "agent": "writer",
-                    "prompt": "three words only",
-                    "gate": {
-                        "tool": "word_limit",
-                        "input": {"text": "{{ this.text }}", "max_words": 10},
-                        "feedback": "Too long. {{ gate.text }}",
-                    },
-                }
-            ],
+            steps=self.checked(10, max_loops=2),
             output={"template": "{{ steps.draft.text }}"},
         )
-        result = atf("--workspace", str(project), "run", "gated")
+        result = atf("--workspace", str(project), "run", "checked")
         assert result.code == 0
         assert result.out == "three words only\n"
 
-    def test_a_gate_that_never_accepts_fails_the_step(self, project: Path, atf: Runner) -> None:
-        """A gate is not a suggestion. The fake echoes the prompt, so it can never comply."""
+    def test_a_verdict_that_never_approves_fails_the_step(self, project: Path, atf: Runner) -> None:
+        """A check is not a suggestion. The fake echoes the prompt, so it can never comply."""
         flow(
             project,
             "impossible",
             flow="impossible",
             start="draft",
-            steps=[
-                {
-                    "id": "draft",
-                    "agent": "writer",
-                    "prompt": "one two three four five",
-                    "gate": {
-                        "tool": "word_limit",
-                        "input": {"text": "{{ this.text }}", "max_words": 2},
-                        "feedback": "Too long. {{ gate.text }}",
-                        "max_attempts": 2,
-                    },
-                }
-            ],
+            steps=self.checked(2, max_loops=2),
         )
         result = atf("--workspace", str(project), "run", "impossible")
         assert result.code == 1
-        assert "did not pass gate 'word_limit'" in result.err
+        assert "did not converge" in result.err
+        assert "back to 'draft'" in result.err
 
-    def test_a_rejected_attempt_is_reported_as_it_happens(self, project: Path, atf: Runner) -> None:
-        """The attempt number says whether the step is converging or running out of turns."""
+    def test_every_trip_back_is_reported_as_it_happens(self, project: Path, atf: Runner) -> None:
+        """The count says whether the check is converging or running out of passes."""
         flow(
             project,
             "impossible",
             flow="impossible",
             start="draft",
-            steps=[
-                {
-                    "id": "draft",
-                    "agent": "writer",
-                    "prompt": "one two three four five",
-                    "gate": {
-                        "tool": "word_limit",
-                        "input": {"text": "{{ this.text }}", "max_words": 2},
-                        "feedback": "Too long. {{ gate.text }}",
-                        "max_attempts": 2,
-                    },
-                }
-            ],
+            steps=self.checked(2, max_loops=2),
         )
         result = atf("--workspace", str(project), "run", "impossible")
         assert "1/2" in result.err
         assert "2/2" in result.err
+
+    def test_a_check_that_loops_without_a_bound_is_refused(
+        self, project: Path, atf: Runner
+    ) -> None:
+        """An unbounded cycle with an agent in it is the one mistake here that spends money
+        rather than failing, so `lint` insists on the bound before the first turn."""
+        flow(project, "loose", flow="loose", start="draft", steps=self.checked(2))
+        result = atf("--workspace", str(project), "run", "loose")
+        assert result.code == 1
+        assert "max_loops" in result.err
 
 
 class TestSecrets:

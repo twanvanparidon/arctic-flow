@@ -20,9 +20,9 @@ anything. The first line may be a directive:
     !contradiction     a result claiming success, from a process that exits 1
     !invocation        the answer is a JSON description of how this was invoked
 
-Anything else is answered with the prompt itself, which is what makes a gate loop
-observable: the engine appends the gate's feedback to the next prompt, so the second turn
-really does produce different text. With `--json-schema`, the answer is instead the
+Anything else is answered with the prompt itself, which is what makes a loop observable: a
+pass reads what the last one produced out of `steps`, so a prompt that guards on it really
+does produce different text on the second turn. With `--json-schema`, the answer is instead the
 smallest object satisfying that schema, and `$FAKE_CLAUDE_PREFER` picks between the values
 of an enum.
 """

@@ -186,7 +186,9 @@ class TestSpawn:
     def test_a_non_zero_exit_comes_back_rather_than_raising(
         self, paths: Paths, workspace: Path
     ) -> None:
-        """spawn() hands the code to its caller: a tool step and a gate read it differently."""
+        """spawn() hands the code to its caller, and `invoke` is what turns it into a
+        failed step. Keeping the judgement one layer up is what leaves room for a caller
+        that wants the output of a component that exited non-zero."""
         make.write_tool(workspace, "refuses", script=make.fails(3, "no", stdout="partial"))
         base, spec = load_component(paths, "tool", "refuses")
         proc = spawn(base, spec, {}, paths)

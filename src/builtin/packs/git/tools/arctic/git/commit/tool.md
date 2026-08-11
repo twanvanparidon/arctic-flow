@@ -96,6 +96,6 @@ what the hook said.
 `permissions.filesystem` is `write`, so an agent spec granting it must also
 declare `unattended: true`.
 
-Think about it before you do. A gate is usually the better shape: let the agent
-produce the message, and let a tool step do the commit, so the flow decides
+Think about it before you do. Two steps are usually the better shape: let the
+agent produce the message, and let a tool step do the commit, so the flow decides
 whether it happens rather than the model deciding mid-turn.

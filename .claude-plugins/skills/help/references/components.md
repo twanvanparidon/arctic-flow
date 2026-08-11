@@ -220,7 +220,7 @@ in process, so adding one means a module in the engine's source.
 dependency. It is an alias (`opus`, `sonnet`, `haiku`, `fable`) or a full id. `effort` is
 one of `low`, `medium`, `high`, `xhigh`, `max`.
 
-`echo` is the dry run. Point an agent at it and the graph, the branches, the gates and
+`echo` is the dry run. Point an agent at it and the graph, the branches, the loops and
 every template run for free. The prompt steers it:
 
 | First word of the prompt | Does |
@@ -229,8 +229,8 @@ every template run for free. The prompt steers it:
 | `!json {...}` | answers with exactly that JSON, so a switch can be driven |
 | `!invocation` | answers with a report of what the engine sent, including the tool server argv |
 
-Anything else is answered with the prompt itself, which is what makes a gate loop
-observable: the feedback is appended, so the second turn genuinely differs from the first.
+Anything else is answered with the prompt itself, which is what makes a loop observable: a
+pass reads the last one out of `steps`, so a prompt guarding on it genuinely differs.
 
 An agent declaring `output_schema` gets the smallest object satisfying it, unless `!json`
 overrides that.

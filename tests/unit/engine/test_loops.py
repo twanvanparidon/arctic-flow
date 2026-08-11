@@ -178,6 +178,101 @@ class TestTheBound:
         assert [event["step"] for event in events if event["kind"] == "failed"] == ["check"]
 
 
+def nested_flow(inner_loops: int = 5, outer_loops: int = 5) -> dict[str, Any]:
+    """A cheap check inside an expensive one, both sending the work back to `grow`.
+
+    `grow` appends a character to its own last result, so each pass is a value neither
+    check has seen. `inner` sends "a" and "aaa" back and lets everything else through;
+    `outer` ends on "aaaa" and sends everything else back. Four passes, and the third is
+    an inner trip taken *after* the outer loop has already fired once, which is the pass
+    that nothing else in this file reaches.
+    """
+    return {
+        "flow": "demo",
+        "start": "grow",
+        "steps": [
+            {
+                "id": "grow",
+                "tool": "grow",
+                "input": {"previous": "{{ steps.grow.text }}"},
+                "push": ["inner"],
+            },
+            {
+                "id": "inner",
+                "tool": "say",
+                "input": {"text": "{{ steps.grow.text }}"},
+                "switch": "{{ this.text }}",
+                "max_loops": inner_loops,
+                "cases": {"a": ["grow"], "aaa": ["grow"]},
+                "default": ["outer"],
+            },
+            {
+                "id": "outer",
+                "tool": "say",
+                "input": {"text": "{{ steps.grow.text }}"},
+                "switch": "{{ this.text }}",
+                "max_loops": outer_loops,
+                "cases": {"aaaa": []},
+                "default": ["grow"],
+            },
+        ],
+    }
+
+
+class TestALoopInsideAnother:
+    """Two loops sharing a body, which `validate` allows only where one contains the other.
+
+    The shape a deterministic check inside a review has: reject cheaply and often, review
+    expensively and rarely, and both send the work back to whatever produced it.
+    """
+
+    def test_the_outer_pass_really_runs_the_inner_body_again(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """The inner back-edge has to go back to *skipped* when the outer loop re-enters.
+
+        Left pending, the inner head waits on a step downstream of itself, nothing in the
+        body ever becomes ready, and `execute` returns with the outer pass never run. That
+        failure is silent: a run that reports the trip back, exits 0, and emits the results
+        of the pass before it.
+        """
+        write_loop_tools(workspace)
+        definition = nested_flow()
+        results, trace = execute(definition, definition["steps"], {}, paths)
+        assert ran(trace).count("grow") == 4
+        assert results["grow"]["text"] == "aaaa"
+
+    def test_each_loop_runs_its_own_body(self, paths: Paths, workspace: Path) -> None:
+        """`outer` is in the outer body only, so an inner trip back does not re-run it."""
+        write_loop_tools(workspace)
+        definition = nested_flow()
+        _, trace = execute(definition, definition["steps"], {}, paths)
+        assert ran(trace) == ["grow", "inner"] * 2 + ["outer"] + ["grow", "inner"] * 2 + ["outer"]
+
+    def test_a_bound_counts_over_the_run_and_not_over_one_outer_pass(
+        self, paths: Paths, workspace: Path
+    ) -> None:
+        """`max_loops` is never reset, so two nested bounds of three are six passes and not
+        sixteen. Here the inner loop takes one trip back before the outer fires and one
+        after, so a bound of one is spent by the second and the step fails."""
+        write_loop_tools(workspace)
+        definition = nested_flow(inner_loops=1)
+        with pytest.raises(FlowError, match="back to 'grow'"):
+            execute(definition, definition["steps"], {}, paths)
+
+    def test_both_counts_are_reported_separately(self, paths: Paths, workspace: Path) -> None:
+        write_loop_tools(workspace)
+        definition = nested_flow()
+        events: list[dict[str, Any]] = []
+        execute(definition, definition["steps"], {}, paths, on_event=events.append)
+        looped = [event for event in events if event["kind"] == "looped"]
+        assert [(event["step"], event["count"]) for event in looped] == [
+            ("inner", 1),
+            ("outer", 1),
+            ("inner", 2),
+        ]
+
+
 class TestWhatIsReported:
     def test_every_trip_back_is_an_event(self, paths: Paths, workspace: Path) -> None:
         write_loop_tools(workspace)
