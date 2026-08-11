@@ -8,9 +8,10 @@
 # ready.
 #
 #   atf lint __NAME__
-#   atf run __NAME__ --input path=README.md
+#   atf run __NAME__ --input path=flows/__NAME__.yaml
 #
 # As written it runs one built-in tool, so it needs no model, no network and no key.
+# That first run reads this file back to you: any path in the project works.
 
 flow: __NAME__
 version: 1
