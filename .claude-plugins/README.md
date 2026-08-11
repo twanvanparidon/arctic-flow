@@ -35,7 +35,7 @@ A checkout works too. Both fall back to `python3 src/main.py`, which is the same
 `create` is a procedure. It finds the engine, runs `atf create` rather than writing a
 `spec.json` by hand, fills in the scaffold, and does not report the work done until
 `atf lint` passes. It carries the decisions a flow author actually makes: a tool step or an
-agent step, `push` or `switch`, a gate or a loop, and when granting an agent a tool is worth
+agent step, `push` or `switch`, a check or a loop, and when granting an agent a tool is worth
 what it costs.
 
 `help` is a diagnosis. It runs `lint` before it reads anything, then `inspect` and

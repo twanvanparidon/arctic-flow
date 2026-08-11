@@ -64,7 +64,7 @@ The three write tools declare `permissions.filesystem: write`, so an agent spec 
 one must also declare `unattended: true`. That is the engine's gate and it is not
 specific to this pack: nothing approves a call an agent makes for itself.
 
-Before granting `commit`, consider a gate instead. Letting the agent write the message and
+Before granting `commit`, consider two steps instead. Letting the agent write the message and
 letting a tool step do the commit keeps the decision in the flow, where it can be read.
 
 ## Changing one

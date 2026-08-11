@@ -2,9 +2,9 @@
 
 `ADAPTERS` is a dict of static imports, baked in at freeze time, so a suite driving the
 binary cannot register an adapter from outside. The one that answers without a runtime has
-to ship, and this is where that pays off: a gate loop, a switch on an agent's structured
-answer, and a secret reaching a runtime through the environment, all in the artefact, with
-no model, no network and no account.
+to ship, and this is where that pays off: a check sending an answer back, a switch on an
+agent's structured answer, and a secret reaching a runtime through the environment, all in
+the artefact, with no model, no network and no account.
 
 The flows are written here rather than taken from `examples/`, because the shipped examples
 name `claude_code` and these are about the engine rather than about them.
@@ -25,22 +25,20 @@ PROBE = "ATF_PROBE_token"
 
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
-    """A workspace with one agent and the tool a gate needs."""
+    """A workspace with one agent and the tool a check needs."""
     root = tmp_path / "project"
     root.mkdir()
     make.write_agent(root, "writer", model="sonnet")
     make.write_tool(
         root,
         "marker",
-        # Exits 0 only when the text carries the marker, which the feedback is what supplies.
+        # Answers whether the text carries the marker, and exits 0 either way: the verdict is
+        # what the flow switches on, so saying "no" is this tool working rather than failing.
         script=make.python(
-            "if 'REVISED' in payload.get('text', ''):\n"
-            "    sys.stdout.write('accepted')\n"
-            "else:\n"
-            "    sys.stderr.write('needs the word REVISED')\n"
-            "    sys.exit(1)\n"
+            "carries = 'REVISED' in payload.get('text', '')\n"
+            "json.dump({'verdict': 'approved' if carries else 'rejected',\n"
+            "           'reason': None if carries else 'needs the word REVISED'}, sys.stdout)\n"
         ),
-        exit_codes={"1": "not revised"},
     )
     return root
 
@@ -107,54 +105,60 @@ class TestWithNoRuntimeInstalled:
         assert trace["cost_usd"] == 0.01
 
 
-class TestAGateLoop:
+class TestACheckSendingWorkBack:
     @pytest.fixture(autouse=True)
     def flow(self, project: Path) -> None:
         make.write_flow(
             project,
-            "gated",
+            "checked",
             {
-                "flow": "gated",
+                "flow": "checked",
                 "start": "draft",
                 "steps": [
                     {
                         "id": "draft",
                         "agent": "writer",
-                        "prompt": "write it",
-                        "gate": {
-                            "tool": "marker",
-                            "input": {"text": "{{ this.text }}"},
-                            "feedback": "It said: {{ gate.text }}",
-                        },
-                    }
+                        "prompt": "write it{% if steps.check %}. REVISED: "
+                        "{{ steps.check.json.reason }}{% endif %}",
+                        "push": ["check"],
+                    },
+                    {
+                        "id": "check",
+                        "tool": "marker",
+                        "input": {"text": "{{ steps.draft.text }}"},
+                        "switch": "{{ this.json.verdict }}",
+                        "max_loops": 2,
+                        "cases": {"approved": [], "rejected": ["draft"]},
+                    },
                 ],
                 "output": {"template": "{{ steps.draft.text }}"},
             },
         )
 
-    def test_a_rejected_answer_is_retried_with_the_feedback_appended(
+    def test_a_rejected_answer_goes_back_with_what_the_check_said(
         self, project: Path, atf: Runner
     ) -> None:
         """Every turn is a fresh session, so the prompt is the only place history can live.
-        The adapter answering with the prompt is what makes the second turn observably
-        different from the first."""
-        result = atf("--workspace", str(project), "run", "gated")
+        The next pass reads the verdict out of `steps` and the adapter answering with the
+        prompt is what makes the second turn observably different from the first."""
+        result = atf("--workspace", str(project), "run", "checked")
         assert result.code == 0, result.err
-        assert result.out.startswith("write it\n\nIt said: needs the word REVISED")
+        assert "REVISED: needs the word REVISED" in result.out
 
-    def test_a_rejection_is_reported_as_it_happens(self, project: Path, atf: Runner) -> None:
-        """A rejection is a verdict, not a failure, so it is narrated and the step goes on to
-        succeed. Only the rejected attempts get a line; the accepted one is just the tick."""
-        result = atf("--workspace", str(project), "run", "gated")
-        assert "marker rejected attempt 1/3" in result.err
-        assert "✓ draft" in result.err
+    def test_the_trip_back_is_reported_as_it_happens(self, project: Path, atf: Runner) -> None:
+        """A rejection is a verdict, not a failure, so it is narrated and the flow goes on to
+        succeed."""
+        result = atf("--workspace", str(project), "run", "checked")
+        assert "back to draft, loop 1/2" in result.err
+        assert result.err.count("✓ draft") == 2
 
-    def test_every_attempt_is_paid_for(self, project: Path, atf: Runner) -> None:
-        """The envelope only knows the last turn, so a gated step accumulates its own cost."""
-        result = atf("--workspace", str(project), "run", "gated", "--trace")
+    def test_every_pass_is_paid_for(self, project: Path, atf: Runner) -> None:
+        """Two turns, and the trace carries one row per pass rather than one for the step."""
+        result = atf("--workspace", str(project), "run", "checked", "--trace")
         trace = json.loads(result.err[result.err.index("{") :])
-        assert trace["steps"][0]["attempts"] == 2
-        assert trace["steps"][0]["cost_usd"] == 0.02
+        drafts = [step for step in trace["steps"] if step["step"] == "draft"]
+        assert [step["cost_usd"] for step in drafts] == [0.01, 0.01]
+        assert trace["cost_usd"] == 0.02
 
 
 class TestASwitchOnTheAnswer:

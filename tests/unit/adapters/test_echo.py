@@ -32,8 +32,8 @@ def answer(prompt: str, **payload: Any) -> str:
 
 class TestTheAnswer:
     def test_a_plain_prompt_comes_back_as_it_went_in(self) -> None:
-        """What makes a gate loop observable: the engine appends feedback to the next
-        prompt, so the second turn really does produce different text."""
+        """What makes a loop observable: a pass reads the last one out of `steps`, so a
+        prompt that guards on it really does produce different text."""
         assert answer("write it") == "write it"
 
     def test_a_directive_is_only_read_from_the_first_line(self) -> None:
@@ -125,8 +125,8 @@ class TestInstanceFor:
 
 class TestTheEnvelope:
     def test_a_turn_costs_a_flat_rate(self) -> None:
-        """Flat, so a gated step that took two attempts reports twice this and the
-        accumulation is checkable against a number rather than a range."""
+        """Flat, so a flow that looped twice reports twice this and the total is checkable
+        against a number rather than a range."""
         assert echo.run({"prompt": "p"}, {})["cost_usd"] == echo.COST_PER_TURN
 
     def test_the_model_that_was_asked_for_is_echoed_back(self) -> None:

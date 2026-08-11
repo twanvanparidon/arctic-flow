@@ -27,10 +27,12 @@
 # order to reach for them: `max_loops` here, the checklist in the reviewer, and the brief's
 # word range, which is the constraint that misses most.
 #
-# Compare examples/gated-summary. A gate is a tool checking one answer against a fixed rule,
-# retried inside the step with no edge to draw. Here the reviewer is a step of its own: it
-# has an agent, a cost line and a row in `atf inspect flow`, and what it said is in `steps`
-# for the next pass to read.
+# Compare examples/checked-summary, which is this same shape with a tool doing the judging.
+# A tool holds one fixed rule exactly, costs a subprocess rather than a turn, and cannot be
+# argued round by the draft it is reading. A reviewer can judge anything. Where both are
+# wanted, nest them: the tool rejects cheaply and often, the reviewer rarely and expensively.
+# That is legal as long as one loop's body sits inside the other's, which it does when the
+# check goes between the writer and the reviewer.
 #
 # This flow is a *bundle*: a directory holding `draft_review.yaml` and the prompts it
 # names, so `prompt_file: write` reads `prompts/write.md` from beside the flow.

@@ -8,9 +8,9 @@ expensive kind of broken, so the corpus is exercised rather than described.
 against one computed here with the key out of the vault, so what is asserted is that the
 example produces a correct HMAC, not that it produces the same bytes as last time.
 
-`file-review` and `gated-summary` call a model, so they reach the fake `claude`. What they
+`file-review` and `checked-summary` call a model, so they reach the fake `claude`. What they
 demonstrate is the engine's part, and none of that needs a real answer: a branch is taken,
-the other subtree is skipped, a join runs anyway, and a gate that is never satisfied stops
+the other subtree is skipped, a join runs anyway, and a check that is never satisfied stops
 the flow instead of letting it through.
 
 `draft-review` loops, and `$FAKE_CLAUDE_PREFER` picks which value of the reviewer's enum
@@ -41,7 +41,7 @@ from .conftest import Runner, requires
 FLOWS = [
     ("sign-release", "sign_release"),
     ("file-review", "review_file"),
-    ("gated-summary", "summarize"),
+    ("checked-summary", "summarize"),
     ("draft-review", "draft_review"),
     ("agent-tools", "annotate"),
     ("csv-report", "report"),
@@ -347,36 +347,45 @@ class TestFileReview:
         assert "$0." in err
 
 
-class TestGatedSummary:
+class TestCheckedSummary:
     """A tool holds the answer to a word budget, and the prompt cannot talk it round."""
 
     @pytest.fixture(autouse=True)
     def needs(self) -> None:
         requires("jq", "awk", "realpath")
 
+    def run_it(self, atf: Runner, examples: Path) -> Outcome:
+        return atf(
+            "--workspace",
+            str(examples / "checked-summary"),
+            "run",
+            "summarize",
+            "--input",
+            "path=incident.md",
+        )
+
     def test_an_answer_that_never_comes_in_under_the_limit_fails_the_run(
         self, examples: Path, atf: Runner
     ) -> None:
         """The fake answers with the prompt, which is far over sixty words, every time."""
-        result = atf(
-            "--workspace",
-            str(examples / "gated-summary"),
-            "run",
-            "summarize",
-            "--input",
-            "path=incident.md",
-        )
+        result = self.run_it(atf, examples)
         assert result.code == 1
-        assert "did not pass gate 'word_limit'" in result.err
+        assert "did not converge" in result.err
+        assert "back to 'draft'" in result.err
 
-    def test_every_attempt_is_reported_as_it_is_rejected(self, examples: Path, atf: Runner) -> None:
-        result = atf(
-            "--workspace",
-            str(examples / "gated-summary"),
-            "run",
-            "summarize",
-            "--input",
-            "path=incident.md",
-        )
+    def test_every_trip_back_is_reported_as_it_happens(self, examples: Path, atf: Runner) -> None:
+        result = self.run_it(atf, examples)
         assert "1/3" in result.err
         assert "3/3" in result.err
+
+    def test_the_check_is_a_step_of_its_own(self, examples: Path, atf: Runner) -> None:
+        """Which is the difference between a check and a retry hidden inside the draft step.
+
+        Four passes: three that go back and a fourth that has nowhere left to go, so the
+        check reports its own line every time rather than the draft reporting one row for
+        however many turns it took.
+        """
+        result = self.run_it(atf, examples)
+        assert result.err.count("✓ draft") == 4
+        assert result.err.count("✓ check") == 3
+        assert result.err.count("✗ check") == 1

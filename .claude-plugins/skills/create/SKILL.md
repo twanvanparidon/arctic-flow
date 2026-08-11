@@ -1,6 +1,6 @@
 ---
 name: create
-description: Create Arctic Flow components for the `atf` engine, meaning flows, agents and tools. Use this whenever the user wants to build, add or scaffold an Arctic Flow flow, agent or tool, turn a task or a script into an `atf` workflow, wire steps together with push, switch, cases, a gate or a loop, grant an agent a tool, or mentions `atf create`, `flows/*.yaml`, `agents/*/agent.md`, `tools/*/run.sh` or a `spec.json`. Use it for small asks too, like "add a step to this flow", "make this agent loop until it passes", or "let the agent read files for itself".
+description: Create Arctic Flow components for the `atf` engine, meaning flows, agents and tools. Use this whenever the user wants to build, add or scaffold an Arctic Flow flow, agent or tool, turn a task or a script into an `atf` workflow, wire steps together with push, switch, cases, a check or a loop, grant an agent a tool, or mentions `atf create`, `flows/*.yaml`, `agents/*/agent.md`, `tools/*/run.sh` or a `spec.json`. Use it for small asks too, like "add a step to this flow", "make this agent loop until it passes", or "let the agent read files for itself".
 ---
 
 # Creating Arctic Flow components
@@ -117,8 +117,8 @@ output:
     {{ steps.report.text }}
 ```
 
-**Templates** are `{{ dotted.path }}` over five namespaces: `inputs`, `steps`, `secrets`,
-`this` and `gate`. A step reads `{{ steps.x.text }}` only when `x` is transitively
+**Templates** are `{{ dotted.path }}` over four namespaces: `inputs`, `steps`, `secrets`
+and `this`. A step reads `{{ steps.x.text }}` only when `x` is transitively
 upstream of it. An unresolvable path is an error, never an empty string. Details are in
 `../help/references/templates.md`.
 
@@ -132,19 +132,19 @@ Work down this list. The first one that fits is the answer.
   agent an `output_schema` in its spec and switch on `{{ this.json.verdict }}`, so the
   branch is decided by a field rather than by prose. Add `default:` for anything else, or
   the run fails on a value no case matches.
-- **One answer that must satisfy a fixed rule** → a **gate**. A tool has to exit 0 on the
-  agent's result before it goes anywhere. A rejection is not a failure: the tool's output
-  is appended to the prompt through the step's own `feedback` and the agent answers again,
-  up to `max_attempts` (3 by default, 2 minimum). The retry is inside the step, so there
-  is no edge to draw.
 - **A pass that should improve on the last one** → a **loop**. A `switch` case naming a
   step that is already upstream *is* one, and `max_loops` on that step is then required.
   The body goes back to waiting and runs again. The last pass stays in `steps`, so the
-  writer reads the review that sent its work back, and reads `(not run)` on the first pass.
+  writer reads what sent its work back, and reads `(not run)` on the first pass.
+- **One answer that must satisfy a fixed rule** → a **check**, which is a loop whose judge
+  is a tool step. There is no `gate` key. The tool answers a verdict on stdout as JSON and
+  exits 0 either way, because saying "no" is the tool doing its job; the step switches on
+  `{{ this.json.verdict }}` and the rejecting case names the step that produced the work.
 
-Gate or loop: a gate checks one answer against a fixed rule with no new step. A loop puts
-the reviewer in the graph, with its own agent, its own cost line and its own row in
-`inspect flow`. Read `examples/gated-summary` against `examples/draft-review`.
+Tool or agent doing the judging: a tool judges a fixed rule exactly, costs a subprocess, and
+cannot be argued with by the prompt it is reading. An agent judges anything and costs a turn.
+Nest them where both are wanted, which is legal as long as one loop's body sits inside the
+other's. Read `examples/checked-summary` against `examples/draft-review`.
 
 ### Secrets
 
@@ -201,7 +201,7 @@ by the `claude_code` adapter, because the CLI's configured default is a per-mach
 dependency. `effort` is one of `low`, `medium`, `high`, `xhigh`, `max`.
 
 **While drafting, set `"adapter": "echo"`.** It answers from the request, so the whole
-graph, every branch, every gate and every template run offline and for free. The prompt can
+graph, every branch, every loop and every template run offline and for free. The prompt can
 carry `!fail` to see what a refusal does downstream, or `!json {"verdict":"rejected"}` to
 send a switch down the branch you want to look at. Switch back to `claude_code` when the
 graph is right.
@@ -293,9 +293,8 @@ its cause.
 - A `switch` needs `cases`; `cases` or `default` without a `switch` is refused.
 - Quote a case key that YAML would read as a boolean: `"yes"`, `"no"`, `"on"`, `"off"`.
 - A loop needs a `switch` and a `max_loops` of 1 or more. `max_loops` where nothing loops
-  is refused too. No nested or overlapping loops.
-- A gate is for agent steps only, and needs a `feedback`. `max_attempts` is 2 or more.
-- `{{ this.* }}` exists only in a switch or a gate. `{{ gate.* }}` only in gate feedback.
-- A secret in an agent prompt is refused. A secret not declared by the step using it is
-  refused.
+  is refused too. Two loops may share steps only where one body contains the other.
+- `{{ this.* }}` exists only in a step's own `switch`, tool step and agent step alike.
+- A secret anywhere on an agent step is refused. A secret not declared by the step using it
+  is refused.
 - `output:` is a mapping with a `template` key, not a bare string.

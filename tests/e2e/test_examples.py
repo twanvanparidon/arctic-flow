@@ -13,7 +13,7 @@ than against a recorded digest, so editing the example's release notes is not a 
 signature. The vault itself is the other half: real scrypt and real AES-GCM, from
 `cryptography` wheels compiled into the bundle.
 
-`file-review` and `gated-summary` reach the fake `claude`. What they show here is not the
+`file-review` and `checked-summary` reach the fake `claude`. What they show here is not the
 engine's branching, which is covered twice already, but that a frozen process can spawn a
 runtime, write a prompt to its stdin and read an envelope back off its stdout.
 """
@@ -34,7 +34,7 @@ from .conftest import requires
 FLOWS = [
     ("sign-release", "sign_release"),
     ("file-review", "review_file"),
-    ("gated-summary", "summarize"),
+    ("checked-summary", "summarize"),
     ("draft-review", "draft_review"),
     ("agent-tools", "annotate"),
     ("csv-report", "report"),
@@ -240,18 +240,18 @@ class TestAgentExamples:
         )
         assert "$0." in result.err
 
-    def test_a_gate_that_is_never_satisfied_stops_the_flow(
+    def test_a_check_that_is_never_satisfied_stops_the_flow(
         self, examples: Path, atf: Runner
     ) -> None:
         """The fake answers with the prompt, which is far over sixty words, every time."""
         result = atf(
             "--workspace",
-            str(examples / "gated-summary"),
+            str(examples / "checked-summary"),
             "run",
             "summarize",
             "--input",
             "path=incident.md",
         )
         assert result.code == 1
-        assert "did not pass gate 'word_limit'" in result.err
+        assert "did not converge" in result.err
         assert "3/3" in result.err

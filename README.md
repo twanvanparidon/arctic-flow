@@ -35,6 +35,12 @@ travels downstream, so a join is reached without waiting for a path that will ne
 deliver. A case naming a step that already ran sends the work back to it, which is how a
 reviewer declines a draft, and `max_loops` says how many times it may.
 
+A tool step switches the same way an agent step does, and that is all a check is: the tool
+answers a verdict, exits 0 because answering is its job, and one case sends the work back.
+Two loops may share steps where one sits inside the other, so a cheap deterministic check
+can reject inside an expensive review. Each `max_loops` counts over the whole run and is
+never reset, so two bounds of three are six extra passes rather than sixteen.
+
 **Why it is built this way.** Workflows are code. They live in files you can diff, review
 and override, not in a UI. A flow names a graph and nothing else. Which model, which
 effort and which prompt belong to the agent, in its own directory, so changing a prompt is
@@ -120,7 +126,7 @@ Each has a `tool.md` beside its `spec.json` saying when to use it and when not t
 file is what a model is given, so it is worth reading before granting one.
 
 One of them needs nothing. Point an agent at `"adapter": "echo"` and it answers from the
-request instead of from a model, so a flow's graph, its branches, its gates and every
+request instead of from a model, so a flow's graph, its branches, its loops and every
 template in it run offline and for free. Useful while you are still writing the flow; the
 prompt can say `!fail` to see what a refusal does to the graph, or `!json {"verdict": …}`
 to send a `switch` down the branch you want to look at.
@@ -285,11 +291,12 @@ Six projects that run as they are. Read them forwards, the way the engine does:
   `packs: [data]` in your config, which is the one example with any setup.
 - **[`examples/file-review`](examples/file-review)** is agents, a branch and a join. Triage
   picks one path, the other is skipped, and the report waits for neither. A few cents to run.
-- **[`examples/gated-summary`](examples/gated-summary)** is a gate. A tool has to accept the
-  agent's answer before it goes anywhere, and says what was wrong with it when it does not.
-- **[`examples/draft-review`](examples/draft-review)** is a loop. A reviewer sends the draft
-  back to the writer until it passes or runs out of passes, and the writer is handed what
-  the reviewer said. Read it against `gated-summary` for when to use which.
+- **[`examples/checked-summary`](examples/checked-summary)** is a check. A tool answers
+  whether the summary is inside its word budget, and the flow switches on that answer:
+  approved ends the run, rejected goes back to the writer with the count.
+- **[`examples/draft-review`](examples/draft-review)** is the same shape built out of an
+  agent. A reviewer can judge anything and costs a turn to ask; a tool costs a subprocess
+  and can only count words. Read the two against each other for when to use which.
 - **[`examples/agent-tools`](examples/agent-tools)** grants an agent `arctic/read_file`
   and `arctic/write_file`, so it decides for itself when to read and when to write. One step
   where the same job as three would also work, and the flow header says when to prefer which.
@@ -302,7 +309,7 @@ ATF_VAULT_PASSWORD=demo atf --workspace examples/sign-release \
 
 atf --workspace examples/csv-report run report
 
-atf --workspace examples/gated-summary run summarize --input path=incident.md
+atf --workspace examples/checked-summary run summarize --input path=incident.md
 
 atf --workspace examples/draft-review run draft_review --input path=brief.md
 

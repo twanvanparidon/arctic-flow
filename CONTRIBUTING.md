@@ -404,60 +404,63 @@ means a real loopback server (`tests/support/forge.py`), routed by method and pa
 as the tools request them, so a wrong verb or a dropped filter fails rather than passing
 against a double that was happy with anything.
 
-## Gates
+## Checks
 
-An agent step can name a tool that has to accept its result before the result goes
-anywhere:
+A check is a tool step with a `switch`, and there is nothing else to it. The engine has no
+`gate` key and never had a notion of a check: a `switch` is a step's own result choosing a
+branch, and a tool step has one as readily as an agent step does.
 
 ```yaml
 - id: draft
   agent: brief_writer
-  prompt: |
-    Summarise this file in at most 60 words.
-    ...
-  gate:
-    tool: word_limit
-    input:
-      text: "{{ this.text }}"      # `this` is the result being checked
-      max_words: 60
-    max_attempts: 3
-    feedback: |
-      Your last answer was rejected by word_limit:
+  prompt_file: draft
+  push: [check]
 
-      {{ gate.text }}
-
-      Write it again, inside the limit.
+- id: check
+  tool: word_limit
+  input:
+    text: "{{ steps.draft.text }}"
+    max_words: 60
+  switch: "{{ this.json.verdict }}"    # `this` is the result being switched on
+  max_loops: 3
+  cases:
+    approved: []                       # ends the flow
+    rejected: [draft]                  # already upstream, so this is a loop
 ```
 
-Exit 0 accepts. Any other exit rejects, and the tool's output becomes `{{ gate.text }}` in
-the next prompt, appended to the original one. Every turn is a fresh session, so the retry
-carries its own history or it has none. When the attempts run out the step fails with what
-the gate last said, and nothing downstream ever sees a result the gate refused.
+**A check exits 0 whether it approves or rejects.** Answering "no" is the tool doing its
+job, so the verdict goes on stdout where a flow can read it, and a non-zero exit stays what
+it is everywhere else in the engine: this tool could not answer at all, and the step fails.
+That is the convention every shipped tool already follows, `arctic/grep` included: "the
+search ran; it matched something or it did not".
 
-The loop is inside the step. There is no edge back to the agent, so `inspect flow` reports
-the gate rather than drawing one. That is what separates a gate from a loop, which is a
-real edge and is drawn as one.
+Answer in JSON. `run_step` parses a tool's stdout into `.json`, so `.verdict` is what the
+switch matches and `.reason` is what the next pass is told, and neither has to be picked out
+of prose. Both halves are needed in different places, which is what a single line cannot do.
 
-Four rules, all enforced by `lint`:
+What the check said is in `steps` like anything else, so the writer's prompt reads it under
+a guard, because on the first pass the check has not run:
 
-- **Gates are for agent steps.** A tool handed the same input returns the same result, so
-  the retry could only spend the attempts and arrive back where it started.
-- **`feedback` is required**, for the same reason. A retry that says nothing about what was
-  wrong is the first attempt again.
-- **`max_attempts` is 2 or more**, and 3 by default. One attempt leaves no turn to act on
-  the feedback.
-- **`{{ secrets.NAME }}` works in the gate's `input`**, which is a tool's input, and is
-  refused in `feedback`, which becomes a prompt.
+```
+{% if steps.check %}
+Your last summary was rejected: {{ steps.check.json.reason }}
+{% endif %}
+```
 
-Any tool is a gate, with no second contract to write to. The cost of that is a gate that is
-itself broken: it reports its own error the same way a rejection arrives, and spends the
-attempts before the step fails.
+Nothing is appended to a prompt behind the flow's back. The check is a step, with a row in
+`inspect flow`, a line per pass in the progress output and its own entry in `--trace`.
+
+Reach for a tool wherever the rule is one a tool can hold. It costs a subprocess rather
+than a turn, it cannot be talked round by the prompt it is checking, and it is deterministic,
+so a flow that fails a check fails it the same way twice. `examples/checked-summary` is this
+shape and `examples/draft-review` is the same shape with an agent doing the judging, which
+can judge anything and costs a turn to ask.
 
 ## Loops
 
-A gate checks one answer against a fixed rule. A loop sends the work back through the steps
-that produced it, which is what a reviewer declining a draft needs: the reviewer is a step
-of its own, with its own agent, its own cost line and its own row in `inspect flow`.
+A loop sends the work back through the steps that produced it, which is what a reviewer
+declining a draft needs: the reviewer is a step of its own, with its own agent, its own cost
+line and its own row in `inspect flow`.
 
 Nothing declares a loop. A `switch` case naming a step that is already upstream **is** one,
 and `lint` finds it from the graph:
@@ -483,6 +486,11 @@ and `lint` finds it from the graph:
 Every step from `write` to `review` goes back to waiting and runs again. `max_loops` is how
 many times `review` may send the work back, so `write` runs at most six times. Running out
 is a failure rather than a quiet exit: a loop that never converged has not done its job.
+
+**A count is per step and over the whole run**, never reset by a loop around it. So a cheap
+check nested inside an expensive review, each bounded at three, is six extra passes and not
+sixteen: a flow's worst case is something a reader can add up. The price is that an inner
+loop which spent its bound early fails on a later outer pass rather than starting fresh.
 
 What the last pass produced stays in `steps`, and that is how `write` reads the review that
 sent its work back. On the first pass there is no review yet, so it reads `(not run)`, the
@@ -512,8 +520,10 @@ Six rules, all enforced by `lint`:
 - **Everything the loop reaches is on it or after it.** A step the loop head reaches that
   does not lead back would run on the first pass and then sit finished while the rest went
   round again.
-- **No nested or overlapping loops.** Two loops sharing a step leaves it undefined which
-  one's count a pass resets.
+- **Two loops may share steps only where one contains the other.** Nesting is defined: the
+  inner body goes round again in full whenever the outer one fires, so no pass leaves a step
+  holding a result from a pass that is over. Two bodies that *cross* are refused, because a
+  step one loop re-runs and the other does not belongs to neither pass.
 - **A cycle nothing enters is still refused.** No walk from `start` reaches it, so nothing
   opens it: it is a ring of steps that can never run.
 
@@ -614,9 +624,8 @@ reason: joining `../../etc/passwd` on resolves, and a flow can arrive by clone. 
 `prompt` and `prompt_file` on one step is refused, because one of them would be the prompt
 and the other dead text in the repository.
 
-Only a step's prompt can be a file today. A gate's `feedback` and the flow's
-`output.template` have the same readability problem and would work the same way; nobody has
-asked yet.
+Only a step's prompt can be a file today. The flow's `output.template` has the same
+readability problem and would work the same way; nobody has asked yet.
 
 ## Inputs
 
@@ -646,6 +655,30 @@ decides both the search roots and the inputs, and a caller isolating one isolate
 
 Values are strings from either source. A declaration's `type:` is documentation; nothing
 coerces or checks it.
+
+## Output
+
+What a run prints on stdout is one template, rendered after the last step:
+
+```yaml
+output:
+  template: |
+    {{ steps.sign.text }}
+```
+
+It reads `inputs` and `steps`, and nothing in the graph is out of reach, because all of it
+has run by then. An unresolvable path is an error, the same as in a prompt.
+
+**A flow need not declare one.** Left out, the run prints nothing, and `(no output)` appears
+on stderr where someone is watching. That is for a flow that is there for its effect: a
+comment posted on a pull request, a file written, a release signed. Those have no result to
+hand anyone, and a template naming a step just to have one is noise.
+
+The alternative was answering with every step result as JSON. It puts a shape nobody
+declared on stdout, and it makes `output` a key you write in order to keep it off, which is
+the opposite of optional. A flow left without an `output` used to get that dump, so one that
+was reading it now declares the template it wanted. `atf run --trace` is how a run is
+inspected instead, and it goes to stderr so the flow's own bytes stay pipeable.
 
 ## Secrets
 

@@ -60,27 +60,6 @@ class TestRender:
         step = {"id": "a", "tool": "t", "switch": "x", "cases": {"needs_more_review": ["b"]}}
         assert "      needs_more_review -> b" in render(*flow(step))
 
-    def test_a_gate_is_drawn_above_the_edges_it_guards(self) -> None:
-        """The order the engine takes them: the step runs, the gate accepts, then it pushes."""
-        step = {
-            "id": "a",
-            "agent": "writer",
-            "prompt": "p",
-            "gate": {"tool": "word_limit", "feedback": "again"},
-            "push": ["b"],
-        }
-        lines = render(*flow(step, {"id": "b", "tool": "t"})).splitlines()
-        assert lines.index("    gate word_limit  (up to 3 attempts)") < lines.index("    -> b")
-
-    def test_a_gate_reports_the_budget_it_was_given(self) -> None:
-        step = {
-            "id": "a",
-            "agent": "writer",
-            "prompt": "p",
-            "gate": {"tool": "word_limit", "feedback": "again", "max_attempts": 5},
-        }
-        assert "    gate word_limit  (up to 5 attempts)" in render(*flow(step))
-
     LOOP = (
         {"id": "write", "tool": "t", "push": ["check"]},
         {

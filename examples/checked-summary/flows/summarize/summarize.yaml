@@ -1,0 +1,92 @@
+# Summarise a file in sixty words, and mean it.
+#
+#   start: read_target ──> draft ──> check ──approved──> (output)
+#                            ^          │
+#                            └─rejected─┘
+#
+# `check` is an ordinary tool step. It is worth reading twice, because a deterministic
+# check is the cheapest useful step there is and it is written with nothing special: a
+# `switch` on its own result, and one case naming a step already upstream.
+#
+# The tool exits 0 whether it approves or rejects, and answers on stdout as JSON. That is
+# the convention every shipped tool follows. Answering "no" is the tool doing its job, so
+# a non-zero exit stays what it is everywhere else in the engine: this tool could not
+# answer, and the step fails. `switch: "{{ this.json.verdict }}"` then reads the answer,
+# and the two cases decide where it goes.
+#
+# The edge back to `draft` is a real edge. Nothing declares it: `rejected` names a step
+# that is already upstream, and that is what makes it a loop. `lint` works it out from the
+# graph and then insists on `max_loops`, because a cycle with an agent in it is the one
+# mistake here that spends money rather than failing.
+#
+# So the writer sees what the check said the way it sees anything else, out of `steps`.
+# `prompts/draft.md` guards it with `{% if steps.check %}`, because on the first pass the
+# check has not run and a step that did not run is false. Nothing is appended to the prompt
+# behind the flow's back, and the rework is a row in the trace rather than a retry hidden
+# inside a step.
+#
+# When the passes run out the step fails, carrying the count the check last reported. A
+# check is not a suggestion.
+#
+# `incident.md` ships with this project, so the example runs with nothing to prepare.
+# Any file inside the workspace works: arctic/read_file is sandboxed to it.
+#
+#   atf --workspace examples/checked-summary \
+#       run summarize --input path=incident.md
+#
+# Watch stderr. Each trip back prints a ⟲ line with the count it came back with, so an
+# answer landing at 61 words looks different from one landing at 200, and every pass after
+# the first is marked on the step's own line.
+#
+# To see one rejected, drop the check's max_words below the number the prompt asks for.
+# Expect it to take every pass and fail: the prompt is still asking for 60, and where the
+# prompt and the check disagree the prompt is what the model is writing to. Keep the two
+# numbers the same and the check catches the misses instead of arguing with the brief.
+#
+# Compare examples/draft-review, where the same shape is built out of an agent instead of a
+# tool. A reviewer can judge anything and costs a turn to ask; this costs a subprocess and
+# can only count words. Reach for the tool wherever the rule is one a tool can hold.
+
+flow: summarize
+version: 1
+description: Summarise a file in at most sixty words, enforced by a tool rather than a prompt.
+
+inputs:
+  path:
+    type: string
+    required: true
+    description: File to summarise, relative to the workspace root.
+
+start: read_target
+
+steps:
+  - id: read_target
+    tool: arctic/read_file
+    input:
+      path: "{{ inputs.path }}"
+      max_lines: 400
+    push: [draft]
+
+  - id: draft
+    agent: brief_writer
+    prompt_file: draft
+    push: [check]
+
+  # The limit is written twice on purpose. `prompts/draft.md` asks for it, and this is what
+  # holds the answer to it. Only this one is load-bearing.
+  - id: check
+    tool: word_limit
+    input:
+      text: "{{ steps.draft.text }}"
+      max_words: 60
+    switch: "{{ this.json.verdict }}"
+    max_loops: 3
+    cases:
+      # Ends the flow: the accepted summary is what `output` emits, so
+      # `run summarize > summary.md` is the deliverable.
+      approved: []
+      rejected: [draft]
+
+output:
+  template: |
+    {{ steps.draft.text }}

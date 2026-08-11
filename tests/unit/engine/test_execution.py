@@ -11,7 +11,6 @@ tested by the flow deadlocking if it is not there.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -451,13 +450,12 @@ class TestRunFlow:
         output, _ = run_flow(definition, {}, paths)
         assert output == "the answer"
 
-    def test_a_flow_with_no_output_template_returns_every_result_as_json(
-        self, paths: Paths, workspace: Path
-    ) -> None:
+    def test_a_flow_that_declares_no_output_has_none(self, paths: Paths, workspace: Path) -> None:
+        """A flow may be there for its effect, so the step's result is not printed for it."""
         make.write_tool(workspace, "t", script=make.prints("x"))
         definition = flow({"id": "a", "tool": "t"})
         output, _ = run_flow(definition, {}, paths)
-        assert json.loads(output) == {"a": {"text": "x", "json": None}}
+        assert output == ""
 
     def test_the_flow_is_validated_before_anything_runs(
         self, paths: Paths, workspace: Path
