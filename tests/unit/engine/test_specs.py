@@ -23,7 +23,6 @@ from engine.specs import (
     _check_is_schema,
     _templated,
     check_agent_spec,
-    check_gate_input,
     check_step_input,
     check_tool_spec,
 )
@@ -278,17 +277,6 @@ class TestCheckStepInput:
         }
         with pytest.raises(SpecError, match="allows nothing"):
             check_step_input({"id": "a", "input": {"x": 1}}, spec, WHERE)
-
-    def test_a_gate_input_is_reported_as_the_gates(self) -> None:
-        """Otherwise the message points at the step's own input, which is a different thing."""
-        step = {"id": "a", "gate": {"tool": "strict", "input": {}}}
-        with pytest.raises(SpecError, match="gate does not pass text"):
-            check_gate_input(step, self.STRICT, WHERE)
-
-    def test_a_gate_that_passes_nothing_is_still_checked(self) -> None:
-        step = {"id": "a", "gate": {"tool": "strict"}}
-        with pytest.raises(SpecError, match="gate does not pass text"):
-            check_gate_input(step, self.STRICT, WHERE)
 
 
 class TestTemplated:

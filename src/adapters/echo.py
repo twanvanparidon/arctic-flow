@@ -2,7 +2,7 @@
 
 A real adapter, not a stand-in for one: the engine cannot tell it apart from `claude_code`,
 which is what makes it useful. It needs no runtime on the machine, no network and no
-account, so a flow's graph, its branches, its gates and every template in it can be
+account, so a flow's graph, its branches, its loops and every template in it can be
 exercised for free. `atf run` against it is a dry run that really runs.
 
 That is also the only way the end-to-end suite reaches an agent step. `ADAPTERS` is static
@@ -16,9 +16,9 @@ first word of the first line may be a directive:
     !json <one line>    answer with exactly that JSON, so a switch can be driven
     !invocation         answer with a JSON report of what the engine sent
 
-Anything else is answered with the prompt itself. That is what makes a gate loop
-observable: the engine appends the gate's feedback to the next prompt, so the second turn
-genuinely produces different text and a gate keyed on that text genuinely changes its mind.
+Anything else is answered with the prompt itself. That is what makes a loop observable: a
+pass reads what the last one produced out of `steps`, so a second turn whose prompt guards
+on that genuinely differs from the first.
 
 An agent declaring `output_schema` gets the smallest object satisfying it rather than the
 prompt, so a flow written for a real runtime dry-runs without being edited. `!json` overrides
@@ -47,8 +47,8 @@ from adapters.errors import AdapterRunFailed
 NAME = "echo"
 DESCRIPTION = "Answer from the request rather than a model: no runtime, no network, no cost."
 
-# A flat rate per turn, so a gated step that took two attempts reports twice this and the
-# accumulation is checkable against a number rather than a range.
+# A flat rate per turn, so a flow that looped twice reports twice this and the total is
+# checkable against a number rather than a range.
 COST_PER_TURN = 0.01
 
 # Only what the engine sends: `specs.FORWARDED` plus the two `agent_turn` always builds. An

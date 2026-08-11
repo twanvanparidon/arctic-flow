@@ -28,7 +28,6 @@ from __future__ import annotations
 from typing import Any
 
 from engine.executor import (
-    DEFAULT_GATE_ATTEMPTS,
     back_edges,
     build_graph,
     load_agent,
@@ -296,25 +295,6 @@ def render(flow: dict[str, Any], steps: list[dict[str, Any]], paths: Paths) -> s
                 f"- `{source}` may send its result back to `{head}` {allowed} time"
                 f"{'' if allowed == 1 else 's'}. Each pass runs "
                 f"{', '.join(f'`{member}`' for member in body)} again"
-            )
-        lines.append("")
-
-    # Deliberately not an edge, and that is what separates a gate from a loop. A loop is a
-    # real edge back to an earlier step and is drawn as one. A gate's retry happens inside
-    # the step, so there is no edge to draw and nothing downstream can see it happen.
-    gated = [by_id[sid] for sid in ids if "gate" in by_id[sid]]
-    if gated:
-        # The section above is the branch list when there is one and the step table when
-        # there is not, and only the first of those leaves a blank line behind it.
-        if lines[-1]:
-            lines.append("")
-        lines += ["## Gates", ""]
-        for step in gated:
-            gate = step["gate"]
-            allowed = gate.get("max_attempts", DEFAULT_GATE_ATTEMPTS)
-            lines.append(
-                f"- `{step['id']}` pushes nothing until `{gate['tool']}` accepts its result, "
-                f"and gets {allowed} attempts to earn that"
             )
         lines.append("")
 

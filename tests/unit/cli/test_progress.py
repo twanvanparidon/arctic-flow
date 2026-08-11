@@ -78,20 +78,6 @@ class TestStepDetail:
         detail = Progress(io.StringIO())._finished_detail(finished(pushed_to=["b"]))
         assert detail == "120ms"
 
-    def test_a_rejected_attempt_says_whether_there_is_another(self) -> None:
-        event = {"tool": "word_limit", "attempt": 1, "of": 3}
-        detail = Progress._gate_detail(event)
-        assert "word_limit" in detail
-        assert "1/3" in detail
-
-    def test_the_last_attempt_says_it_was_the_last(self) -> None:
-        """Whether the step is converging or about to run out of turns."""
-        last = Progress._gate_detail({"tool": "word_limit", "attempt": 3, "of": 3})
-        earlier = Progress._gate_detail({"tool": "word_limit", "attempt": 2, "of": 3})
-        assert "3/3" in last
-        # Something beyond the number differs, which is the part being tested.
-        assert last != earlier.replace("2/3", "3/3")
-
     def test_a_repeated_step_says_which_pass_it_was(self) -> None:
         """The same step id appears once per pass, and nothing else says why."""
         detail = Progress(io.StringIO())._finished_detail(finished(iteration=3))
@@ -139,23 +125,12 @@ class TestEventLines:
         assert stream.getvalue().startswith("✗ ")
         assert "no signing key" in stream.getvalue()
 
-    def test_a_rejected_gate_earns_a_line(self) -> None:
-        stream = io.StringIO()
-        Progress(stream)({"kind": "gated", "step": "draft", "tool": "wc", "attempt": 1, "of": 3})
-        assert "⟲ draft" in stream.getvalue()
-
     def test_a_step_sending_its_result_back_earns_a_line(self) -> None:
         stream = io.StringIO()
         event = {"kind": "looped", "step": "review", "to": "write", "count": 1, "of": 5}
         Progress(stream)(event)
         assert "⟲ review" in stream.getvalue()
         assert "write" in stream.getvalue()
-
-    def test_a_gate_that_passed_does_not(self) -> None:
-        """It is followed straight away by the step's own tick."""
-        stream = io.StringIO()
-        Progress(stream)({"kind": "gated", "step": "draft", "ok": True, "attempt": 1, "of": 3})
-        assert stream.getvalue() == ""
 
     def test_an_unrecognised_event_is_ignored(self) -> None:
         """A new event kind should not crash a front end that predates it."""

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from engine.executor import FlowError, check_gate_shape, validate
+from engine.executor import FlowError, validate
 from paths.resolver import Paths
 from support import components as make
 
@@ -231,7 +231,7 @@ class TestTemplateReferences:
         )
         assert validate(definition, project)
 
-    def test_this_is_refused_outside_a_switch_or_a_gate(self, project: Paths) -> None:
+    def test_this_is_refused_outside_a_switch(self, project: Paths) -> None:
         step = tool_step("a", input={"x": "{{ this.text }}"})
         with pytest.raises(FlowError, match=r"\{\{ this\.\* \}\}"):
             validate(flow(step), project)
@@ -239,11 +239,6 @@ class TestTemplateReferences:
     def test_this_is_accepted_in_a_switch(self, project: Paths) -> None:
         step = tool_step("a", switch="{{ this.json.verdict }}", cases={"ok": ["b"]})
         assert validate(flow(step, tool_step("b")), project)
-
-    def test_gate_is_refused_outside_the_gate_feedback(self, project: Paths) -> None:
-        step = agent_step("a", prompt="{{ gate.text }}")
-        with pytest.raises(FlowError, match=r"\{\{ gate\.\* \}\}"):
-            validate(flow(step), project)
 
 
 class TestSecretReferences:
@@ -270,24 +265,16 @@ class TestSecretReferences:
         with pytest.raises(FlowError, match="secrets.token"):
             validate(flow(step), project)
 
-    def test_a_secret_in_gate_feedback_is_refused(self, project: Paths) -> None:
-        """Feedback becomes the next prompt, so the same rule applies to it."""
+    def test_a_secret_in_an_agent_switch_is_refused(self, project: Paths) -> None:
+        """A switch is not model-facing, but the rule is per step: its prompt still is."""
         step = agent_step(
             "a",
             secrets=["token"],
-            gate={"tool": "noop", "feedback": "use {{ secrets.token }}"},
+            switch="{{ secrets.token }}",
+            cases={"ok": ["b"]},
         )
         with pytest.raises(FlowError, match="secrets.token"):
-            validate(flow(step), project)
-
-    def test_a_secret_in_a_gate_input_is_accepted_when_declared(self, project: Paths) -> None:
-        """A gate's input is a tool's input, and a tool reads secrets from its environment."""
-        step = agent_step(
-            "a",
-            secrets=["token"],
-            gate={"tool": "noop", "feedback": "again", "input": {"k": "{{ secrets.token }}"}},
-        )
-        assert validate(flow(step), project)
+            validate(flow(step, tool_step("b")), project)
 
 
 class TestOutput:
@@ -324,58 +311,33 @@ class TestOutput:
             validate(definition, project)
 
 
-class TestGateShape:
-    def test_a_gate_on_a_tool_step_is_refused(self, project: Paths) -> None:
-        """A tool given the same input returns the same result, so the retry cannot converge."""
-        step = tool_step("a", gate={"tool": "noop", "feedback": "again"})
-        with pytest.raises(FlowError, match=r"step 'a' has a gate"):
-            validate(flow(step), project)
+class TestToolSwitch:
+    """A switch is the step's own result choosing a branch, and a tool step has one too.
 
-    @pytest.mark.parametrize("gate", ["noop", ["noop"], 3])
-    def test_a_gate_must_be_a_mapping(self, project: Paths, gate: object) -> None:
-        with pytest.raises(FlowError, match="gate must be a mapping"):
-            check_gate_shape("a", {"gate": gate})
+    The engine never asked what kind of step it was, so these pin the thing a reader would
+    otherwise have to infer from that absence: a check written as a tool is an ordinary step.
+    """
 
-    @pytest.mark.parametrize("field", ["tool", "feedback"])
-    def test_a_gate_needs_a_tool_and_a_feedback(self, field: str) -> None:
-        gate = {"tool": "noop", "feedback": "again"}
-        del gate[field]
-        with pytest.raises(FlowError, match=f"gate needs a '{field}'"):
-            check_gate_shape("a", {"gate": gate})
+    def test_a_tool_step_may_switch_on_its_own_output(self, project: Paths) -> None:
+        step = tool_step("a", switch="{{ this.json.verdict }}", cases={"approved": ["b"]})
+        assert validate(flow(step, tool_step("b")), project)
 
-    @pytest.mark.parametrize("value", ["", "   ", None, 3, []])
-    def test_a_blank_gate_field_counts_as_missing(self, value: object) -> None:
-        with pytest.raises(FlowError, match="gate needs a 'feedback'"):
-            check_gate_shape("a", {"gate": {"tool": "noop", "feedback": value}})
+    def test_a_tool_step_may_switch_on_its_own_text(self, project: Paths) -> None:
+        step = tool_step("a", switch="{{ this.text }}", cases={"approved": ["b"]})
+        assert validate(flow(step, tool_step("b")), project)
 
-    @pytest.mark.parametrize("attempts", [1, 0, -1])
-    def test_fewer_than_two_attempts_leaves_no_turn_to_act_on_the_feedback(
-        self, attempts: int
-    ) -> None:
-        gate = {"tool": "noop", "feedback": "again", "max_attempts": attempts}
-        with pytest.raises(FlowError, match="max_attempts"):
-            check_gate_shape("a", {"gate": gate})
-
-    def test_a_yaml_boolean_is_not_an_attempt_count(self) -> None:
-        """YAML 1.1 reads `max_attempts: yes` as True, and a bool is an int, so it passed as 1."""
-        gate = {"tool": "noop", "feedback": "again", "max_attempts": True}
-        with pytest.raises(FlowError, match="max_attempts"):
-            check_gate_shape("a", {"gate": gate})
-
-    @pytest.mark.parametrize("attempts", ["3", 3.0, None])
-    def test_an_attempt_count_that_is_not_an_integer_is_refused(self, attempts: object) -> None:
-        gate = {"tool": "noop", "feedback": "again", "max_attempts": attempts}
-        with pytest.raises(FlowError, match="max_attempts"):
-            check_gate_shape("a", {"gate": gate})
-
-    def test_omitting_max_attempts_is_fine(self) -> None:
-        assert check_gate_shape("a", {"gate": {"tool": "noop", "feedback": "again"}}) is None
-
-    def test_a_complete_gate_validates(self, project: Paths) -> None:
-        step = agent_step(
-            "a", gate={"tool": "noop", "feedback": "again, shorter", "max_attempts": 2}
+    def test_a_tool_step_may_send_its_result_back_upstream(self, project: Paths) -> None:
+        """The shape a check has: reject and the work goes back to whatever produced it."""
+        definition = flow(
+            agent_step("write", push=["check"]),
+            tool_step(
+                "check",
+                switch="{{ this.json.verdict }}",
+                max_loops=2,
+                cases={"approved": [], "rejected": ["write"]},
+            ),
         )
-        assert validate(flow(step), project)
+        assert validate(definition, project)
 
 
 def loop_flow(**check: Any) -> dict[str, Any]:
@@ -521,31 +483,6 @@ class TestTheComponentsAFlowNames:
         make.write_agent(workspace, "eager", effort="maximum")
         step = {"id": "a", "agent": "eager", "prompt": "x"}
         with pytest.raises(FlowError, match="rejected by adapter echo"):
-            validate(flow(step), project)
-
-    def test_the_gates_tool_is_held_to_the_tool_contract(
-        self, project: Paths, workspace: Path
-    ) -> None:
-        make.write_tool(workspace, "checker", executable=False)
-        step = agent_step("a", gate={"tool": "checker", "feedback": "again"})
-        with pytest.raises(FlowError, match="checker.*is not executable"):
-            validate(flow(step), project)
-
-    def test_a_gate_input_the_tool_does_not_accept_is_refused(
-        self, project: Paths, workspace: Path
-    ) -> None:
-        make.write_tool(
-            workspace,
-            "checker",
-            input_schema={
-                "type": "object",
-                "properties": {"text": {"type": "string"}},
-                "required": ["text"],
-                "additionalProperties": False,
-            },
-        )
-        step = agent_step("a", gate={"tool": "checker", "feedback": "again", "input": {}})
-        with pytest.raises(FlowError, match="gate does not pass text"):
             validate(flow(step), project)
 
 

@@ -1,7 +1,7 @@
 {
   "name": "word_limit",
   "version": 1,
-  "description": "Check that a piece of text is inside a word budget. Exits non-zero when it is over, with the count and the overage on stderr.",
+  "description": "Answer whether a piece of text is inside a word budget. Exits 0 either way, with the verdict on stdout as JSON.",
   "doc": "tool.md",
 
   "run": { "command": ["./run.sh"], "input": "stdin_json", "output": "stdout_text", "cwd": "workspace", "timeout_seconds": 10 },
@@ -16,11 +16,22 @@
     "additionalProperties": false
   },
 
-  "output_schema": { "type": "string", "description": "The count and the limit, with no trailing newline." },
+  "output_schema": {
+    "type": "object",
+    "description": "The verdict. `verdict` is what a flow switches on; `reason` is what it tells the writer, and is null when there is nothing to say.",
+    "properties": {
+      "verdict": { "enum": ["approved", "rejected"] },
+      "words": { "type": "integer" },
+      "limit": { "type": "integer" },
+      "over": { "type": "integer", "description": "How far past the limit, and 0 when inside it." },
+      "reason": { "type": ["string", "null"] }
+    },
+    "required": ["verdict", "words", "limit", "over", "reason"],
+    "additionalProperties": false
+  },
 
   "exit_codes": {
-    "0": "inside the limit (the count is on stdout)",
-    "1": "over the limit (the count, the overage and the limit are on stderr)",
+    "0": "answered (the verdict is on stdout as JSON, whether it approved or rejected)",
     "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)"
   },
 

@@ -15,17 +15,15 @@ instead of waiting forever for a branch the flow never entered.
 A skipped step still resolves in templates, as the literal "(not run)", so a prompt can
 acknowledge the gap rather than silently omitting it.
 
-An agent step may also carry a `gate`: a tool that has to accept the result before it is
-pushed anywhere. A rejection is not a failure. The step runs again with what the gate said
-appended to its prompt, until the gate passes or the attempts run out. That loop is inside
-the step rather than in the graph, because every turn is a fresh session and the retry has
-to carry its own history.
+A `switch` is a step's own result choosing a branch, and a tool step has one as readily as
+an agent step does. That is how a check is written: the tool answers a verdict, exits 0
+because answering *is* its job, and the flow switches on what it said. A non-zero exit
+stays what it always was, a tool that could not do its job, and fails the step.
 
 A `switch` case naming a step that is already upstream is a *loop*, and the only cycle a
 flow may have. Its steps go back to waiting and run again, bounded by `max_loops` on the
-step that sends the work back. Unlike a gate this is a real edge, so the reviewer is a step
-of its own and what it said is in `steps` for the next pass to read. A gate checks the
-shape of one answer; a loop sends the work back through however many steps produced it.
+step that sends the work back. The edge is real, so the step that sent the work back is a
+step of its own and what it said is in `steps` for the next pass to read.
 
 A loop also makes its steps ancestors of each other, including of themselves, so a step in
 one may read its own previous result. That is what lets a pass edit the last answer rather
@@ -81,9 +79,6 @@ STANDALONE_TAG = re.compile(r"^[ \t]*(\{%.*?%\})[ \t]*\n?", re.MULTILINE)
 START = "__start__"
 
 SKIPPED_RESULT = {"skipped": True, "text": "(not run)", "json": None}
-
-# One answer plus two chances to act on what the gate said, where the returns flatten out.
-DEFAULT_GATE_ATTEMPTS = 3
 
 # What an input's environment variable is called. See variable_name() for why it is not
 # bare `ATF_`.
@@ -438,9 +433,8 @@ def spawn(
 ) -> subprocess.CompletedProcess[str]:
     """Validate the payload against the component's own schema, then run it.
 
-    The exit code is handed back rather than judged here, because the two callers read it
-    differently: a tool step treats anything but 0 as a failed run, a gate treats it as the
-    verdict and wants the output either way.
+    The exit code is handed back rather than judged here. `invoke` is the one caller and is
+    what turns anything but 0 into a failed step.
 
     `secrets` go into the child's environment and nowhere else, and only the names the
     step declared are present. A component cannot read a secret it was not granted.
@@ -731,45 +725,12 @@ def _read_prompt(sid: str, reference: str, directory: Path) -> str:
         ) from exc
 
 
-def check_gate_shape(sid: str, step: dict[str, Any]) -> None:
-    """A gate's own keys, before any of them is resolved.
-
-    Two of these refuse a retry that could only arrive back where it started, rather than
-    checking a type. Each message carries its own reason.
-    """
-    if "tool" in step:
-        raise FlowError(
-            f"step '{sid}' has a gate, but it runs the tool '{step['tool']}'. A gate retries "
-            "its step, and a tool given the same input returns the same result. Gates apply "
-            "to agent steps"
-        )
-
-    gate = step["gate"]
-    if not isinstance(gate, dict):
-        raise FlowError(f"step '{sid}' gate must be a mapping with a 'tool' and a 'feedback'")
-
-    for field in ("tool", "feedback"):
-        value = gate.get(field)
-        if not isinstance(value, str) or not value.strip():
-            raise FlowError(f"step '{sid}' gate needs a '{field}'")
-
-    if "max_attempts" not in gate:
-        return
-    allowed = gate["max_attempts"]
-    # YAML 1.1 reads `yes` as True and a bool is an int, so `max_attempts: yes` passes as 1.
-    if isinstance(allowed, bool) or not isinstance(allowed, int) or allowed < 2:
-        raise FlowError(
-            f"step '{sid}' gate max_attempts must be an integer of 2 or more. One attempt "
-            "leaves no turn to act on the feedback, which is what a gate is for"
-        )
-
-
 def check_loop_shape(sid: str, step: dict[str, Any]) -> None:
     """A step's `max_loops`, before the graph has said whether it loops at all."""
     allowed = step["max_loops"]
     # YAML 1.1 reads `yes` as True and a bool is an int, so `max_loops: yes` would pass as
-    # 1. Unlike a gate's max_attempts, 1 is a legal bound here, so the bool has to be
-    # refused in its own right rather than falling out of a minimum of 2.
+    # 1. One is a legal bound, so the bool has to be refused in its own right rather than
+    # falling out of a minimum above it.
     if isinstance(allowed, bool) or not isinstance(allowed, int) or allowed < 1:
         raise FlowError(
             f"step '{sid}' max_loops must be an integer of 1 or more. It counts how many "
@@ -808,8 +769,6 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 f"step '{sid}' sets both 'push' and 'switch'. A step either hands its result "
                 "onward unconditionally or chooses one branch, not both"
             )
-        if "gate" in step:
-            check_gate_shape(sid, step)
         if "max_loops" in step:
             check_loop_shape(sid, step)
         by_id[sid] = step
@@ -930,7 +889,7 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
         raise FlowError(f"steps form a cycle nothing enters: {', '.join(sorted(remaining))}")
 
     # A template may read inputs, or a step that is genuinely upstream of it. `this` is the
-    # running step's own result, in a switch or a gate. `gate` is what the gate then said.
+    # running step's own result, which exists only in its switch.
     declared_inputs = set((flow.get("inputs") or {}).keys())
 
     def check_refs(
@@ -938,7 +897,6 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
         refs: list[str],
         *,
         allow_this: bool = False,
-        allow_gate: bool = False,
         to_model: bool = False,
     ) -> None:
         upstream = ancestors_of(sid, inbound)
@@ -947,15 +905,8 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
             if root == "this":
                 if not allow_this:
                     raise FlowError(
-                        f"step '{sid}' uses {{{{ this.* }}}} outside its switch or gate. 'this' "
-                        "is the step's own result, so it exists only where that result already "
-                        "does"
-                    )
-            elif root == "gate":
-                if not allow_gate:
-                    raise FlowError(
-                        f"step '{sid}' uses {{{{ gate.* }}}} outside its gate feedback. What "
-                        "the gate said exists only once it has rejected a result"
+                        f"step '{sid}' uses {{{{ this.* }}}} outside its switch. 'this' is the "
+                        "step's own result, so it exists only where that result already does"
                     )
             elif root == "inputs":
                 if rest.split(".")[0] not in declared_inputs:
@@ -990,25 +941,13 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 raise FlowError(f"step '{sid}' references unknown namespace '{root}'")
 
     for sid, step in by_id.items():
-        # An agent step's body is model-facing: its prompt is in there. The gate is checked
-        # apart from it because half of a gate reaches the model and half does not.
+        # An agent step's body is model-facing: its prompt is in there. The switch is
+        # checked apart from it, because that is the one place `this` resolves.
         to_model = "agent" in step
-        body = {k: v for k, v in step.items() if k not in ("id", "switch", "gate")}
+        body = {k: v for k, v in step.items() if k not in ("id", "switch")}
         check_refs(sid, template_refs(body), to_model=to_model)
         if step.get("switch"):
             check_refs(sid, template_refs(step["switch"]), allow_this=True, to_model=to_model)
-        gate = step.get("gate")
-        if gate:
-            # A gate's input is a tool's input, so a secret the step declared may be
-            # templated into it. Its feedback becomes the next prompt, so one may not.
-            check_refs(sid, template_refs(gate.get("input") or {}), allow_this=True)
-            check_refs(
-                sid,
-                template_refs(gate["feedback"]),
-                allow_this=True,
-                allow_gate=True,
-                to_model=True,
-            )
 
     # Shape before contents. `output: "{{ steps.x.text }}"` is the natural typo for
     # `output: {template: ...}`, and without this it reached .get() on a str and came out as
@@ -1051,14 +990,6 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
             # reported here too.
             load_agent(paths, step["agent"])
             specs.check_agent_spec(spec, paths.display(base / "spec.json"))
-
-            # A gate is a tool run, held to the tool contract in full. Otherwise a gate that
-            # cannot run is discovered by the answer it was meant to check.
-            if "gate" in step:
-                gate_base, gate_spec = load_component(paths, "tool", step["gate"]["tool"])
-                gate_where = paths.display(gate_base / "spec.json")
-                specs.check_tool_spec(gate_spec, gate_base, gate_where)
-                specs.check_gate_input(step, gate_spec, gate_where)
         except specs.SpecError as exc:
             raise FlowError(str(exc)) from exc
 
@@ -1234,52 +1165,6 @@ def tool_calls_reported(
             reporter.drain()
 
 
-@dataclass(frozen=True)
-class GateOutcome:
-    """What a gate said about the result it was given.
-
-    `text` is what the next attempt is told, so it is the tool's own output rather than
-    the engine's summary of it. `json` is there for a gate that reports structured findings.
-    """
-
-    ok: bool
-    text: str
-    json: Any = None
-
-
-def check_gate(
-    gate: dict[str, Any],
-    result: dict[str, Any],
-    context: dict[str, Any],
-    paths: Paths,
-    secrets: dict[str, str],
-    cancel: threading.Event | None = None,
-) -> GateOutcome:
-    """Run a step's gate against the result the step just produced.
-
-    Exit 0 passes. Anything else is a verdict rather than a broken run, so the output is
-    kept and handed back instead of raised: what the check printed is all the next attempt
-    has to go on. Both streams are read, because a check that prints its findings and one
-    that prints a single line on the way out are equally common.
-
-    A gate that is itself broken reports its own error through the same path. That spends
-    the attempts before the step fails, which is the price of letting any tool be a gate.
-    """
-    base, spec = load_component(paths, "tool", gate["tool"])
-    gate_context = {**context, "this": result, "secrets": secrets}
-    payload = {
-        key: render(value, gate_context) if isinstance(value, str) else value
-        for key, value in (gate.get("input") or {}).items()
-    }
-    proc = spawn(base, spec, payload, paths, secrets=secrets, cancel=cancel)
-    parsed = maybe_json(proc.stdout)
-    if proc.returncode == 0:
-        return GateOutcome(ok=True, text=proc.stdout, json=parsed)
-
-    said = "\n".join(part for part in (proc.stdout.strip(), proc.stderr.strip()) if part)
-    return GateOutcome(ok=False, text=said or exit_summary(spec, proc), json=parsed)
-
-
 def run_step(
     step: dict[str, Any],
     context: dict[str, Any],
@@ -1320,16 +1205,16 @@ def run_agent(
     notify: Callable[[dict[str, Any]], None],
     cancel: threading.Event | None = None,
 ) -> dict[str, Any]:
-    """An agent turn, repeated while the step's gate rejects the answer.
+    """One agent turn, in a session of its own.
 
-    Without a gate this runs once and the loop is not a loop. With one, a rejected answer
-    is not an error: the next turn gets the original prompt plus the gate's `feedback`,
-    which is where `{{ gate.text }}` and the rejected `{{ this.text }}` go. The prompt has
-    to carry that itself, because each turn is a fresh session with no memory of the last.
+    A step that has to be reworked is a loop in the graph rather than a retry in here: the
+    step that judged the answer is a step, and the next pass reads what it said out of
+    `steps`. Each turn is a fresh session with no memory of the last, so the prompt is the
+    only place that history can live, and a loop puts it somewhere a reader can see.
 
-    `cancel` is checked before each turn rather than only between steps. A turn costs
-    money, and an adapter cannot be interrupted once it has started, so the last chance to
-    not spend it is here.
+    `cancel` is checked before the turn rather than only between steps. A turn costs money,
+    and an adapter cannot be interrupted once it has started, so the last chance to not
+    spend it is here.
     """
     agent, system = load_agent(paths, step["agent"])
     try:
@@ -1337,59 +1222,11 @@ def run_agent(
     except adapters.AdapterError as exc:
         raise FlowError(str(exc)) from exc
 
-    gate = step.get("gate")
-    allowed = (gate or {}).get("max_attempts", DEFAULT_GATE_ATTEMPTS)
-    first = render(step["prompt"], context)
-    prompt = first
-    spent = 0.0
-    attempt = 0
-
-    # Wraps the whole loop rather than one turn, so a retry's tool calls are reported too.
     # Yields None when the agent was granted nothing, which is the no-tools turn.
     with tool_calls_reported(paths, agent.get("tools") or [], notify, step["id"]) as server:
-        while True:
-            if cancel is not None and cancel.is_set():
-                raise Cancelled("the run stopped before this turn started")
-            attempt += 1
-            result = agent_turn(adapter, agent, system, prompt, secrets, server)
-            if gate is None:
-                return result
-
-            # Every attempt was paid for. The envelope only carries what the last turn
-            # cost, so a gated step reports the total or the trace under-counts a retry.
-            # `attempts` counts these, not the model turns inside one: a turn with tools
-            # makes many, and reports them as `num_turns`.
-            spent += result.get("cost_usd") or 0.0
-            result["cost_usd"] = spent
-            result["attempts"] = attempt
-
-            outcome = check_gate(gate, result, context, paths, secrets, cancel)
-            notify(
-                {
-                    "kind": "gated",
-                    "step": step["id"],
-                    "tool": gate["tool"],
-                    "attempt": attempt,
-                    "of": allowed,
-                    "ok": outcome.ok,
-                }
-            )
-            if outcome.ok:
-                return result
-            if attempt >= allowed:
-                # execute() prefixes the step id onto step failures, so don't repeat it.
-                raise FlowError(
-                    f"did not pass gate '{gate['tool']}' in {allowed} attempts. {outcome.text}"
-                )
-            # A retry starts from the original prompt, but not from the original
-            # workspace: a granted write tool may already have changed it, and only the
-            # feedback carries history.
-            feedback_context = {
-                **context,
-                "this": result,
-                "gate": {"text": outcome.text, "json": outcome.json},
-            }
-            prompt = f"{first}\n\n{render(gate['feedback'], feedback_context)}"
+        if cancel is not None and cancel.is_set():
+            raise Cancelled("the run stopped before this turn started")
+        return agent_turn(adapter, agent, system, render(step["prompt"], context), secrets, server)
 
 
 def agent_turn(
@@ -1452,8 +1289,8 @@ def _check_ceiling(
     """Fail the run once `run.max_minutes` has passed, and stop what it can on the way out.
 
     What it stops is worth knowing before relying on it. Setting `stop` reaches a tool
-    subprocess within `CANCEL_POLL_SECONDS`, whether it is a step's tool or a gate. It
-    cannot reach an agent turn: `adapter.run` is a synchronous call with no way in, so a
+    subprocess within `CANCEL_POLL_SECONDS`. It cannot reach an agent turn:
+    `adapter.run` is a synchronous call with no way in, so a
     turn already started runs until its own `timeout_seconds`, and the pool's shutdown
     waits for it. The ceiling is therefore a ceiling plus at most one agent turn.
 
@@ -1650,10 +1487,8 @@ def execute(
                     "pushed_to": targets,
                     "cost_usd": results[sid].get("cost_usd"),
                 }
-                # Only where a gate ran: `null` on every step of every other flow is noise.
-                if results[sid].get("attempts"):
-                    entry["attempts"] = results[sid]["attempts"]
-                # Same rule. A step outside a loop has run once and has nothing to add.
+                # Only where the step has run before: `null` on every step of every flow
+                # without a loop in it is noise.
                 if runs[sid] > 1:
                     entry["iteration"] = runs[sid]
                 trace.append(entry)

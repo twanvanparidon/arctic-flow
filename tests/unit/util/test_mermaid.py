@@ -339,24 +339,6 @@ class TestRender:
         assert "`report` waits on `scan`, `triage`" in markdown
         assert "may be skipped, which unblocks rather than stalls this step" in markdown
 
-    def test_a_gate_is_described_rather_than_drawn_as_an_edge(self, project: Paths) -> None:
-        """Which is what separates a gate from a loop. A loop is a real edge back to an
-        earlier step and is drawn as one. A gate's retry happens inside the step, so there
-        is no edge to draw and nothing downstream can see it happen."""
-        steps = [
-            {
-                "id": "draft",
-                "agent": "reporter",
-                "prompt": "p",
-                "gate": {"tool": "classify", "feedback": "again", "max_attempts": 4},
-            }
-        ]
-        markdown = render({"flow": "s", "start": "draft"}, steps, project)
-        assert "## Gates" in markdown
-        assert "`draft` pushes nothing until `classify` accepts its result" in markdown
-        assert "gets 4 attempts" in markdown
-        assert "-->" not in markdown.split("## Gates")[1]
-
     def test_it_ends_with_exactly_one_newline(self, markdown: str) -> None:
         """It is written to a file as-is, so a document, not a message."""
         assert markdown.endswith("\n")
@@ -364,8 +346,8 @@ class TestRender:
 
 
 class TestRenderALoop:
-    """Unlike a gate, a loop is a real edge and is drawn. Everything the report derives is
-    read off the graph with the loop opened, because none of it means anything on a cycle."""
+    """A loop is a real edge and is drawn as one. Everything the report derives is read off
+    the graph with the loop opened, because none of it means anything on a cycle."""
 
     LOOP = [
         {"id": "write", "tool": "classify", "push": ["check"]},
