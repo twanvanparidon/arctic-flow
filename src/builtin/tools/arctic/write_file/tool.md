@@ -74,10 +74,10 @@ as a typo, and the caller is better placed to know which of the two it meant.
 
 ## Why there is no append mode
 
-An agent step can carry a gate, and a rejected answer re-runs the whole turn
-from the original prompt. A tool that appended would append again on every
-attempt, so a step that took three tries would write its output three times
-over. Overwriting is idempotent under that retry; appending is not.
+A step in a loop runs again on every pass, from a prompt that starts over. A tool
+that appended would append again each time, so a draft that took three passes
+would write its output three times over. Overwriting is idempotent under that;
+appending is not.
 
 To add to a file, read it, then write the whole thing back.
 

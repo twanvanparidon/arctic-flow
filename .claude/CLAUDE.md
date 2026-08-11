@@ -24,7 +24,7 @@ ATF_VAULT_PASSWORD=demo python3 src/main.py --workspace examples/sign-release \
 python3 src/main.py --workspace examples/file-review inspect flow review_file
 ```
 
-`../examples/file-review`, `../examples/gated-summary` and `../examples/draft-review`
+`../examples/file-review`, `../examples/checked-summary` and `../examples/draft-review`
 (which loops, so it pays for several turns) call models: they need the
 `claude` CLI authenticated and cost a few cents per run. `../examples/sign-release` needs
 nothing (vault password `demo`).
@@ -156,14 +156,15 @@ whose every inbound edge is skipped is itself skipped, and that cascades. This i
 lets a join downstream of a branch run on both paths instead of waiting forever. A skipped
 step still resolves in templates as the literal `(not run)`, so prompts can mention the gap.
 
-An agent step may also carry a `gate`: a tool that has to exit 0 on the step's result
-before any edge is delivered. A rejection is not a failure. The tool's output is appended
-to the original prompt through the step's own `feedback` template and the agent answers
-again, up to `max_attempts` (3 by default, minimum 2), after which the step fails carrying
-what the gate said. The loop is inside `run_agent` rather than in the graph, because every
-turn is a fresh session, so the retry has to carry its own history. A gated step reports
-the cost of *all* its attempts, because the envelope only knows the last one. Gates are
-refused on tool steps: same input, same result, no way out of the loop.
+**There is no `gate` key, and a tool step switches exactly as an agent step does.** That is
+what a check is: the tool answers a verdict, exits 0 because answering is its job, and one
+case sends the work back. A non-zero exit stays a tool that could not do its job and fails
+the step, which is the convention every shipped tool follows ("the search ran; it matched
+something or it did not"). The verdict goes on stdout as JSON, because `run_step` parses it
+into `.json`, and because `.verdict` and `.reason` are needed in two different places: the
+switch and the next pass's prompt. The retry that used to live inside `run_agent` is now an
+edge in the graph, so the judge has a row in `inspect flow`, a line per pass and its own
+`--trace` entry.
 
 A `switch` case naming a step that is already upstream is a **loop**, the only cycle a flow
 may have. `back_edges` finds it by a depth-first walk from `start`, so declaration order
@@ -176,10 +177,20 @@ edges `pending` rather than `skipped`: marking the exit branch skipped propagate
 everything after the loop, so the run ends with no output. Anything derived from an
 ordering (waves, guarantees, the cycle check) reads `without_back_edges` instead.
 
+**Two loops may share a body only where one contains the other**, which is a tool check
+nested in an agent review. Partial overlap stays refused: a step one loop re-runs and the
+other does not belongs to neither pass. Nesting costs `reenter` one rule, and getting it
+wrong is silent rather than loud. A back-edge *inside* the body being reset goes back to
+`skipped`, not `pending`, for the reason every back-edge starts that way. Left pending, the
+inner head waits on a step downstream of itself, nothing becomes ready, `execute` returns,
+and the run exits 0 with the previous pass's output. `loops` is not reset either, so a bound
+is per step over the whole run: two nested threes are six passes, not sixteen, and a flow's
+worst case is something a reader can add up.
+
 `run.max_minutes` from the user's config is a ceiling on the whole of `execute`, and the
 one limit a flow cannot raise, because it is a safeguard rather than a setting. It is the
 timeout on the pool's `wait`, so nothing blocks past it, and firing sets a run-wide cancel
-event that reaches every tool subprocess: a step's, and a gate's. It cannot reach an agent
+event that reaches every tool subprocess. It cannot reach an agent
 turn, because `adapter.run` is a synchronous call with no way in, so a turn already
 started runs to its own `timeout_seconds` and the pool's shutdown waits for it. The
 ceiling is therefore a ceiling plus at most one turn. Closing that gap means putting
@@ -187,8 +198,8 @@ cancellation into the adapter contract, which is why it is left open. `run_agent
 the event before each turn, so the gap costs time and never a second paid turn. No
 ceiling means no event at all, so a run without a config takes the path it always did.
 
-Templates are `{{ dotted.path }}` over five namespaces: `inputs`, `steps`, `secrets`,
-`this` (the step's own result, in a switch or a gate) and `gate` (gate feedback only). An
+Templates are `{{ dotted.path }}` over four namespaces: `inputs`, `steps`, `secrets` and
+`this` (the step's own result, in its switch and nowhere else). An
 unresolvable path is an error, never an empty string. `validate()` rejects reading from a
 step that is not transitively upstream, an undeclared cycle, unreachable steps, self-pushes,
 and both `push` and `switch` on one step.
@@ -211,8 +222,7 @@ with it, or every conditional leaves a blank line behind.
 downstream sees one kind of prompt and a missing file fails `lint`; the cost is that a
 template error names the step, not the file. `prompt` and `prompt_file` on one step is
 refused, and the name is checked against `REFUSED_SEGMENTS` so it cannot leave the directory.
-A gate's `feedback` and `output.template` have the same shape and deliberately do not have it
-yet.
+`output.template` has the same shape and deliberately does not have it yet.
 
 An input comes from the caller's mapping or from `$ATF_VAR_<NAME>`, merged in
 `commands.prepare` with the mapping winning. The prefix is `ATF_VAR_` and not a bare `ATF_`
@@ -328,7 +338,7 @@ an adapter is engine infrastructure called in-process. `ADAPTERS` is static impo
 purpose: a frozen build misses anything resolved dynamically.
 
 Two ship. `claude_code` calls a model. `echo` answers from the request, so a flow's graph,
-branches, gates and templates run with no runtime, no network and no cost, and its prompt
+branches, loops and templates run with no runtime, no network and no cost, and its prompt
 can carry `!fail`, `!json` or `!invocation` to steer or inspect a turn. That is also what
 lets `tests/e2e` reach an agent step at all: nothing outside the binary can add to a
 registry that was frozen into it.

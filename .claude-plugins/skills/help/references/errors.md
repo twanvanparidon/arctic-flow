@@ -24,7 +24,7 @@ Match on the identifying phrase. The exact wording may improve between versions.
 | Message | Cause | Fix |
 | --- | --- | --- |
 | `pushes to unknown step` | a typo in `push` or a case | check the id against `atf inspect flow` |
-| `pushes to itself` | `push: [own_id]` | a step cannot hand to itself; use a gate for a retry |
+| `pushes to itself` | `push: [own_id]` | a step cannot hand to itself; put a check between it and itself, and loop through that |
 | `is unreachable: nothing pushes to it` | the step was written but never wired | add it to a `push` or a case, or delete it |
 | `sets both 'push' and 'switch'` | both keys on one step | a step hands on unconditionally or chooses one branch |
 | `steps form a cycle nothing enters` | a ring of steps no walk from `start` reaches | wire it to the graph, or delete it |
@@ -59,33 +59,34 @@ A loop that **runs out** at run time is a failure by design: it never converged.
 raising `max_loops`, check that the writing step reads both its own previous answer and the
 review. Without that, each pass starts from the inputs and breaks what already passed.
 
-## Gates
+## Checks
 
-| Message | Cause | Fix |
+There is no `gate` key, so a flow written against one has to be rewritten as a tool step
+with a `switch` and a case naming the step that produced the work. The engine reads `gate:`
+as no key at all.
+
+| Symptom | Cause | Fix |
 | --- | --- | --- |
-| `has a gate, but it runs the tool '<name>'` | a gate on a tool step | a tool given the same input returns the same result; gates are for agent steps |
-| `gate must be a mapping with a 'tool' and a 'feedback'` | `gate:` is a string or a list | a mapping |
-| `gate needs a 'tool'` / `gate needs a 'feedback'` | one is missing or blank | a retry that says nothing about what was wrong is the first attempt again |
-| `gate max_attempts must be an integer of 2 or more` | `max_attempts: 1`, or `yes` | one attempt leaves no turn to act on the feedback |
+| the check fails the step instead of rejecting | the tool exits non-zero to mean "no" | answer on stdout and exit 0; a non-zero exit means the tool could not answer |
+| `switched on '<value>', which matches no case` | the tool's answer is prose, or a field that is not the verdict | answer in JSON and switch on `{{ this.json.verdict }}` |
+| `template references unknown value {{ this.json.verdict }}` | the tool's stdout is not JSON | `.json` is `null` unless stdout parses; check it by hand |
+| `max_loops but no case naming a step upstream` | the reject case names a step that is not upstream | the check has to loop back to what produced the work |
 
-A gate that **runs out** at run time fails the step carrying what the gate last said. Where
-the prompt and the gate disagree, the prompt is what the model is writing to. Make the two
-numbers agree before raising `max_attempts`. A broken gate reports its own error the way a
-rejection arrives, so run it by hand if every attempt is refused identically.
+A check that **runs out** fails the step. Where the prompt and the check disagree, the prompt
+is what the model is writing to, so make the two numbers agree before raising `max_loops`.
 
 ## Templates
 
 | Message | Cause | Fix |
 | --- | --- | --- |
-| `references unknown namespace` | a root that is not `inputs`, `steps`, `secrets`, `this` or `gate` | `{{ input.path }}` is the usual typo |
+| `references unknown namespace` | a root that is not `inputs`, `steps`, `secrets` or `this` | `{{ input.path }}` is the usual typo |
 | `references undeclared input` | the flow has no such `inputs:` entry | declare it, or fix the name |
 | `references unknown step` | a typo in a step id | check `atf inspect flow` |
 | `reads from '<x>', which is not upstream of it` | a sideways read | add an edge, or read something both descend from |
-| `uses {{ this.* }} outside its switch or gate` | `this` in a prompt or a tool input | `this` is the step's own result, so it exists only where that result does |
-| `uses {{ gate.* }} outside its gate feedback` | `gate` anywhere else | it exists only once the gate has rejected something |
-| `puts {{ secrets.NAME }} in an agent prompt` | a secret templated into a prompt or gate feedback | declare it in `secrets` and let the adapter read the environment |
+| `uses {{ this.* }} outside its switch` | `this` in a prompt or a tool input | `this` is the step's own result, so it exists only where that result does |
+| `puts {{ secrets.NAME }} in an agent prompt` | a secret templated anywhere on an agent step | declare it in `secrets` and let the adapter read the environment |
 | `uses {{ secrets.NAME }} without declaring it` | the step has no such name in its `secrets` | add it, so what a step can read is visible where the step is defined |
-| `output references unknown namespace` | `this`, `gate` or `secrets` in `output.template` | the output template reads `inputs` and `steps` only |
+| `output references unknown namespace` | `this` or `secrets` in `output.template` | the output template reads `inputs` and `steps` only |
 | `template references unknown value` | raised at run time | the path did not resolve; often `.json.field` on a result that is not JSON |
 
 ## Components
@@ -156,7 +157,7 @@ are.
 
 - **A step reported as skipped.** A branch that is not taken has its edges marked skipped,
   and skipping propagates. The step still resolves in templates, as `(not run)`.
-- **A gate rejection.** It is a retry, not a failure. The step fails only when the attempts
-  run out.
+- **A check rejecting.** It is a verdict, not a failure: the tool exits 0 and the flow takes
+  the branch that goes back. The step fails only when the passes run out.
 - **Progress and the output frame on stderr.** Stdout carries the flow's output and nothing
   else, so `atf run f > out.md` gives the result byte for byte.

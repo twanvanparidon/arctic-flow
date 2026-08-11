@@ -123,8 +123,8 @@ Two runners, and the choice between them is the whole design of the file you are
 `tests/support/fake_claude.py` speaks the protocol of `--print --output-format json` and is
 steered by the prompt: `!fail`, `!crash`, `!garbage`, `!contradiction` and `!invocation`
 reach the four failure branches and the argv report, and anything else is answered with the
-prompt itself. That last part is what makes a gate loop observable: the engine appends the
-gate's feedback to the next prompt, so the second turn really does differ from the first.
+prompt itself. That last part is what makes a loop observable: a pass reads the last one out
+of `steps`, so a prompt guarding on it really does differ on the second turn.
 
 A fake rather than a stub, which is the order to work down: it is a working program on the
 other side of a real pipe, so an adapter that built the wrong command line fails against it.
@@ -206,7 +206,7 @@ assert line == "→ read           tool read_file\n"     # not this: it pins a c
 
 Keep just enough of the wording to tell one refusal from another. `validate` has several
 that could fire on the same flow, so `"unknown step 'ghost'"` earns its extra words where
-`"max_attempts"` does not.
+`"max_loops"` does not.
 
 Three places where the format **is** the decision, and exact strings are right:
 

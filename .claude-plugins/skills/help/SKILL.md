@@ -1,6 +1,6 @@
 ---
 name: help
-description: Debug and improve an existing Arctic Flow workflow run by the `atf` engine. Use this whenever an `atf lint` or `atf run` fails or is refused, a flow hangs, a step is skipped or never runs, a branch takes the wrong case, a gate or a loop runs out of attempts, a template reference is rejected, a tool or agent name will not resolve, a secret is refused, an agent's granted tool does not work, or the user asks why a flow behaves as it does or how to make it cheaper, faster or more reliable. Use it for any question about flow YAML, a `spec.json`, `agent.md`, `run.sh` or the `atf` CLI itself.
+description: Debug and improve an existing Arctic Flow workflow run by the `atf` engine. Use this whenever an `atf lint` or `atf run` fails or is refused, a flow hangs, a step is skipped or never runs, a branch takes the wrong case, a check or a loop runs out of passes, a template reference is rejected, a tool or agent name will not resolve, a secret is refused, an agent's granted tool does not work, or the user asks why a flow behaves as it does or how to make it cheaper, faster or more reliable. Use it for any question about flow YAML, a `spec.json`, `agent.md`, `run.sh` or the `atf` CLI itself.
 ---
 
 # Debugging and improving an Arctic Flow
@@ -89,12 +89,14 @@ atf run <flow> --input path=... -q          # no progress, only the output
   the step has run at all.
 - **A step failed and took the flow with it.** The error carries the step id. A tool's
   non-zero exit is reported using the sentence from its own `exit_codes`.
-- **A gate ran out of attempts.** The step fails carrying what the gate last said. Where
-  the prompt and the gate disagree, the prompt is what the model is writing to, so make the
-  two agree before raising `max_attempts`.
 - **A loop ran out of passes.** Running out is a failure by design: a loop that never
   converged has not done its job. Check that the writing step reads both its own previous
-  answer and the review, or every pass starts over and fixes what the last pass broke.
+  answer and what sent the work back, or every pass starts over and fixes what the last pass
+  broke. Where a prompt and a check disagree on a number, the prompt is what the model is
+  writing to, so make the two agree before raising `max_loops`.
+- **A check failed the step instead of rejecting it.** The tool exited non-zero to mean "no".
+  A verdict goes on stdout as JSON and exits 0; a non-zero exit means the tool could not
+  answer, and fails the step by design.
 - **Nothing wrote the file.** A turn that succeeds while the output directory stays empty
   is what isolation causes: `--safe-mode` disables MCP servers, so an agent with granted
   tools quietly has none. Check the file, not the exit status.
@@ -126,16 +128,17 @@ could skip it. If a run hangs, it is a tool without a timeout: give it
   a step named by two places runs once both arrive. Nothing has to be declared for either.
 - **Branch instead of always paying.** A triage step with a `switch` spends the expensive
   path only when it is warranted.
-- **Prefer a gate to a longer prompt.** A rule a tool can check is a rule the model cannot
-  talk itself out of. Ask for the limit in the prompt and enforce it in the gate.
+- **Prefer a check to a longer prompt.** A rule a tool can hold is a rule the model cannot
+  talk itself out of. Ask for the limit in the prompt, and put a tool step after it that
+  answers whether it happened and loops back when it did not.
 - **Prefer a loop when a pass should be an edit.** Hand the next pass both its own previous
   answer and the review of it, or it rewrites from scratch every time and never converges.
 - **Give a branching agent an `output_schema`.** Switching on `{{ this.json.verdict }}` is
   reliable; switching on prose is not.
 - **Check what a step may read.** `inspect flow -o md` prints a secrets column, so which
   step holds what is answerable without running anything.
-- **Watch the cost line.** A gated step reports the cost of all its attempts, and every
-  in-turn tool call prints its own line under the step.
+- **Watch the cost line.** A looping step reports a cost per pass, and every in-turn tool
+  call prints its own line under the step.
 
 ## Reference
 
