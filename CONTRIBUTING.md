@@ -643,6 +643,30 @@ decides both the search roots and the inputs, and a caller isolating one isolate
 Values are strings from either source. A declaration's `type:` is documentation; nothing
 coerces or checks it.
 
+## Output
+
+What a run prints on stdout is one template, rendered after the last step:
+
+```yaml
+output:
+  template: |
+    {{ steps.sign.text }}
+```
+
+It reads `inputs` and `steps`, and nothing in the graph is out of reach, because all of it
+has run by then. An unresolvable path is an error, the same as in a prompt.
+
+**A flow need not declare one.** Left out, the run prints nothing, and `(no output)` appears
+on stderr where someone is watching. That is for a flow that is there for its effect: a
+comment posted on a pull request, a file written, a release signed. Those have no result to
+hand anyone, and a template naming a step just to have one is noise.
+
+The alternative was answering with every step result as JSON. It puts a shape nobody
+declared on stdout, and it makes `output` a key you write in order to keep it off, which is
+the opposite of optional. A flow left without an `output` used to get that dump, so one that
+was reading it now declares the template it wanted. `atf run --trace` is how a run is
+inspected instead, and it goes to stderr so the flow's own bytes stay pipeable.
+
 ## Secrets
 
 A step declares what it may read:

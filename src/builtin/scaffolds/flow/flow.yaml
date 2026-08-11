@@ -54,7 +54,9 @@ steps:
   #     {{ steps.read_target.text }}
 
 # What the run prints on stdout. `{{ steps.<id>.text }}` is a step's result as text;
-# `.json` reads a field out of it when the step declared an output schema.
+# `.json` reads a field out of it when the step declared an output schema. Optional: a
+# flow that runs for its effect, so it has nothing to hand back, leaves this out and
+# prints nothing.
 output:
   template: |
     {{ steps.read_target.text }}
