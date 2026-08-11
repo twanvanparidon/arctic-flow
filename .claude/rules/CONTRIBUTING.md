@@ -1,7 +1,9 @@
 # Contributing code
 
-The design, the layout, and how to add a component are in the repo root
-`CONTRIBUTING.md`. Read that first. This file is about how you write the code.
+The design and the layout are in `docs/design/`, and how to add a component is in
+`docs/components.md`. The repo root `CONTRIBUTING.md` is the process: running the checkout,
+the gate, tests, the build and the release. Read those first. This file is about how you
+write the code.
 
 ## Comments and docs
 

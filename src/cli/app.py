@@ -357,31 +357,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     create_tool.add_argument("name", help="tool name (may carry a namespace)")
 
-    mcp_serve = add(
-        "mcp-serve",
-        dispatch.mcp_serve,
-        "serve tools to an agent's turn, over MCP on stdio",
-        "Spawned by an adapter, not typed. An agent that declares tools reaches them\n"
-        "through this: the adapter starts it, the model calls a tool, and the engine runs\n"
-        "the tool exactly as a step would.\n\n"
-        "stdin and stdout carry JSON-RPC framing, so nothing else may be written to\n"
-        "either. Progress and errors go to stderr.\n",
-    )
-    mcp_serve.add_argument(
-        "--tool",
-        action="append",
-        default=[],
-        dest="tools",
-        metavar="NAME",
-        help="a tool to expose; repeat for several",
-    )
-    mcp_serve.add_argument(
-        "--events",
-        type=Path,
-        metavar="FILE",
-        help="append one JSON line per call, for the engine to report as progress",
-    )
-
     add(
         "init",
         dispatch.initialise,
@@ -465,6 +440,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_vault("list", dispatch.vault_list, "list secret names, without their values")
     add_vault("view", dispatch.vault_view, "decrypt to stdout: this prints secrets")
+
+    # Last in the listing because it is the one command nobody types: an adapter spawns it.
+    # Declaration order is listing order, so this stays at the bottom of `add` calls.
+    mcp_serve = add(
+        "mcp-serve",
+        dispatch.mcp_serve,
+        "serve tools to an agent's turn, over MCP on stdio",
+        "Spawned by an adapter, not typed. An agent that declares tools reaches them\n"
+        "through this: the adapter starts it, the model calls a tool, and the engine runs\n"
+        "the tool exactly as a step would.\n\n"
+        "stdin and stdout carry JSON-RPC framing, so nothing else may be written to\n"
+        "either. Progress and errors go to stderr.\n",
+    )
+    mcp_serve.add_argument(
+        "--tool",
+        action="append",
+        default=[],
+        dest="tools",
+        metavar="NAME",
+        help="a tool to expose; repeat for several",
+    )
+    mcp_serve.add_argument(
+        "--events",
+        type=Path,
+        metavar="FILE",
+        help="append one JSON line per call, for the engine to report as progress",
+    )
 
     return parser
 

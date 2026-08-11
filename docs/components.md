@@ -1,5 +1,3 @@
-<!-- Generated from docs/components.md by packaging/sync_docs.py. Edit that file. -->
-
 # Components
 
 A component is a tool, an agent or a flow: the things a flow names. What ships first, then
