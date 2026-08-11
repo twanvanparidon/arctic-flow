@@ -394,14 +394,34 @@ class TestLoops:
         definition["steps"].append(tool_step("aside", push=["check"]))
         validate(definition, project)
 
-    def test_two_loops_sharing_a_step_are_refused(self, project: Paths) -> None:
+    def test_a_loop_inside_another_is_accepted(self, project: Paths) -> None:
+        """A cheap check inside an expensive review: {a, b} sits inside {a, b, c}.
+
+        Nesting is well defined because the inner body goes round again in full whenever the
+        outer one fires, so no pass leaves a step holding a result from a pass that is over.
+        """
         definition = flow(
             tool_step("a", push=["b"]),
             tool_step("b", switch="x", max_loops=2, cases={"back": ["a"], "on": ["c"]}),
             tool_step("c", switch="x", max_loops=2, cases={"back": ["a"], "on": ["d"]}),
             tool_step("d"),
         )
-        with pytest.raises(FlowError, match="Nested and overlapping loops"):
+        assert validate(definition, project)
+
+    def test_two_loops_that_cross_are_refused(self, project: Paths) -> None:
+        """{a, b, c} and {b, c, d} share b and c, and each re-runs a step the other does not.
+
+        So `a` runs again on one loop's pass and not on the other's, and nothing says which
+        count a pass belongs to. The nested case above is the shape that is defined.
+        """
+        definition = flow(
+            tool_step("a", push=["b"]),
+            tool_step("b", push=["c"]),
+            tool_step("c", switch="x", max_loops=2, cases={"back": ["a"], "on": ["d"]}),
+            tool_step("d", switch="x", max_loops=2, cases={"back": ["b"], "done": ["e"]}),
+            tool_step("e"),
+        )
+        with pytest.raises(FlowError, match="neither loop contains the other"):
             validate(definition, project)
 
     def test_a_step_in_a_loop_may_read_itself(self, project: Paths) -> None:

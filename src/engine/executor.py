@@ -25,6 +25,10 @@ flow may have. Its steps go back to waiting and run again, bounded by `max_loops
 step that sends the work back. The edge is real, so the step that sent the work back is a
 step of its own and what it said is in `steps` for the next pass to read.
 
+Two loops may share a body only when one contains the other. `max_loops` then counts per
+step over the whole run and is never reset, so two bounds of three are six passes and not
+sixteen.
+
 A loop also makes its steps ancestors of each other, including of themselves, so a step in
 one may read its own previous result. That is what lets a pass edit the last answer rather
 than replace it.
@@ -861,17 +865,26 @@ def validate(flow: dict[str, Any], paths: Paths) -> list[dict[str, Any]]:
                 f"never again. Have it push to '{source}', or move it after the loop"
             )
 
+    # Two loops may share steps only when one body contains the other, which is the shape
+    # a cheap check inside an expensive review has: {write, check} inside
+    # {write, check, review}. Nesting is well defined because the inner loop's whole body
+    # goes round again when the outer one fires, and each count is that step's own.
+    #
+    # Partial overlap is not. Two bodies that cross leave a step that one loop re-runs and
+    # the other does not, so the crossing loop reads a result from a pass that no longer
+    # exists, and nothing says which count a pass belongs to.
     pairs = list(bodies)
     for index, first in enumerate(pairs):
         for second in pairs[index + 1 :]:
-            shared = bodies[first] & bodies[second]
-            if shared:
-                raise FlowError(
-                    f"the loop back from '{first[0]}' and the loop back from "
-                    f"'{second[0]}' both re-run '{sorted(shared)[0]}'. Nested and "
-                    "overlapping loops are not supported: which one's count a pass "
-                    "resets is undefined"
-                )
+            one, other = bodies[first], bodies[second]
+            if not one & other or one <= other or other <= one:
+                continue
+            raise FlowError(
+                f"the loop back from '{first[0]}' and the loop back from '{second[0]}' "
+                f"both re-run '{sorted(one & other)[0]}', and neither loop contains the "
+                f"other: '{sorted(one - other)[0]}' runs again in only one of them. "
+                "Nest them, or have the inner loop end where the outer one starts"
+            )
 
     # Kahn's algorithm over the push direction, with the declared loops opened. What
     # cannot be settled is a cycle the walk from `start` never entered, so no back-edge was
@@ -1358,6 +1371,11 @@ def execute(
 
         `results` is deliberately left alone. The previous pass's values are what the next
         one reads, and that is how a writer sees the review that sent the work back.
+
+        `loops` is left alone too, so a bound is what that step may do over the whole run
+        rather than per pass of a loop around it. Two nested bounds of three are then six
+        passes and not sixteen, which is the reading that keeps a flow's worst case
+        something a reader can add up.
         """
         body = bodies[(source, head)]
         for sid in body:
@@ -1366,8 +1384,13 @@ def execute(
             # Only the edges inside the loop. One arriving from outside was delivered
             # before the loop began, and the back-edge itself has just been delivered, so
             # neither goes back to pending or the head would never become ready.
-            if a in body and b in body and (a, b) != (source, head):
-                edge[(a, b)] = "pending"
+            if a not in body or b not in body or (a, b) == (source, head):
+                continue
+            # A nested loop's own back-edge goes back to skipped, for the reason every
+            # back-edge starts that way: pending, it would have the inner head waiting on a
+            # step downstream of itself, nothing in the body would ever become ready, and
+            # the run would end quietly with the outer pass never actually run.
+            edge[(a, b)] = "skipped" if (a, b) in back else "pending"
 
     def propagate_skips() -> None:
         """A step whose every inbound edge was skipped never runs, nor does its
