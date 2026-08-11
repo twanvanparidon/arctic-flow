@@ -209,9 +209,13 @@ shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*'
 pytest
 
 # the engine validates flows better than any generic linter. A bare `lint` checks every
-# flow in the workspace and exits non-zero if any of them failed.
+# flow in the workspace and exits non-zero if any of them failed. The loop gets a home of
+# its own because `~/.arctic` is a search root, and because switching on the `data` pack is
+# the only way `examples/csv-report` resolves at all.
+home=$(mktemp -d) && mkdir -p "$home/.arctic"
+printf 'packs:\n  - data\n' > "$home/.arctic/config.yaml"
 for project in examples/*/; do
-  python3 src/main.py --workspace "$project" lint
+  HOME="$home" python3 src/main.py --workspace "$project" lint
 done
 ```
 
@@ -343,9 +347,9 @@ packs:
 ```
 
 Adding one is a directory under `src/builtin/packs/`, with a `pack.json` beside the same
-`tools/`, `agents/`, `flows/` every root has. Copy the nearest of the three that ship:
+`tools/`, `agents/`, `flows/` every root has. Copy the nearest of the four that ship:
 `packs/git` for a pack that runs a local command, `packs/github` for one that calls an API
-with a credential.
+with a credential, `packs/data` for one that only transforms what a step already produced.
 
 ```txt
 src/builtin/packs/git/

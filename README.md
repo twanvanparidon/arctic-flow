@@ -128,13 +128,14 @@ to send a `switch` down the branch you want to look at.
 ### Packs: more tools, switched off
 
 A pack is a set of first-party tools that ships in the binary and does nothing until you
-say so. Three ship today:
+say so. Four ship today:
 
 ```yaml
 # ~/.arctic/config.yaml
 packs:
   - git
   - github        # or bitbucket
+  - data
 ```
 
 | Pack | Holds | Needs |
@@ -142,6 +143,7 @@ packs:
 | `git` | the repository a flow runs in: status, log, diff, show, branch, add, commit, checkout | `git`, `jq` |
 | `github` | pull requests: open, status, comment. Also GitHub Enterprise | `curl`, `jq`, `git` |
 | `bitbucket` | the same three, for Bitbucket **Cloud** | `curl`, `jq`, `git` |
+| `data` | transforming a step's result: JSON, CSV, markdown | `jq`, `awk` |
 
 | Tool | | Does |
 | --- | --- | --- |
@@ -219,14 +221,68 @@ Neither pack approves, requests changes, merges, closes or pushes. Approving is 
 that counts in a branch protection rule, and a flow that could cast one could approve its
 own work.
 
+### The data pack
+
+Five tools that transform a step's result on the way to the next one. No model, no network,
+nothing written.
+
+| Tool | Does |
+| --- | --- |
+| `arctic/data/json/query` | Reads one value out of a document with a jq program |
+| `arctic/data/csv/to_json` | Reads CSV, quoted fields and all, into JSON |
+| `arctic/data/json/to_csv` | Writes an array of objects as CSV |
+| `arctic/data/json/to_markdown` | Renders a document as a table, a field list, or a list |
+| `arctic/data/json/merge` | Combines several documents into one, at a join |
+
+**A `switch` needs an exact value, and data arrives as a document.** The rendered value is
+compared to each case whole, so without a step in between a flow can branch on a tool's
+entire report or on nothing at all:
+
+```yaml
+- id: failing
+  tool: arctic/data/json/query
+  input:
+    data: "{{ steps.pr.text }}"
+    query: '[.checks[] | select(.state == "failed")] | length'
+  switch: "{{ this.text }}"
+  cases:
+    "0": [ship]
+  default: [explain]
+```
+
+The other half is cost. Filtering a hundred rows to four, counting failures, turning a
+table into markdown: a model will do all of those, slowly, for money, and occasionally
+wrong. Here they are a few milliseconds of `jq` that cannot be wrong about what the
+document said.
+
+Every tool takes `data` or `path`, exactly one. `data` is where a step's result goes;
+`path` reads a file in the workspace and is the one to prefer for a file of any size, since
+`read_file` would truncate it and append a notice that then arrives as a row.
+
+Nothing in this pack writes, reaches the network, or declares `secrets`, so unlike the
+other three every tool in it can be granted to an agent as it is. It is still off by
+default, because a pack is a vocabulary as much as a capability: `arctic/data/json/query`
+means the tool that shipped, and nothing that was never switched on is a name a project
+cannot have.
+
+What is deliberately absent: **XML**, because a POSIX shell has no parser for it and the
+mapping from XML to JSON is a convention someone has to learn rather than a conversion;
+**YAML**, which is the engine's own configuration language; and **truncation**, because half
+a JSON document is not a JSON document. Nor does anything guess a type or fill a gap: a CSV
+field arrives as a string, and a row that does not fit its header is refused with the line
+named rather than padded with nulls.
+
 ---
 
 ## Examples
 
-Five projects that run as they are. Read them forwards, the way the engine does:
+Six projects that run as they are. Read them forwards, the way the engine does:
 
 - **[`examples/sign-release`](examples/sign-release)** is tools and secrets. Two steps and
   one key from an encrypted vault. Deterministic, no key, no network.
+- **[`examples/csv-report`](examples/csv-report)** is the data pack: a CSV read, counted,
+  branched on and laid out three ways, with no model in it. Deterministic and free. Needs
+  `packs: [data]` in your config, which is the one example with any setup.
 - **[`examples/file-review`](examples/file-review)** is agents, a branch and a join. Triage
   picks one path, the other is skipped, and the report waits for neither. A few cents to run.
 - **[`examples/gated-summary`](examples/gated-summary)** is a gate. A tool has to accept the
@@ -243,6 +299,8 @@ atf --workspace examples/file-review inspect flow review_file
 
 ATF_VAULT_PASSWORD=demo atf --workspace examples/sign-release \
     run sign_release --input path=release-notes.md
+
+atf --workspace examples/csv-report run report
 
 atf --workspace examples/gated-summary run summarize --input path=incident.md
 
