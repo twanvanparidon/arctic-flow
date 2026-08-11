@@ -1683,16 +1683,17 @@ def run_flow(
     vault: Vault | None = None,
     on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Validate, execute, and render the flow's output."""
+    """Validate, execute, and render the flow's output, which a flow need not declare."""
     steps = validate(flow, paths)
     results, trace = execute(flow, steps, inputs, paths, vault, on_event)
     template = (flow.get("output") or {}).get("template")
-    rendered = (
-        render(template, {"inputs": inputs, "steps": results})
-        if template
-        else json.dumps(results, indent=2)
-    )
-    return rendered.strip(), trace
+    # No `output` means no output, because a flow can be there for its effect: a comment
+    # posted, a file written, a release signed. Answering with every step result instead
+    # puts a shape nobody declared on stdout, and makes `output` a key you have to write in
+    # order to keep it off. `--trace` is where a run is inspected.
+    if not template:
+        return "", trace
+    return render(template, {"inputs": inputs, "steps": results}).strip(), trace
 
 
 def variable_name(name: str) -> str:
