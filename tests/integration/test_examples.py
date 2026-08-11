@@ -16,17 +16,24 @@ the flow instead of letting it through.
 `draft-review` loops, and `$FAKE_CLAUDE_PREFER` picks which value of the reviewer's enum
 the fake answers with, so the same example runs both ways: approved leaves on the first
 pass, and rejected never converges, which is what the bound is for.
+
+`csv-report` runs for real too, and is the other one that needs no runtime at all. It is also
+the only example with any setup: its tools are in the `data` pack, so it does not even lint
+until `config.yaml` switches that on, which `enabled_packs` does here and CI's own loop does
+with a home of its own.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 
+from paths.config import CONFIG_FILE
 from support.outcome import Outcome
 
 from .conftest import Runner, requires
@@ -37,7 +44,20 @@ FLOWS = [
     ("gated-summary", "summarize"),
     ("draft-review", "draft_review"),
     ("agent-tools", "annotate"),
+    ("csv-report", "report"),
+    ("csv-report", "summary"),
+    ("csv-report", "failures_csv"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def enabled_packs(home: Path) -> None:
+    """`csv-report` names tools from the `data` pack, which resolves only once config.yaml
+    switches it on. The same config for every example rather than one, since a pack nothing
+    else names changes nothing for the others, and CI's lint loop does exactly this.
+    """
+    (home / ".arctic").mkdir(parents=True, exist_ok=True)
+    (home / ".arctic" / CONFIG_FILE).write_text("packs:\n  - data\n")
 
 
 @pytest.mark.parametrize(("directory", "name"), FLOWS)
@@ -150,6 +170,75 @@ class TestSignRelease:
         )
         assert result.code == 1
         assert "read_file" in result.err
+
+
+class TestCsvReport:
+    """The second example that runs for real: tool-only, deterministic and free.
+
+    Which is what makes the assertions exact rather than about a shape. Nothing here is
+    decided by a model, a clock or a machine, so a report that changed changed because the
+    engine or the pack did.
+    """
+
+    @pytest.fixture(autouse=True)
+    def needs(self) -> None:
+        requires("jq", "awk", "realpath", "mktemp", "env")
+
+    @pytest.fixture
+    def project(self, examples: Path) -> Path:
+        return examples / "csv-report"
+
+    def run_it(self, atf: Runner, project: Path, flow: str) -> str:
+        result = atf("--workspace", str(project), "run", flow)
+        assert result.code == 0, result.err
+        return result.out
+
+    def test_the_report_tables_the_failures_slowest_first(self, project: Path, atf: Runner) -> None:
+        report = self.run_it(atf, project, "report")
+        heading = "## Failures, slowest first"
+        assert heading in report
+        # From the heading down, because both names also appear in the overview above it.
+        failures = report[report.index(heading) :]
+        assert failures.index("| integration |") < failures.index("| unit tests |")
+
+    def test_the_report_carries_a_field_that_was_quoted_in_the_csv(
+        self, project: Path, atf: Runner
+    ) -> None:
+        """A comma and a doubled quote inside one field, through the CSV parser and back out
+        as a markdown cell. The awkward field is in the example on purpose."""
+        assert 'timed out, then "connection reset"' in self.run_it(atf, project, "report")
+
+    def test_the_summary_is_one_json_document(self, project: Path, atf: Runner) -> None:
+        """Three queries fanning out, merged into one document. `slowest` is a string, so its
+        query ends in `tojson` or the part reaching merge would not be JSON at all."""
+        assert json.loads(self.run_it(atf, project, "summary")) == {
+            "passed": 3,
+            "failed": 2,
+            "slowest": "build",
+        }
+
+    def test_the_failures_come_back_out_quoted_as_they_went_in(
+        self, project: Path, atf: Runner
+    ) -> None:
+        written = self.run_it(atf, project, "failures_csv")
+        assert written.splitlines()[0] == "name,seconds,notes"
+        assert '"timed out, then ""connection reset"""' in written
+
+    def test_nothing_failing_takes_the_other_branch(
+        self, project: Path, atf: Runner, tmp_path: Path
+    ) -> None:
+        """The half of the graph the shipped data does not reach. Copied rather than edited in
+        place, because the example's own CSV is what every other test here asserts against.
+        """
+        copy = tmp_path / "clean"
+        copy.mkdir()
+        (copy / "flows").mkdir()
+        (copy / "flows" / "report.yaml").write_text((project / "flows" / "report.yaml").read_text())
+        (copy / "checks.csv").write_text("name,state,seconds,notes\nlint,passed,4,\n")
+        result = atf("--workspace", str(copy), "run", "report")
+        assert result.code == 0, result.err
+        assert "Everything passed. Slowest check: lint, 4s" in result.out
+        assert "skipped" in result.err
 
 
 class TestDraftReview:

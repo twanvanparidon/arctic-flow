@@ -37,9 +37,23 @@ FLOWS = [
     ("gated-summary", "summarize"),
     ("draft-review", "draft_review"),
     ("agent-tools", "annotate"),
+    ("csv-report", "report"),
+    ("csv-report", "summary"),
+    ("csv-report", "failures_csv"),
 ]
 
+
 VAULT_PASSWORD = "demo"
+
+
+@pytest.fixture(autouse=True)
+def enabled_packs(home: Path) -> None:
+    """`csv-report` names tools from the `data` pack, and a pack resolves only once
+    config.yaml switches it on. Against the artefact this asks something extra: the pack has
+    to have survived the freeze, and its tools have to find their library inside the bundle.
+    """
+    (home / ".arctic").mkdir(parents=True, exist_ok=True)
+    (home / ".arctic" / "config.yaml").write_text("packs:\n  - data\n")
 
 
 @pytest.mark.parametrize(("directory", "name"), FLOWS)

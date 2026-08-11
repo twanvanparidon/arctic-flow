@@ -1,0 +1,103 @@
+# Turn a CSV of check results into a report, deciding on the way what there is to report.
+#
+#                    ┌──> overview
+#   start: rows ──────┤
+#                    └──> failing ──switch──> "0" ──> slowest
+#                                      └──> default ──> failures ──> table
+#
+# Every step is a tool, so the whole flow is deterministic, free and offline. That is the
+# point of the data pack: counting rows, filtering them and laying them out are jobs a model
+# will do slowly, for money, and occasionally wrong. Here they are a few milliseconds of jq
+# that cannot be wrong about what the file said.
+#
+# The step that earns the pack is `failing`. A `switch` compares the whole rendered value to
+# each case, so without a step in between a flow can branch on a tool's entire report or on
+# nothing at all. `arctic/data/json/query` is what turns the document into one value.
+#
+# Both branches do real work, and only one of them runs. The engine marks the other skipped,
+# and a step that did not run is *false* in a conditional, so the output template writes the
+# half that happened and never renders the half that did not.
+#
+# This project defines nothing: every tool in it ships with the engine. The pack has to be
+# switched on before they resolve.
+#
+#   # ~/.arctic/config.yaml
+#   packs:
+#     - data
+#
+#   python3 src/main.py --workspace examples/csv-report run report
+
+flow: report
+version: 1
+description: Read a CSV of check results, and report on the ones that failed.
+
+start: rows
+
+steps:
+  # `path` rather than reading the file with arctic/read_file first: that tool truncates at
+  # its own line limit and appends a notice saying so, and the notice would arrive here as a
+  # row. Every value comes out a string, because a CSV field has no type.
+  - id: rows
+    tool: arctic/data/csv/to_json
+    input:
+      path: checks.csv
+    push: [overview, failing]
+
+  - id: overview
+    tool: arctic/data/json/to_markdown
+    input:
+      data: "{{ steps.rows.text }}"
+      columns: [name, state, seconds]
+
+  # The decision. The count is the whole result of the step, so the switch has an exact value
+  # to compare. `this` is the step's own result, which is the only place it exists.
+  - id: failing
+    tool: arctic/data/json/query
+    input:
+      data: "{{ steps.rows.text }}"
+      query: '[.[] | select(.state == "failed")] | length'
+    switch: "{{ this.text }}"
+    cases:
+      "0": [slowest]
+    default: [failures]
+
+  # A query answering with a string, printed without quotes, so it reads as prose in the
+  # report. `seconds` came out of the CSV as text, and tonumber is where it becomes a number.
+  - id: slowest
+    tool: arctic/data/json/query
+    input:
+      data: "{{ steps.rows.text }}"
+      query: 'max_by(.seconds | tonumber) | "\(.name), \(.seconds)s"'
+
+  # The other branch. This query answers with an array, so the result is a JSON document the
+  # next step can read rather than prose.
+  - id: failures
+    tool: arctic/data/json/query
+    input:
+      data: "{{ steps.rows.text }}"
+      query: '[.[] | select(.state == "failed")] | sort_by(.seconds | tonumber) | reverse'
+    push: [table]
+
+  - id: table
+    tool: arctic/data/json/to_markdown
+    input:
+      data: "{{ steps.failures.text }}"
+      columns: [name, seconds, notes]
+
+# The branch that was not taken is never rendered, so `{{ steps.table.text }}` is safe inside
+# the guard where it would be an error outside one.
+#
+# A step's result keeps the newline its tool printed, so a reference belongs at the end of a
+# line. Written mid-sentence, `## {{ steps.failing.text }} failed` breaks the heading in two.
+output:
+  template: |
+    # Check report
+
+    {{ steps.overview.text }}
+    {% if steps.table %}
+    ## Failures, slowest first
+
+    {{ steps.table.text }}
+    {% else %}
+    Everything passed. Slowest check: {{ steps.slowest.text }}
+    {% endif %}
