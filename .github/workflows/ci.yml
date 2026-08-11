@@ -54,10 +54,17 @@ jobs:
       # prompt. One project per loop, not one flow: a bare `lint` checks every flow in
       # that workspace and reports all of them before exiting non-zero, so a project with
       # two broken flows takes one push to fix rather than two.
+      #
+      # The home directory is this loop's own, for the same reason the test suite pins one:
+      # `~/.arctic` is a search root, so a runner's home decides what resolves. It is also
+      # the only way to switch a pack on, and `csv-report` names tools from `data`.
       - name: Lint every example flow
         run: |
+          home=$(mktemp -d)
+          mkdir -p "$home/.arctic"
+          printf 'packs:\n  - data\n' > "$home/.arctic/config.yaml"
           for project in examples/*/; do
-            atf --workspace "$project" lint
+            HOME="$home" atf --workspace "$project" lint
           done
 
   test:

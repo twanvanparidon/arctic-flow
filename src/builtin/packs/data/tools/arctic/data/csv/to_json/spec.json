@@ -1,0 +1,64 @@
+{
+  "name": "to_json",
+  "version": 1,
+  "description": "Read CSV and answer with JSON, so the rows can be filtered, counted or read field by field. Handles quoted fields holding the delimiter, a line break or a doubled quote. Every value is a string: a CSV field has no type, so read numbers out with tonumber where you need them.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 60
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "string",
+        "description": "The CSV to read, usually a step's result: \"{{ steps.export.text }}\". Pass this or path, not both."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A CSV file to read instead, relative to the workspace root. Must resolve inside it. Prefer this for a file of any size: reading it with read_file first would truncate it at that tool's line limit and append a notice, which would then be parsed as a row. Pass this or data, not both."
+      },
+      "header": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether the first row names the columns. True gives one JSON object per row, keyed by those names. False gives one array per row, and the first row is data like any other."
+      },
+      "delimiter": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1,
+        "default": ",",
+        "description": "The field separator, one character. A tab is written \"\\t\". A quote, a backslash, \"]\" and \"^\" are refused, because each of them means something to the parser."
+      }
+    },
+    "required": [],
+    "oneOf": [{ "required": ["data"] }, { "required": ["path"] }],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "A JSON array, pretty-printed. With a header, one object per row keyed by the column names, in the order the header wrote them. Without one, one array per row. Every value is a string. A file holding only a header is the empty array, which is a successful read of a file with no rows."
+  },
+
+  "exit_codes": {
+    "0": "success (the JSON is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
+    "3": "not found (path does not exist)",
+    "4": "not permitted (path resolves outside the workspace root)",
+    "5": "malformed data (a row does not fit the header, a quoted field is never closed, or the header names a column twice or not at all)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "awk", "mktemp", "realpath"]
+}

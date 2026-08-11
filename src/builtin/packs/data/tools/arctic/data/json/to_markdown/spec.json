@@ -1,0 +1,59 @@
+{
+  "name": "to_markdown",
+  "version": 1,
+  "description": "Render a JSON document as markdown for a prompt to carry: an array of objects becomes a table, an object becomes its fields down the page, a list of values becomes a list. Costs fewer tokens than the same data as JSON, and gives a model something it can quote a row of.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "string",
+        "description": "The JSON document to render, usually a step's result: \"{{ steps.rows.text }}\". Pass this or path, not both."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A JSON file to read instead, relative to the workspace root. Must resolve inside it. Pass this or data, not both."
+      },
+      "columns": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "minItems": 1,
+        "description": "Which fields become columns, and in which order. Only for an array of objects: without this they are the keys of the first row, and a row carrying a key the first row does not is refused. Naming a few of many is how a wide document becomes a table worth reading."
+      }
+    },
+    "required": [],
+    "oneOf": [{ "required": ["data"] }, { "required": ["path"] }],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "Markdown. An array of objects is a table with a header and a separator row. An object is a two-column table of field and value. An array of values is a \"- \" list. A pipe in a cell is escaped and a line break becomes <br>, so a row is always one line. null is an empty cell, and a nested value is compact JSON in its cell."
+  },
+
+  "exit_codes": {
+    "0": "success (the markdown is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, a parameter is the wrong type, or columns was passed for something that is not a table)",
+    "3": "not found (path does not exist)",
+    "4": "not permitted (path resolves outside the workspace root)",
+    "5": "malformed data (the data is not JSON, or is a shape with no one rendering: a bare scalar, or an array mixing objects and values)",
+    "6": "refused (a row carries a column the first row does not, or the array is empty and no columns were named)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "realpath"]
+}

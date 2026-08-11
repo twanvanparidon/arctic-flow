@@ -1,0 +1,47 @@
+# The failing rows, back out as CSV.
+#
+#   start: rows ──> failing ──> csv
+#
+# Three steps, and the last one is the reason this flow exists: CSV in, a filter, CSV out, so
+# the file the next job reads holds only the rows that need looking at. stdout carries the
+# flow's output and nothing else, which is what makes the redirect exact:
+#
+#   python3 src/main.py --workspace examples/csv-report \
+#       run failures_csv > failures.csv
+#
+# `columns` is named rather than taken from the first row, and that is what lets this succeed
+# when nothing failed: an empty array has no first row to take them from, so a header nobody
+# asked for would be a guess. Named, the answer is the header and no rows, which is a CSV file
+# with no rows in it.
+
+flow: failures_csv
+version: 1
+description: Filter a CSV of check results down to the failures, as CSV.
+
+start: rows
+
+steps:
+  - id: rows
+    tool: arctic/data/csv/to_json
+    input:
+      path: checks.csv
+    push: [failing]
+
+  - id: failing
+    tool: arctic/data/json/query
+    input:
+      data: "{{ steps.rows.text }}"
+      query: '[.[] | select(.state == "failed")] | sort_by(.seconds | tonumber) | reverse'
+    push: [csv]
+
+  # A cell is quoted only when it holds the delimiter, a quote or a line break, so the notes
+  # column comes back out with exactly the quoting it went in with.
+  - id: csv
+    tool: arctic/data/json/to_csv
+    input:
+      data: "{{ steps.failing.text }}"
+      columns: [name, seconds, notes]
+
+output:
+  template: |
+    {{ steps.csv.text }}

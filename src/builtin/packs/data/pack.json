@@ -1,0 +1,4 @@
+{
+  "description": "Transform a step's result between JSON, CSV and markdown, with no model and no network",
+  "requires": ["jq", "awk"]
+}

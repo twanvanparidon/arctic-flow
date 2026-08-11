@@ -1,0 +1,71 @@
+{
+  "name": "to_csv",
+  "version": 1,
+  "description": "Write a JSON array of objects as CSV, for a file, a report or a spreadsheet. The columns come from the first row unless you name them. A nested value is refused rather than rendered, and a column that only later rows carry is refused rather than dropped.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "string",
+        "description": "The JSON array to write, usually a step's result: \"{{ steps.rows.text }}\". Pass this or path, not both."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A JSON file to read instead, relative to the workspace root. Must resolve inside it. Pass this or data, not both."
+      },
+      "columns": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "minItems": 1,
+        "description": "Which fields become columns, and in which order. Without this they are the keys of the first row, and a row carrying a key the first row does not is refused. Naming them also lets a row leave one out, which becomes an empty cell."
+      },
+      "header": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to write the column names as the first line. Set false when appending to a file that already has one."
+      },
+      "delimiter": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1,
+        "default": ",",
+        "description": "The field separator, one character. A tab is written \"\\t\"."
+      }
+    },
+    "required": [],
+    "oneOf": [{ "required": ["data"] }, { "required": ["path"] }],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "CSV, one line per row, ending in a newline. A cell is quoted only when it holds the delimiter, a quote or a line break, so the common case stays readable. A quote inside a quoted cell is doubled. null is an empty cell; a number or a boolean is written the way JSON writes it."
+  },
+
+  "exit_codes": {
+    "0": "success (the CSV is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
+    "3": "not found (path does not exist)",
+    "4": "not permitted (path resolves outside the workspace root)",
+    "5": "malformed data (the data is not JSON, or not an array of objects)",
+    "6": "refused (a value is nested, a row carries a column the first row does not, or the array is empty and no columns were named)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "realpath"]
+}

@@ -1,0 +1,71 @@
+# The same file, as one JSON document for whatever runs next.
+#
+#                    ┌──> passed ───┐
+#   start: rows ──────┼──> failed ───┼──> summary
+#                    └──> slowest ──┘
+#
+# A fan-out and a join, with nothing conditional about it: three questions asked of the same
+# rows, then merged. `arctic/data/json/merge` is what makes the answer one document. A
+# template could write the punctuation by hand:
+#
+#   {"passed": {{ steps.passed.text }}, "failed": {{ steps.failed.text }}}
+#
+# and a missing comma, or a part that came back as prose, would be a JSON parse error
+# somewhere downstream. Merge names the part instead, and refuses one that is not a document.
+#
+#   python3 src/main.py --workspace examples/csv-report run summary
+#
+# stdout carries the flow's output and nothing else, so it pipes:
+#
+#   python3 src/main.py --workspace examples/csv-report run summary | jq .failed
+
+flow: summary
+version: 1
+description: Count the check results, and answer with one JSON document.
+
+start: rows
+
+steps:
+  - id: rows
+    tool: arctic/data/csv/to_json
+    input:
+      path: checks.csv
+    push: [passed, failed, slowest]
+
+  - id: passed
+    tool: arctic/data/json/query
+    input:
+      data: "{{ steps.rows.text }}"
+      query: '[.[] | select(.state == "passed")] | length'
+    push: [summary]
+
+  - id: failed
+    tool: arctic/data/json/query
+    input:
+      data: "{{ steps.rows.text }}"
+      query: '[.[] | select(.state == "failed")] | length'
+    push: [summary]
+
+  # `tojson` is doing something specific. A query answering with a string prints it without
+  # quotes, which is what a switch and a prompt want and what a JSON reader cannot take, so
+  # `build` would reach merge as a document that is not one. tojson makes it `"build"`.
+  - id: slowest
+    tool: arctic/data/json/query
+    input:
+      data: "{{ steps.rows.text }}"
+      query: 'max_by(.seconds | tonumber) | .name | tojson'
+    push: [summary]
+
+  # Each document is its own `part_<name>` parameter, and the name is the key it lands under.
+  # They are written in the order they should merge in, which only matters for the shallow and
+  # deep strategies; `named` keeps each part whole.
+  - id: summary
+    tool: arctic/data/json/merge
+    input:
+      part_passed: "{{ steps.passed.text }}"
+      part_failed: "{{ steps.failed.text }}"
+      part_slowest: "{{ steps.slowest.text }}"
+
+output:
+  template: |
+    {{ steps.summary.text }}
