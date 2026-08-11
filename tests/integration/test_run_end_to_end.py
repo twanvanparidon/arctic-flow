@@ -64,9 +64,10 @@ class TestALinearFlow:
         assert result.out == "HELLO\n"
         assert "→ a" in result.err
 
-    def test_a_flow_with_no_output_template_returns_every_result(
+    def test_a_flow_that_declares_no_output_writes_nothing_to_stdout(
         self, project: Path, atf: Runner
     ) -> None:
+        """The step ran and its result stays in the run: `output` is what asks for stdout."""
         flow(
             project,
             "bare",
@@ -75,7 +76,9 @@ class TestALinearFlow:
             steps=[{"id": "a", "tool": "shout", "input": {"text": "hi"}}],
         )
         result = atf("--workspace", str(project), "run", "bare")
-        assert '"text": "HI"' in result.out
+        assert result.code == 0
+        assert result.out == ""
+        assert "→ a" in result.err
 
 
 class TestInputsFromTheEnvironment:

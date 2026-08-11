@@ -224,6 +224,14 @@ template error names the step, not the file. `prompt` and `prompt_file` on one s
 refused, and the name is checked against `REFUSED_SEGMENTS` so it cannot leave the directory.
 `output.template` has the same shape and deliberately does not have it yet.
 
+**`output` is optional, and a flow without one prints nothing.** `run_flow` renders
+`output.template` after the last step, over `inputs` and `steps`, and returns `""` when there
+is no template. Empty stdout is therefore the answer for a flow that is there for its effect,
+not a bug to fix: answering with every step result instead puts a shape nobody declared on
+stdout, and makes `output` a key you write in order to keep it off. `cli/output.py` says
+`(no output)` on a terminal so a run that printed nothing still looks like a run, and
+`--trace` is where the steps are inspected.
+
 An input comes from the caller's mapping or from `$ATF_VAR_<NAME>`, merged in
 `commands.prepare` with the mapping winning. The prefix is `ATF_VAR_` and not a bare `ATF_`
 because `$ATF_PATH` and `$ATF_VAULT_PASSWORD` are the engine's own, so an input named `path`
