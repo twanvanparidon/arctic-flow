@@ -79,6 +79,21 @@ Six tools ship under `arctic/`: `read_file`, `write_file`, `edit_file`, `glob`, 
 writing another way to read a file. `write_file` takes whole contents and `edit_file` takes
 the old text and the new, so a small change to a large file does not go through the model.
 
+**Nineteen more ship in four packs, switched off.** Look there before writing a tool, because
+a shipped one is a tool nobody has to maintain. A pack does nothing until
+`~/.arctic/config.yaml` names it, and `lint` names the line to add:
+
+| Pack | Holds |
+| --- | --- |
+| `git` | the repository the flow runs in: status, log, diff, show, branch, add, commit, checkout |
+| `github`, `bitbucket` | pull requests: open, status, comment |
+| `data` | a step's result between JSON, CSV and markdown: query, merge, four conversions |
+
+Reach for `arctic/data/json/query` when a `switch` has a document to branch on, since a case
+is matched against the rendered value whole. Nothing in `data` writes, reaches the network or
+declares `secrets`, so unlike the other three its tools can be granted to an agent as they
+are.
+
 ## 4. Write the flow
 
 Fill in the scaffold in this order: `inputs`, `start`, `steps`, `output`.

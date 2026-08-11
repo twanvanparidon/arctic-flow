@@ -60,17 +60,27 @@ search root shows nothing of its prompt, and the prompt is the whole of what the
 atf list
 ```
 
-Every flow, tool, agent and adapter that resolves, beside the definition that won.
-Anything a higher-precedence root shadows is marked, and a second definition is why an edit
-can appear to do nothing.
+Every flow, tool, agent and adapter that resolves, beside the definition that won, plus every
+pack and whether it is on. Anything a higher-precedence root shadows is marked, and a second
+definition is why an edit can appear to do nothing.
 
-Roots are searched in this order, first match wins: `$ATF_PATH`, then `./.arctic`, then the
-workspace root, then `~/.arctic`, then what ships with the engine. Overriding is per name
-and total: a project's `arctic/read_file` replaces the built-in and inherits nothing from
-it. `arctic/read_file` and a bare `read_file` are two different tools.
+Roots are searched in this order, first match wins:
 
-A name that does not resolve reports every path it was looked for, so read that list rather
-than guessing which directory was meant.
+```
+$ATF_PATH  →  ./.arctic  →  the workspace root  →  ~/.arctic  →  sources  →  enabled packs
+           →  what ships with the engine
+```
+
+Overriding is per name and total: a project's `arctic/read_file` replaces the built-in and
+inherits nothing from it. `arctic/read_file` and a bare `read_file` are two different tools.
+
+Two failures here, and the engine tells them apart:
+
+- **A name nothing defines** reports every path it was looked for. Read that list rather than
+  guessing which directory was meant.
+- **A tool sitting in a pack that is off** says so instead, and names the line to add:
+  `packs: [git]` in `~/.arctic/config.yaml`. Nineteen tools ship in the four packs, so a name
+  that looks built-in and will not resolve is usually this rather than a typo.
 
 ## 5. When it lints but does not run
 
