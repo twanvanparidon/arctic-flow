@@ -39,18 +39,26 @@ agent step, `push` or `switch`, a check or a loop, and when granting an agent a 
 what it costs.
 
 `help` is a diagnosis. It runs `lint` before it reads anything, then `inspect` and
-`list`, and only then reasons about the YAML. Beside it are four references:
+`list`, and only then reasons about the YAML. Beside it are six references:
 
 | File | Covers |
 | --- | --- |
-| `skills/help/references/flow-yaml.md` | every flow and step key, and what each one refuses |
-| `skills/help/references/templates.md` | the five namespaces, `.text` and `.json`, `(not run)` |
-| `skills/help/references/components.md` | tool and agent `spec.json`, adapters, name resolution, the vault |
-| `skills/help/references/errors.md` | each refusal, its cause and its fix |
+| `reference.md` | each refusal, its cause and its fix; the variables; the glossary |
+| `flows.md` | every flow and step key, templates, branching, checks, loops, secrets |
+| `components.md` | what ships, tool and agent `spec.json`, granting tools, adapters |
+| `setup.md` | install, and the three settings in `config.yaml` |
+| `projects.md` | what a project is, and which definition of a name wins |
+| `cli.md` | every command and flag |
+
+**Those six files are generated.** `docs/` in this repository is the source of truth, and
+`packaging/sync_docs.py` copies the chosen pages into `references/`, rewriting each relative
+link to a bare filename when the target is also copied and to an absolute URL when it is not.
+CI runs it with `--check`, so a docs edit that was not synced fails the gate. Edit the page
+under `docs/`, then run the script. Never edit a file in `references/` directly.
 
 The installed engine is the authority. Where a reference and `atf` disagree, `atf inspect`,
 `atf lint` and `--help` are what the skills are told to believe. So a change to what the
-engine refuses is a change to `errors.md`.
+engine refuses is a change to `docs/reference.md`.
 
 ## Changing one
 

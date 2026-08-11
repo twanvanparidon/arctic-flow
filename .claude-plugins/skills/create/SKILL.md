@@ -120,7 +120,7 @@ output:
 **Templates** are `{{ dotted.path }}` over four namespaces: `inputs`, `steps`, `secrets`
 and `this`. A step reads `{{ steps.x.text }}` only when `x` is transitively
 upstream of it. An unresolvable path is an error, never an empty string. Details are in
-`../help/references/templates.md`.
+`../help/references/flows.md`.
 
 ### Choosing the shape
 
@@ -281,7 +281,7 @@ Progress goes to stderr and the flow's output goes to stdout, so `atf run f > ou
 gives the result byte for byte. Add `--trace` for a per-step JSON summary.
 
 If `lint` refuses something, the message names the step and says what to do. When it does
-not land, use the `help` skill: `../help/references/errors.md` maps each refusal to
+not land, use the `help` skill: `../help/references/reference.md` maps each refusal to
 its cause.
 
 ## What the engine refuses, so write it right the first time

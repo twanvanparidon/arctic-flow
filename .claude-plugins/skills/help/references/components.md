@@ -1,286 +1,277 @@
+<!-- Generated from docs/components.md by packaging/sync_docs.py. Edit that file. -->
+
 # Components
 
-A component is a directory with a contract, found by name. Nothing about one lives outside
-its own directory.
+A component is a tool, an agent or a flow: the things a flow names. What ships first, then
+writing your own, then granting an agent tools, then what a run costs and how to avoid paying
+it while you build.
 
-| Kind | Is | Holds |
-| --- | --- | --- |
-| tool | a directory | `spec.json`, a markdown doc, an executable `run.sh` |
-| agent | a directory | `spec.json` plus `agent.md`, which **is** the system prompt |
-| flow | one YAML file | the graph and nothing else |
-| adapter | a Python module | shipped with the engine, not user-extensible |
+Check what ships before writing anything. A tool you do not have to maintain is the cheapest
+kind.
 
-## How a name resolves
+## What ships
 
-Roots are searched in precedence order and the first match wins:
+### Tools
 
-```
-$ATF_PATH  →  ./.arctic  →  the workspace root  →  ~/.arctic  →  sources  →  enabled packs
-           →  what ships with the engine
-```
-
-Under any root, components live in `tools/`, `agents/` and `flows/`.
-
-Overriding is per name and total. A project's `arctic/read_file` replaces the built-in and
-inherits nothing from it. Where a component is *found* never changes where it *runs*: a
-tool executes with its working directory set to the workspace root.
-
-A name may carry a namespace at any depth. A directory holding a `spec.json` is a
-component; any other directory is a namespace. There is nothing to declare.
-
-```
-tools/
-   arctic/read_file/       ->  tool: arctic/read_file
-   deploy/notify/          ->  tool: deploy/notify
-   deploy/release/tag/     ->  tool: deploy/release/tag
-```
-
-The name is the whole path. `arctic/read_file` and a bare `read_file` are two tools, and
-overriding one does not touch the other. Everything the engine ships is under `arctic/`.
-
-```sh
-atf list          # every name that resolves, and what shadows what
-```
-
-A shadowed definition is why an edit can appear to do nothing. A name that does not resolve
-reports every path it was looked for.
-
-## Packs
-
-A pack is a set of first-party components that ships in the binary and resolves only once
-`~/.arctic/config.yaml` names it:
-
-```yaml
-packs:
-  - git
-```
-
-`atf list` shows every pack and whether it is on. A pack names its components under
-`arctic/`, which a `source` may not do, because a pack ships with the engine and a source
-is a directory somebody cloned. So `tool: arctic/git/commit` in a flow is the tool that
-shipped under that name.
-
-Three ship:
-
-| Pack | Holds |
-| --- | --- |
-| `git` | `arctic/git/` status, log, diff, show, branch (read); add, commit, checkout (write) |
-| `github` | `arctic/github/pr/` open, status, comment |
-| `bitbucket` | the same three under `arctic/bitbucket/pr/`, for Bitbucket Cloud |
-
-Every tool in all three refuses to act when the git repository's root is above the
-workspace. Nothing in `git` reaches the network.
-
-The two forge packs answer in **JSON with the same field names**, so a flow can swap one
-for the other and change only the tool name. A field a forge cannot answer is `null`:
-Bitbucket has no `mergeable`, so gate on `checks` and `reviews`.
-
-Every forge tool declares `secrets`, so a step running one declares it too:
-
-```yaml
-- id: report
-  tool: arctic/github/pr/comment
-  secrets: [GITHUB_TOKEN]
-  input:
-    body: "{{ steps.review.text }}"
-```
-
-**None of them can be granted to an agent.** The engine refuses to grant a tool that
-declares `secrets`, so commenting on a pull request is always a step, never a model's
-mid-turn decision.
-
-## Tool spec.json
-
-```json
-{
-  "name": "greet",
-  "version": 1,
-  "description": "One sentence: what it does and when to reach for it.",
-  "doc": "tool.md",
-
-  "run": {
-    "command": ["./run.sh"],
-    "input": "stdin_json",
-    "output": "stdout_text",
-    "cwd": "workspace",
-    "timeout_seconds": 10
-  },
-
-  "input_schema": {
-    "type": "object",
-    "properties": { "text": { "type": "string", "minLength": 1, "description": "..." } },
-    "required": ["text"],
-    "additionalProperties": false
-  },
-  "output_schema": { "type": "string" },
-
-  "exit_codes": {
-    "0": "success (the result is on stdout)",
-    "2": "invalid input"
-  },
-
-  "permissions": { "filesystem": "none", "network": false },
-  "requires": ["bash", "jq"]
-}
-```
-
-Required: `name`, `description`, `run`, `input_schema`, `permissions`. `run` requires
-`command`.
-
-`name` is the leaf only. The namespace is which directory the component sits in, which a
-spec has no way of knowing.
-
-`permissions.filesystem` is one of `none`, `read`, `write`. It is checked rather than
-described, because it is the gate on granting the tool to an agent. Spelled `"rw"` or left
-out, that gate would open silently.
-
-`additionalProperties: false` is what lets `lint` catch a flow passing a key the tool does
-not accept.
-
-`run.command[0]` is resolved against the component's own directory, and has to exist and be
-executable. A lost `chmod +x` is the most common way a tool fails on another machine.
-
-`timeout_seconds` defaults to 60. Give anything that could hang a shorter one.
-
-### The run.sh contract
-
-- One JSON object on stdin, matching `input_schema`.
-- The result on stdout, and nothing else.
-- One line on stderr when the exit code is non-zero, with a code listed in `exit_codes`.
-  The engine turns the number back into your own sentence.
-- No trailing newline after a single-value result. A digest gets templated mid-line.
-
-The script stays runnable by hand, which is how it is worth debugging:
-
-```sh
-echo '{"text":"hello"}' | ./tools/greet/run.sh
-```
-
-### The tools that ship
+Six, always available, all under `arctic/`, all contained to the workspace.
 
 | Tool | Does |
 | --- | --- |
-| `arctic/read_file` | one file verbatim, or several with a header each |
-| `arctic/write_file` | writes a file; refuses to clobber unless told to |
-| `arctic/edit_file` | replaces an exact string in a file; refuses an ambiguous match |
-| `arctic/glob` | the paths matching a shell pattern |
-| `arctic/grep` | a pattern across the tree, as `path:line:text` |
-| `arctic/fetch_url` | an `http(s)` body, undecorated |
+| `arctic/read_file` | One file verbatim, or several with a header each |
+| `arctic/write_file` | Writes a file. Refuses to clobber unless told to |
+| `arctic/edit_file` | Replaces an exact string. Refuses an ambiguous match |
+| `arctic/glob` | The paths matching a shell pattern |
+| `arctic/grep` | A pattern across the tree, as `path:line:text` |
+| `arctic/fetch_url` | An `http(s)` URL, body undecorated |
 
-The first five cannot reach outside the workspace root: a path is canonicalised before use,
-so `..` and a symlink pointing out are both refused. `fetch_url` touches the network and
-nothing else.
+`glob` finds files, `grep` finds text in them, `read_file` returns them. In that order it is
+far cheaper than asking a model to read a tree.
 
-`glob` finds files, `grep` finds text in them, `read_file` returns them. In that order.
+`write_file` takes whole contents and `edit_file` takes the old text and the new, so a one
+line change to a large file costs one line rather than all of it.
 
-## Agent spec.json
+The first five cannot reach outside the workspace root: a path is canonicalised before use, so
+`..` and a symlink pointing out are both refused. `fetch_url` touches the network and nothing
+else, and its `permissions.filesystem` is `none`.
+
+```sh
+atf inspect tool arctic/read_file    # what it takes, what it may touch, how it fails
+```
+
+### Packs
+
+More ship switched off. Add one to `packs:` in `config.yaml` to use it, which
+[setting up](setup.md#packs) covers.
+
+| Pack | Holds | Needs |
+| --- | --- | --- |
+| `git` | the repository the flow runs in: status, log, diff, show, branch (read); add, commit, checkout (write) | `git`, `jq` |
+| `github` | pull requests: open, status, comment. Also Enterprise, via `$GITHUB_API_URL` | `curl`, `jq`, `git` |
+| `bitbucket` | the same three, Bitbucket **Cloud** only | `curl`, `jq`, `git` |
+
+Every tool in all three acts on the repository whose root is the workspace itself, and is
+refused otherwise. Nothing in `git` reaches the network, and there is deliberately no `push`,
+`reset`, `rebase`, `clean`, `--force`, `add -A` or `--no-verify`.
+
+The two forge packs answer in **JSON with the same field names**, so swapping
+`arctic/github/pr/status` for the bitbucket one changes the tool name and nothing else. A field
+a forge cannot answer is `null`, never invented: Bitbucket reports no `mergeable` without a
+dry-run merge, so gate on `checks` and `reviews`.
+
+**No agent can be granted a forge tool.** Every one declares `secrets`, and a tool that expects
+a credential cannot be granted, so opening a pull request is always a step the flow decided on.
+Neither pack approves, merges, closes or pushes: a flow that could cast an approving review
+could approve its own work.
+
+## Scaffold first
+
+```sh
+atf create tool deploy/notify   # tools/deploy/notify/: spec.json, tool.md, run.sh
+atf create agent reviewer       # agents/reviewer/: spec.json, agent.md
+```
+
+Written into `./.arctic` when the workspace keeps one, and the workspace root otherwise: the
+top of the search order, so what is created is what then resolves. Nothing is overwritten, and
+a name under `arctic/` is refused.
+
+Past the scaffold, copy the nearest thing that ships rather than starting fresh.
+
+## Writing a tool
+
+A directory: a `spec.json`, a markdown doc, and an executable. Any language.
+
+- **One JSON object on stdin**, matching `input_schema`.
+- **The result on stdout.** Text, or JSON when a flow needs to switch on a field.
+- **Errors on stderr**, one line, with a code listed in the spec's own `exit_codes`. The engine
+  turns that code back into a message using your text.
+- **Exit 0 means the tool did its job.** A check that rejects still exits 0.
+- **No trailing newline on a single-value output.** A digest gets templated mid-line.
+
+The working directory is the workspace root, wherever the tool was found.
+
+| `spec.json` | Required | Is |
+| --- | --- | --- |
+| `name` | yes | the leaf only. The namespace is the directory it sits in |
+| `description` | yes | one sentence. The first thing a model reads about it |
+| `run.command` | yes | argv. `[0]` is resolved against the component directory and must be executable |
+| `run.timeout_seconds` | no | default 60. Set one well under it, or a hang is yours |
+| `input_schema` | yes | a JSON Schema. Set `additionalProperties: false` |
+| `permissions.filesystem` | yes | `none`, `read` or `write` |
+| `permissions.network` | no | boolean |
+| `output_schema`, `exit_codes` | no | a schema, and a mapping of code to sentence |
+| `secrets`, `requires` | no | names it expects in the environment, and what must be on `PATH` |
+| `run.input`/`output`/`cwd` | no | `stdin_json`, `stdout_text`, `workspace` |
+
+`input_schema` is enforced in two places: against the real payload at run time, and against
+the flow's static `input` at lint time. The second needs `additionalProperties: false`.
+
+`permissions` is required and `filesystem` is an enum, because granting a tool that writes
+needs `unattended: true`. A free-text `"rw"` would read as "not write" and open that silently.
+
+`tool.md` beside the spec is **what a model is given** when the tool is granted. Write it for
+that reader: when to use it, when not to, how it fails. There is no second spec for MCP.
+
+## Writing an agent
+
+A directory: a `spec.json`, and an `agent.md` that is itself the system prompt, read verbatim.
+
+A flow names the graph and nothing else, so model, effort, budget, output shape and granted
+tools all live here. Changing a prompt is not a change to the workflow.
 
 ```json
 {
-  "name": "reviewer",
-  "kind": "agent",
-  "version": 1,
-  "description": "One sentence a flow author reads to decide whether to name it.",
+  "name": "annotator",
+  "description": "Reads an incident note and writes an annotated copy.",
   "system_prompt": "agent.md",
   "adapter": "claude_code",
   "model": "sonnet",
   "effort": "medium",
-  "output_schema": { "type": "object", "properties": { "verdict": { "enum": ["approved", "rejected"] } } },
-  "max_budget_usd": 0.50,
-  "timeout_seconds": 300,
-  "tools": [],
-  "unattended": false
+  "output_schema": { "type": "object", "properties": { "verdict": { "enum": ["risky", "clean"] } } },
+  "tools": ["arctic/read_file", "arctic/write_file"],
+  "unattended": true,
+  "timeout_seconds": 900,
+  "max_budget_usd": 0.5
 }
 ```
 
-Required: `name`, `description`, `adapter`. Everything else is forwarded to the adapter,
-which declares its own schema for it. `atf inspect adapter <name>` prints that schema.
+`name`, `description` and `adapter` are required. `model` is required by `claude_code`, because
+the CLI's configured default is a per-machine dependency. `effort` is `low`, `medium`, `high`,
+`xhigh` or `max`.
 
-`agent.md` is read verbatim and is the whole of what the agent is. Write the job and the
-shape of the answer. Nothing in it is about one flow: a prompt naming a step or an input
-cannot be reused, and the flow already carries both.
+Settings are checked against the adapter's own schema at lint time, so an `effort` it does not
+accept fails before a turn is paid for.
 
-An empty `agent.md`, or a missing one, is refused at lint time.
+**Declare an `output_schema` whenever a flow branches on the answer.** The result is then
+readable as `{{ steps.triage.json.verdict }}` and the switch matches a fixed set.
 
-`output_schema` is what makes a `switch` reliable. It reaches the adapter as its own
-parameter, and the answer comes back as a JSON document, so `{{ this.json.verdict }}` is a
-field rather than a guess.
+```sh
+atf inspect agent reviewer     # its settings, and its prompt verbatim
+```
 
-## Adapters
-
-Two ship, and there is no `~/.arctic/adapters/`. An adapter is engine infrastructure called
-in process, so adding one means a module in the engine's source.
-
-| Adapter | Is |
-| --- | --- |
-| `claude_code` | calls a model through the `claude` CLI, which must be installed and authenticated |
-| `echo` | answers from the request: no runtime, no network, no cost |
-
-`claude_code` requires `model`, because the CLI's configured default is a per-machine
-dependency. It is an alias (`opus`, `sonnet`, `haiku`, `fable`) or a full id. `effort` is
-one of `low`, `medium`, `high`, `xhigh`, `max`.
-
-`echo` is the dry run. Point an agent at it and the graph, the branches, the loops and
-every template run for free. The prompt steers it:
-
-| First word of the prompt | Does |
-| --- | --- |
-| `!fail <detail>` | the runtime refused, so a failure path can be exercised |
-| `!json {...}` | answers with exactly that JSON, so a switch can be driven |
-| `!invocation` | answers with a report of what the engine sent, including the tool server argv |
-
-Anything else is answered with the prompt itself, which is what makes a loop observable: a
-pass reads the last one out of `steps`, so a prompt guarding on it genuinely differs.
-
-An agent declaring `output_schema` gets the smallest object satisfying it, unless `!json`
-overrides that.
-
-`lint` checks an agent's settings by building the payload the engine would send and
-validating it against the adapter's own schema, so a bad `effort` is caught by the rule
-that would have rejected it mid-run.
+That matters: a flow naming an agent inherited from a higher root shows nothing of its prompt,
+and the prompt is the whole of what the agent is.
 
 ## Granting an agent tools
-
-An agent's `tools` are the engine's tools, not the runtime's. They reach the turn over MCP,
-served by `atf mcp-serve`, and run through the same code a tool step uses, so the sandbox,
-the schema check and the timeout are unchanged. A tool spec is already an MCP tool
-definition; there is no second spec to write.
 
 ```json
 "tools": ["arctic/read_file", "arctic/write_file"],
 "unattended": true
 ```
 
-Four rules, all refused at lint time:
+**The engine's tools, not the runtime's.** They reach the turn over MCP and run through the
+same code a tool step uses, so containment, the schema check and the timeout are unchanged. A
+tool's `spec.json` is already an MCP definition; there is no second spec.
 
-- A granted tool whose `permissions.filesystem` is `write` needs `"unattended": true` on
-  the agent spec. Nothing approves a call an agent makes for itself.
-- A granted tool gets no secrets. Granting one that declares `secrets` is refused, and so
-  is a step that declares `secrets` and runs a tool-granted agent.
-- Two grants that flatten onto one name are refused. A granted tool reaches the model as
-  its name with `__` for the separator, because `mcp__atf__<tool>` cannot carry a slash, so
-  `arctic/read_file` is offered as `arctic__read_file`.
-- The grant is on the agent, not the step. A flow names the graph and nothing else.
+`arctic/read_file` is offered to the model as `arctic__read_file`, because MCP names cannot
+carry a slash. Granting two names that flatten onto one is refused.
 
-In-turn calls are reported: each one prints its own line under the step, so a turn that
-read nine files does not look like one silent step. Calls run concurrently, so a turn takes
-the longest rather than the sum.
+Two gates:
 
-Grant tools when the number of files is genuinely not knowable in advance. Wire steps when
-it is.
+- **A tool with `filesystem: "write"` needs `unattended: true`.** Nothing approves a call an
+  agent makes for itself.
+- **A granted tool gets no secrets**, in both directions. The adapter is handed the step's
+  grant, and a tool the agent calls would inherit the lot.
 
-## The vault
+In-turn calls are reported, one indented line each, so a turn that read nine files does not
+look like one silent step. Calls run concurrently, and a cancelled one is really stopped.
+
+**Prefer tool steps** where the flow knows what it needs: free, visible in `inspect flow`, one
+trace row each. **Grant** where the agent has to choose and choosing would otherwise cost a
+round trip per file.
+
+If a turn succeeds while the output file stays empty, check the file rather than the exit
+status. Isolation without granted tools uses `--safe-mode`, which disables MCP servers, so the
+adapter substitutes narrower flags when tools are present.
+
+## Cost, and running for free
+
+A tool step is free: a subprocess, and nothing leaves the machine. An agent step is a paid turn.
+`effort` sets how hard the model works, and `max_budget_usd` and `timeout_seconds` cap it, all
+three on the agent's own spec. `run.max_minutes` bounds the whole run and no flow can raise it,
+but it cannot interrupt a turn already started, so the real stop can be one turn later.
+
+`atf run` prints the total on its last line, and `--trace` gives a `cost_usd` per step. A
+tool-only run spent nothing and prints no cost line at all.
+
+**Set `"adapter": "echo"` and the agent answers from the request instead of a model.** No
+runtime, no network and no key, so nothing is spent. The graph, its branches, its skips and its
+loops run exactly as they would, so it is both how to build a flow and how to reproduce a
+problem in one before paying to reproduce it twice.
+
+**The $0.01 a turn it reports is notional.** Nothing was charged. It is a flat rate, so a cost
+line and a `cost_usd` appear where a real run would have them. `max_budget_usd` and
+`timeout_seconds` are accepted and ignored, so a dry run says nothing about whether a real turn
+would stay inside them: `claude_code` passes the budget to the CLI as a ceiling for the turn.
+
+An agent that declares an `output_schema` gets the smallest object satisfying it, so a flow
+written for a real runtime dry-runs without being edited. Otherwise the turn answers with the
+prompt itself, which is what makes a loop observable: the second pass reads the first out of
+`steps`, so a guarded prompt really does differ.
+
+The first word of the first line may steer it:
+
+| Directive | Does |
+| --- | --- |
+| `!fail <detail>` | the turn fails, so a failure path can be exercised |
+| `!json <one line>` | answers with exactly that JSON, and overrides `output_schema` |
+| `!invocation` | answers with what the engine sent, granted tools and argv included |
+
+`!json {"verdict":"rejected"}` on a check is how you drive a loop without paying for one.
+Granted tools are accepted and never dispatched: there is no runtime here to serve them to.
+Point every agent at `echo`, run the flow, then set them back.
+
+## Adapters
+
+How the engine talks to a model runtime. One turn in, the same normalised envelope out.
+
+| Adapter | Is |
+| --- | --- |
+| `claude_code` | spawns the Claude Code CLI. Needs `claude` installed and authenticated |
+| `echo` | answers from the request. No runtime, no network, no cost |
+
+Adapters are Python modules in `src/adapters/` plus an entry in `ADAPTERS`. There is no
+`~/.arctic/adapters/`: a tool is user-extensible in any language and earns a subprocess, while
+an adapter is called in-process and would pay for one and get nothing. The registry is static
+imports, because a frozen build misses anything resolved by name.
+
+A module declares `NAME`, `DESCRIPTION`, `INPUT_SCHEMA` and `run(payload, env) -> dict`.
+`INPUT_SCHEMA` is the contract that checks an agent spec, so adding a setting means adding it
+in two places: there, and to the agent spec schema in `engine/specs.py`.
+
+The envelope carries `ok`, `text`, `stop_reason`, `session_id`, `requested_model`, `num_turns`,
+`usage`, `cost_usd`, `duration_ms`, `model_usage` and `adapter`. Failures raise `AdapterError`
+rather than returning `ok: False`.
 
 ```sh
-atf vault create secrets.vault < secrets.yaml   # a YAML mapping on stdin
-atf vault set secrets.vault signing_key         # value from stdin or a prompt
-atf vault list secrets.vault                    # names, without values
-atf vault view secrets.vault                    # decrypts to stdout: this prints secrets
+atf inspect adapter claude_code    # what an agent spec naming it may ask for
 ```
 
-A flow points at one with a top-level `vault:` key, relative to the working directory.
-`atf run --vault FILE` overrides it. The file is opened only if something needs it.
+`claude_code` pins a `VERIFIED_CLI_VERSION`, and the flags move between releases. Check
+`claude --help` before adding a parameter and move the constant.
 
-The password comes from `--vault-password-file`, `$ATF_VAULT_PASSWORD`,
-`$ATF_VAULT_PASSWORD_FILE`, or a prompt. There is deliberately no `--vault-password` flag,
-so it stays out of shell history and out of `ps`.
+Adding one is a change to arctic-flow itself. Copy `src/adapters/claude_code.py`. The interface
+is duck-typed modules on purpose: the second real runtime is what earns a change to it, not the
+first.
+
+## Writing a pack
+
+A pack ships inside the engine itself, so adding one is a change to arctic-flow. A directory
+under `src/builtin/packs/` with a `pack.json` beside the usual `tools/`, `agents/`, `flows/`.
+Nothing has to be registered.
+
+- **Name everything under `arctic/`.** That is the point of a pack rather than a source, and it
+  is the only thing a pack has that a cloned repository does not.
+- **Say what is deliberately absent**, in its README. What a first-party tool refuses to do is
+  half of what makes it worth shipping.
+- **Split read from write.** `permissions.filesystem` is one value per tool, which is why
+  `git/branch` and `git/checkout` are two tools rather than one with a flag.
+- **Share a helper if the tools share a check**, outside `tools/`, since the resolver walks
+  that directory for `spec.json`.
+
+A pack that reaches the network owes three more:
+
+- **Declare `secrets`** and read the credential from the environment.
+- **Keep it out of `argv`.** Hand curl a config file with mode 600, because `-H` shows the
+  credential to `ps`, and `ps` shows a command line to every user on the machine.
+- **Answer in JSON with the same field names as its sibling**, so the two are interchangeable
+  in a flow's templates.

@@ -50,6 +50,13 @@ jobs:
       # of the two regardless.
       - run: shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 
+      # docs/ is the source of truth and the plugin's references are copies of nine of its
+      # pages, so an edit that was not synced would ship a reference disagreeing with the
+      # engine. This also checks that every link resolves, every page is reachable from the
+      # index, and no page ran past its length limit.
+      - name: Check the docs tree and the generated skill references
+        run: python packaging/sync_docs.py --check
+
       # Cycles, unreachable steps, template references, secrets templated into an agent
       # prompt. One project per loop, not one flow: a bare `lint` checks every flow in
       # that workspace and reports all of them before exiting non-zero, so a project with
