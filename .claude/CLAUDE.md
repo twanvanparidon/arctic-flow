@@ -4,8 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Arctic Flow (`atf`) is a code-first engine for agentic workflows. A flow is a YAML graph of
 steps; each step declares where it *pushes* its result next, and the engine derives the
-reverse edges. Read `../README.md` for the user-facing story and `../CONTRIBUTING.md` for the
-design rationale; both are current and detailed.
+reverse edges.
+
+`../docs/` is the user-facing documentation and the single source of truth for prose:
+`docs/design/` holds the rationale, `docs/flows.md` and `docs/components.md` hold the
+contracts, `docs/reference.md` holds every refusal. `../CONTRIBUTING.md` is the contributor
+process only (running it, the gate, tests, build, release). `../README.md` is a landing page.
+
+**The user-facing pages are flat**: one document per topic, and a section is a heading
+rather than a new file. `docs/design/` is the one directory, written for a contributor and
+allowed to go deeper than a user page should.
+
+Every user-facing page is copied into `.claude-plugins/skills/help/references/` by
+`packaging/sync_docs.py`; `design/` is not. Edit the page under `docs/`, then run the
+script, and never edit a file in `references/`. `--check` is in the gate
+and also fails on a broken link, a page unreachable from `docs/README.md`, or a page over
+280 lines.
 
 ## Commands
 
@@ -39,6 +53,7 @@ ruff check src packaging tests
 ruff format --check src packaging tests
 shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*' -not -path './var/*')
 pytest
+python3 packaging/sync_docs.py --check
 
 for project in examples/*/; do
   python3 src/main.py --workspace "$project" lint
