@@ -1,0 +1,6 @@
+name,state,seconds,notes
+lint,passed,4,
+unit tests,failed,91,"3 assertions in loader_test.py"
+integration,failed,240,"timed out, then ""connection reset"""
+build,passed,1200,
+docs,passed,12,

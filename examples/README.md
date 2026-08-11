@@ -1,6 +1,6 @@
 # Examples
 
-Five projects that run as they are. A project is a directory with `flows/` in it: there is
+Six projects that run as they are. A project is a directory with `flows/` in it: there is
 nothing to initialise.
 
 Each flow YAML carries a long comment header explaining the shape it demonstrates. Read those
@@ -9,13 +9,16 @@ forwards, the way the engine does.
 | Example | Is | Costs |
 | --- | --- | --- |
 | [`sign-release`](sign-release) | tools and secrets | nothing |
+| [`csv-report`](csv-report) | the data pack: read, count, branch, lay out | nothing |
 | [`file-review`](file-review) | a fan-out, a branch, a skip and a join | a few cents |
 | [`checked-summary`](checked-summary) | a check: a tool sends work back | a few cents |
 | [`draft-review`](draft-review) | the same shape, judged by an agent | several turns |
 | [`agent-tools`](agent-tools) | an agent calling tools inside one turn | a few cents |
 
 The four that call a model need the `claude` CLI installed and authenticated.
-`sign-release` needs neither a key nor a network.
+`sign-release` needs neither a key nor a network. `csv-report` needs neither either, but is
+the one example with any setup: it will not lint until `~/.arctic/config.yaml` names the
+`data` pack.
 
 ## sign-release
 
@@ -32,6 +35,23 @@ ATF_VAULT_PASSWORD=demo atf --workspace examples/sign-release \
 
 The vault is committed on purpose so this runs with nothing to prepare. Its password is
 `demo`. It has [a README of its own](sign-release/README.md).
+
+## csv-report
+
+Three flows over one CSV of check results, with no model anywhere: read it, count the
+failures, branch on the count, and lay the rows out as markdown or back as CSV.
+
+```sh
+atf --workspace examples/csv-report run report
+```
+
+This is the one example with setup. Its tools ship with the engine but sit in the `data`
+pack, so `~/.arctic/config.yaml` needs `packs: [data]` before it will even lint. Without
+that, `lint` names the pack and the line to add rather than saying the tool is unknown.
+
+It is also the clearest answer to "why transform a result at all": a `switch` compares the
+rendered value whole, so `arctic/data/json/query` is the step that turns a document into the
+one number a case can match. It has [a README of its own](csv-report/README.md).
 
 ## file-review
 

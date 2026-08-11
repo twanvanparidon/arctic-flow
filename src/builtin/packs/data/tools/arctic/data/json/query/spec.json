@@ -1,0 +1,63 @@
+{
+  "name": "query",
+  "version": 1,
+  "description": "Read a value out of a JSON document with a jq program, and return it as the step's result. Use to pull one field out for a switch to compare, to narrow a large document before it reaches a prompt, or to count and filter without spending a model turn. The result is one value: wrap the program in [ ] to return a list.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "string",
+        "description": "The JSON document to read, usually a step's result: \"{{ steps.fetch.text }}\". Pass this or path, not both."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A JSON file to read instead, relative to the workspace root. Must resolve inside it. Pass this or data, not both."
+      },
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A jq program. \".verdict\" reads a field, \".items | length\" counts, \"[.checks[] | select(.state == \\\"failed\\\") | .name]\" filters and collects. It must produce exactly one value; a program that emits a stream is refused, so wrap it in [ ] to return them as one array."
+      },
+      "default": {
+        "type": "string",
+        "description": "What to answer when the query matches nothing or reads a field that is not there. Without it that case fails, which is usually what you want: a missing field is a wrong assumption about the data. Set it when absence is a real case, e.g. default: \"none\" with a matching switch case."
+      }
+    },
+    "required": ["query"],
+    "oneOf": [{ "required": ["data"] }, { "required": ["path"] }],
+    "additionalProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "The one value the query produced. A string is printed as itself, without quotes, so a switch can compare it and a prompt can carry it. Anything else is printed as JSON, so the next step reads it as .json. A number or a boolean is both at once."
+  },
+
+  "exit_codes": {
+    "0": "success (the value is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, or a parameter is missing or the wrong type)",
+    "3": "not found (path does not exist)",
+    "4": "not permitted (path resolves outside the workspace root)",
+    "5": "malformed data (the data is not JSON)",
+    "6": "refused (the query does not compile, failed on this document, or produced more than one value)",
+    "7": "no result (the query matched nothing, or read a field that is not there, and no default was given)"
+  },
+
+  "permissions": {
+    "filesystem": "read",
+    "network": false
+  },
+
+  "requires": ["bash", "jq", "env", "mktemp", "realpath"]
+}

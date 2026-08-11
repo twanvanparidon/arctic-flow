@@ -32,10 +32,11 @@ python3 src/main.py --workspace examples/sign-release run sign_release --input p
 (`pip install .`) or frozen, the same CLI is reached as `atf`; the shim exists so a checkout
 runs without either.
 
-Start with the two examples. `examples/sign-release` is tool-only and demonstrates the vault:
-no credentials, no network, deterministic. `examples/file-review` uses agents, so it costs
-money and needs the `claude` CLI authenticated. [examples/README.md](examples/README.md) has
-all five.
+Start with the two free ones. `examples/sign-release` is tool-only and demonstrates the vault:
+no credentials, no network, deterministic. `examples/csv-report` is the same, over the `data`
+pack, and is the one example needing anything switched on. `examples/file-review` uses agents,
+so it costs money and needs the `claude` CLI authenticated.
+[examples/README.md](examples/README.md) has all six.
 
 ### A virtual environment
 
@@ -72,9 +73,13 @@ pytest
 python3 packaging/sync_docs.py --check
 
 # the engine validates flows better than any generic linter. A bare `lint` checks every
-# flow in the workspace and exits non-zero if any of them failed.
+# flow in the workspace and exits non-zero if any of them failed. The loop gets a home of
+# its own because `~/.arctic` is a search root, and because switching on the `data` pack is
+# the only way `examples/csv-report` resolves at all.
+home=$(mktemp -d) && mkdir -p "$home/.arctic"
+printf 'packs:\n  - data\n' > "$home/.arctic/config.yaml"
 for project in examples/*/; do
-  python3 src/main.py --workspace "$project" lint
+  HOME="$home" python3 src/main.py --workspace "$project" lint
 done
 ```
 

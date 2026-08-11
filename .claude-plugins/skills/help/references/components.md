@@ -48,8 +48,9 @@ More ship switched off. Add one to `packs:` in `config.yaml` to use it, which
 | `git` | the repository the flow runs in: status, log, diff, show, branch (read); add, commit, checkout (write) | `git`, `jq` |
 | `github` | pull requests: open, status, comment. Also Enterprise, via `$GITHUB_API_URL` | `curl`, `jq`, `git` |
 | `bitbucket` | the same three, Bitbucket **Cloud** only | `curl`, `jq`, `git` |
+| `data` | a step's result, between JSON, CSV and markdown: query, merge, and four conversions | `jq`, `awk` |
 
-Every tool in all three acts on the repository whose root is the workspace itself, and is
+Every tool in the first three acts on the repository whose root is the workspace itself, and is
 refused otherwise. Nothing in `git` reaches the network, and there is deliberately no `push`,
 `reset`, `rebase`, `clean`, `--force`, `add -A` or `--no-verify`.
 
@@ -62,6 +63,12 @@ dry-run merge, so gate on `checks` and `reviews`.
 a credential cannot be granted, so opening a pull request is always a step the flow decided on.
 Neither pack approves, merges, closes or pushes: a flow that could cast an approving review
 could approve its own work.
+
+`data` writes nothing, reaches nothing and declares no `secrets`, so every tool in it can be
+granted as it is. **Reach for `arctic/data/json/query` when a `switch` has a document to branch
+on**: a case matches the rendered value whole, and counting or filtering there costs
+milliseconds of `jq` rather than a turn. Each tool takes `data` or `path`, exactly one. No XML,
+no YAML, and nothing is truncated, type-guessed or padded.
 
 ## Scaffold first
 
@@ -105,8 +112,7 @@ The working directory is the workspace root, wherever the tool was found.
 `input_schema` is enforced in two places: against the real payload at run time, and against
 the flow's static `input` at lint time. The second needs `additionalProperties: false`.
 
-`permissions` is required and `filesystem` is an enum, because granting a tool that writes
-needs `unattended: true`. A free-text `"rw"` would read as "not write" and open that silently.
+`permissions` is required, and `filesystem` is an enum because a grant is decided from it.
 
 `tool.md` beside the spec is **what a model is given** when the tool is granted. Write it for
 that reader: when to use it, when not to, how it fails. There is no second spec for MCP.
@@ -249,15 +255,14 @@ atf inspect adapter claude_code    # what an agent spec naming it may ask for
 `claude_code` pins a `VERIFIED_CLI_VERSION`, and the flags move between releases. Check
 `claude --help` before adding a parameter and move the constant.
 
-Adding one is a change to arctic-flow itself. Copy `src/adapters/claude_code.py`. The interface
-is duck-typed modules on purpose: the second real runtime is what earns a change to it, not the
-first.
+Adding one is a change to arctic-flow itself. Copy `src/adapters/claude_code.py`.
 
 ## Writing a pack
 
 A pack ships inside the engine itself, so adding one is a change to arctic-flow. A directory
 under `src/builtin/packs/` with a `pack.json` beside the usual `tools/`, `agents/`, `flows/`.
-Nothing has to be registered.
+Nothing has to be registered. Copy the nearest of the four: `git` runs a local command,
+`github` calls an API with a credential, `data` only transforms what a step already produced.
 
 - **Name everything under `arctic/`.** That is the point of a pack rather than a source, and it
   is the only thing a pack has that a cloned repository does not.

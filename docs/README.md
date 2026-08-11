@@ -30,7 +30,7 @@ waiting for you, commented out.
 The first three are the ones to read in order. The next two answer "why did it not resolve"
 and "how do I configure this", which are questions you get later.
 
-The [five examples](../examples/README.md) run as they are. Copy the nearest one.
+The [six examples](../examples/README.md) run as they are. Copy the nearest one.
 
 Ask the engine before you read anything: `atf lint` says what is wrong, `atf inspect flow`
 draws the graph, `atf list` says which definition of a name won. None of them calls a model.

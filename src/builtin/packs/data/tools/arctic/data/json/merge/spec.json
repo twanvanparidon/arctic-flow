@@ -1,0 +1,51 @@
+{
+  "name": "merge",
+  "version": 1,
+  "description": "Combine several JSON documents into one. Use at a join, where two branches have each produced a result and the step after them needs both: named puts each under its own name, shallow and deep merge their fields. Each document is a part_<name> parameter. Every part must be a JSON document, so a step that answers in prose is not one of them.",
+  "doc": "tool.md",
+
+  "run": {
+    "command": ["./run.sh"],
+    "input": "stdin_json",
+    "output": "stdout_text",
+    "cwd": "workspace",
+    "timeout_seconds": 30
+  },
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "strategy": {
+        "enum": ["named", "shallow", "deep"],
+        "default": "named",
+        "description": "named keeps each part whole under its own name, and is the one to use at a join. shallow merges the parts into one object, a later part replacing a field an earlier one set. deep does the same but merges a field that is itself an object rather than replacing it."
+      }
+    },
+    "patternProperties": {
+      "^part_[A-Za-z0-9_]+$": {
+        "type": "string",
+        "description": "One document to combine, named by what follows part_. Write one of these per document: part_review: \"{{ steps.review.text }}\" and part_tests: \"{{ steps.tests.text }}\" produce {\"review\": …, \"tests\": …}. The order they are written in is the order they merge in."
+      }
+    },
+    "unevaluatedProperties": false
+  },
+
+  "output_schema": {
+    "type": "string",
+    "description": "One JSON document, pretty-printed. Under named it is an object with one key per part, holding whatever that part was, including a scalar. Under shallow and deep it is the parts merged, so every part has to be an object."
+  },
+
+  "exit_codes": {
+    "0": "success (the document is on stdout)",
+    "2": "invalid input (stdin was not a JSON object, no part_<name> was given, a part is not a string, or strategy is not one of the three)",
+    "5": "malformed data (a part is not JSON, or is the result of a step that did not run)",
+    "6": "refused (shallow or deep was asked for and a part is not an object)"
+  },
+
+  "permissions": {
+    "filesystem": "none",
+    "network": false
+  },
+
+  "requires": ["bash", "jq"]
+}

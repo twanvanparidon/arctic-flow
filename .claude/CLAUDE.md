@@ -41,7 +41,9 @@ python3 src/main.py --workspace examples/file-review inspect flow review_file
 `../examples/file-review`, `../examples/checked-summary` and `../examples/draft-review`
 (which loops, so it pays for several turns) call models: they need the
 `claude` CLI authenticated and cost a few cents per run. `../examples/sign-release` needs
-nothing (vault password `demo`).
+nothing (vault password `demo`). `../examples/csv-report` needs nothing either, but is the
+one example that will not even lint until `~/.arctic/config.yaml` names the `data` pack,
+which is why the gate's loop below runs with a home of its own.
 
 ### The pre-push gate
 
@@ -55,8 +57,12 @@ shellcheck -x $(find . -name '*.sh' -not -path './dist/*' -not -path './build/*'
 pytest
 python3 packaging/sync_docs.py --check
 
+# a home of its own, because `~/.arctic` is a search root and switching on the `data` pack
+# is the only way `examples/csv-report` resolves
+home=$(mktemp -d) && mkdir -p "$home/.arctic"
+printf 'packs:\n  - data\n' > "$home/.arctic/config.yaml"
 for project in examples/*/; do
-  python3 src/main.py --workspace "$project" lint
+  HOME="$home" python3 src/main.py --workspace "$project" lint
 done
 ```
 
@@ -304,9 +310,12 @@ build a root that does not exist, which is silently dropped. `find` names the pa
 line to add when a tool is only in one that is off (`_disabled_pack`), so `lint` and `run`
 both say what to do rather than "unknown tool".
 
-Three ship, and each README says what it deliberately refuses to do. `git` is eight tools
-over the repository the flow runs in. `github` and `bitbucket` are three each over pull
-requests, and are where the rules for a **network pack** are worked out:
+Four ship, and each README says what it deliberately refuses to do. `git` is eight tools
+over the repository the flow runs in. `data` is five that transform a step's result between
+JSON, CSV and markdown; it is the one pack that writes nothing, reaches nothing and declares
+no `secrets`, so every tool in it is grantable to an agent as it is, and `json/query` is
+what gives a `switch` an exact value to compare. `github` and `bitbucket` are three each
+over pull requests, and are where the rules for a **network pack** are worked out:
 
 - **They answer in JSON with normalised field names**, so `arctic/github/pr/status` and
   `arctic/bitbucket/pr/status` are interchangeable in a flow's templates. A tool's stdout

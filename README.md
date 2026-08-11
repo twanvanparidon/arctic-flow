@@ -50,7 +50,7 @@ needs.
 
 ## Examples
 
-Five projects that run as they are, in [examples/](examples/README.md). This one signs a
+Six projects that run as they are, in [examples/](examples/README.md). This one signs a
 release with a key from an encrypted vault, and needs no model, no network and no key.
 
 ```sh
