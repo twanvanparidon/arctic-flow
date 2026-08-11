@@ -31,7 +31,7 @@ A_PACK_TOOL = "arctic/git/log"
 # Every pack that ships. Named here rather than read off the source tree, because the
 # subject is the artefact: a pack that exists in `src/` and not in the bundle is precisely
 # the failure this file is for, and a list derived from `src/` could not see it.
-PACKS = ("bitbucket", "git", "github")
+PACKS = ("bitbucket", "data", "git", "github")
 
 
 @pytest.fixture
@@ -102,6 +102,35 @@ class TestAPackToolRunsOutOfTheBundle:
         result = atf("--workspace", str(repo), "run", "history", env={"HOME": str(home)})
         assert result.code == 0, result.err
         assert "first commit" in result.out
+
+    def test_a_query_runs_with_the_environment_taken_away(
+        self, atf: Runner, home: Path, tmp_path: Path
+    ) -> None:
+        """The data pack's sandbox, which is the half only a frozen process can be asked
+        about. `json/query` runs jq under `env -i` so a program cannot read the environment
+        it was handed, and `env -i` takes `$PATH` with it, so jq is invoked by the path it
+        was found at. In a bundle that path is resolved by a script sourcing its library five
+        directories up, and neither of those is true of a checkout on disk.
+        """
+        requires("jq", "env")
+        space = tmp_path / "space"
+        (space / "flows").mkdir(parents=True)
+        (space / "pr.json").write_text('{"state":"open"}')
+        (space / "flows" / "read.yaml").write_text(
+            "flow: read\n"
+            "start: pick\n"
+            "steps:\n"
+            "  - id: pick\n"
+            "    tool: arctic/data/json/query\n"
+            "    input:\n"
+            "      path: pr.json\n"
+            "      query: .state\n"
+            "output:\n"
+            "  template: '{{ steps.pick.text }}'\n"
+        )
+        result = atf("--workspace", str(space), "run", "read", env={"HOME": str(home)})
+        assert result.code == 0, result.err
+        assert result.out.strip() == "open"
 
 
 class TestSwitchedOff:
